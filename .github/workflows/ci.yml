@@ -1,0 +1,58 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  migration-lab-test:
+    name: migration-lab-test (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Format check
+        run: |
+          zig fmt --check build.zig build.zig.zon
+          zig fmt --check *.zig
+
+      # The black-box compile tests consume the product `boris` binary as a
+      # pinned external prerequisite (see README "Boris pins"): build it from
+      # the exact revision the parser-package pin references, so a missing
+      # binary is a failure, never a skip. Keep the SHA in sync with
+      # build.zig.zon.
+      - name: Build pinned product Boris (black-box prerequisite)
+        run: |
+          git clone --quiet https://github.com/drawmeanelephant/boris.git boris-src
+          git -C boris-src checkout --quiet f6a4973
+          zig build --build-file boris-src/build.zig
+
+      - name: Migration-lab aggregate tests
+        run: BORIS_BIN="$GITHUB_WORKSPACE/boris-src/zig-out/bin/boris" zig build test
+
+  schema-validation:
+    name: schema-validation (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Install locked npm deps
+        run: npm --prefix schema-validation ci --ignore-scripts
+
+      - name: Real Draft 2020-12 matrix
+        run: zig build schema-test

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import Ajv2020 from "ajv/dist/2020.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const contracts = join(here, "../../../docs/contracts/schemas");
+const contracts = join(here, "../docs/contracts/schemas");
 const validDir = join(here, "fixtures/valid");
 
 async function json(path) {

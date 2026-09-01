@@ -7,7 +7,7 @@ format.
 
 ## Boundary
 
-Takeout adapters are standalone tools under `tools/migration-lab/`. They may
+Takeout adapters are standalone tools in this repository (boris-migration-lab). They may
 read an unpacked local export and write a new report or draft content tree
 under an explicit output directory. They must not become dependencies of the
 product compiler, import product `src/` modules, fetch provider APIs, or
@@ -24,14 +24,14 @@ local export bytes
 ```
 
 The synthetic fixture in
-[`tools/migration-lab/fixtures/takeout-intake/`](../../tools/migration-lab/fixtures/takeout-intake/)
+[`fixtures/takeout-intake/`](../../fixtures/takeout-intake/)
 demonstrates a possible record vocabulary. It is deliberately not a copy of
 Facebook, Instagram, or Google Takeout.
 
 ## Directory convention
 
 ```text
-tools/migration-lab/fixtures/takeout-intake/
+fixtures/takeout-intake/
   raw-local/                  # real unpacked exports; ignored and never committed
   sanitized-fixture/          # committed, scrubbed, minimal source-shaped bytes
   expected-output/            # committed expectations, not generated site output

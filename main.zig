@@ -16,7 +16,7 @@
 //!
 //! Never rewrites inputs. Not part of the Boris product compiler pipeline.
 //!
-//! Usage (from tools/migration-lab/):
+//! Usage (from this repository root):
 //!   zig build
 //!   zig build run -- --mode=astro --root=./fixtures/mini-astro --out=./.out-report
 //!   zig build run -- --mode=wordpress --wxr=./fixtures/mini-wxr/export.xml \
@@ -28,9 +28,8 @@
 //!   zig build run -- --mode=frontmatter-review --content=./content --out=./.out-fmreview
 //!   zig build test
 //!
-//! From repo root:
-//!   zig build --build-file tools/migration-lab/build.zig
-//!   zig build --build-file tools/migration-lab/build.zig test
+//! The black-box compile tests also need a pinned product `boris` binary
+//! (BORIS_BIN or PATH; see README "Boris pins").
 
 const std = @import("std");
 const Io = std.Io;

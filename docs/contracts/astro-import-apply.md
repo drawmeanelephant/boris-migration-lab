@@ -51,7 +51,7 @@ inspects nor removes the published destination.
 The public CLI is the validation boundary for required `--root`,
 `--content-root`, `--project-id`, `--plan`, and `--destination` values: each
 must be explicit, and a missing value exits with usage status rather than
-defaulting. The committed `tools/migration-lab/fixtures/astro-import-apply/`
+defaulting. The committed `fixtures/astro-import-apply/`
 fixture is LF-only by policy; its public CLI test verifies fixture body bytes
 unchanged, while the renderer unit test separately proves CRLF body-byte
 preservation.

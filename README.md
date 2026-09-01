@@ -23,15 +23,15 @@ All modes are **read-only on inputs**: originals are never rewritten. There is
 **no network access**, no zip extraction, and no scraping. Analysis modes do not
 depend on the product compiler; reviewed `astro-import-apply` intentionally
 imports the Boris parser only as a final gate for generated candidate Markdown
-before it is written. Migration logic and fixtures live under
-`tools/migration-lab/`.
+before it is written. All migration logic and fixtures live in this
+repository.
 
 | | |
 |--|--|
-| Source | `tools/migration-lab/` |
+| Source | this repository |
 | Binary | `zig-out/bin/boris-migration-lab` (local package install) |
-| Build | `zig build` from this directory |
-| Tests | `zig build test` from this directory; targeted aggregate gate |
+| Build | `zig build` from the repository root |
+| Tests | `zig build test` from the repository root |
 | Astro format id | `boris-astro-migration-lab` |
 | WordPress format id | `boris-wordpress-migration-lab` |
 | Instagram format id | `boris-instagram-migration-lab` |
@@ -43,7 +43,7 @@ before it is written. Migration logic and fixtures live under
 | Theme-archaeology format id | `boris-theme-archaeology-lab` |
 | Schema | Instagram **`2`**; Astro/Obsidian/Notion/Filed/Starlight/Asset-filename/Theme-archaeology/Theme-materialize `1`; WordPress **`3`** |
 
-Companion author guide: [`docs/MIGRATION.md`](../../docs/MIGRATION.md).
+Companion author guide: [`docs/MIGRATION.md`](docs/MIGRATION.md).
 
 ### Ownership boundary
 
@@ -53,23 +53,54 @@ unsupported constructs, dropped/preserved metadata, and reviewer decisions
 belong in lab reports, ledgers, manifests, review records, or importer-owned
 sidecars. They must not silently become Boris frontmatter, publication settings,
 or graph semantics. Generated candidate Markdown remains subject to the
-closed [`frontmatter.md`](../../docs/contracts/frontmatter.md) and graph
-contracts. A provenance comment in a candidate body is a lab annotation, not a
+closed [frontmatter.md](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/contracts/frontmatter.md)
+and graph contracts. A provenance comment in a candidate body is a lab annotation, not a
 product metadata field.
 
 The complete fact/projection/verification boundary is the canonical
-[publication model contract](../../docs/contracts/publication-model.md).
+[publication model contract](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/contracts/publication-model.md)
+(product-owned; pinned to the same Boris revision as the parser package).
 
 Future Facebook, Instagram, and Google Takeout dogfooding starts with the
-provider-neutral [takeout intake contract](../../docs/contracts/takeout-lab-intake.md)
+provider-neutral [takeout intake contract](docs/contracts/takeout-lab-intake.md)
 and its synthetic fixture lane under `fixtures/takeout-intake/`. This is an
 intake convention, not another migration mode or a claim of provider support.
 
 ---
 
+## Boris pins
+
+The laboratory has exactly two couplings to the Boris product, both pinned:
+
+1. **Parser package (build-time).** `astro-import-apply` links Boris's
+   frontmatter parser in-process as its final gate for generated candidate
+   Markdown. The parser is consumed as a `build.zig.zon` dependency pinned by
+   URL + hash in [`build.zig.zon`](build.zig.zon) — never by a relative
+   product-source path. The pin currently tracks the commit of
+   [drawmeanelephant/boris#841](https://github.com/drawmeanelephant/boris/pull/841)
+   (the parser-package freeze); re-pin to the next released Boris tag
+   (e.g. `v0.9.x`) when one exists.
+2. **Product binary (black-box compile tests).** Some tests and the Starlight
+   `--boris=PATH` compile verification spawn a `boris` binary. It is an
+   external prerequisite, like `zig` itself: `zig build test` reads `BORIS_BIN`
+   (a path to a `boris` executable) or falls back to `boris` on PATH. A missing
+   binary is a loud failure in the live black-box tests, never a silent skip.
+   CI builds the binary from the pinned Boris revision and exports `BORIS_BIN`.
+
+   ```bash
+   # Local: point at a Boris checkout's binary (any revision that accepts the
+   # lab's emitted closed frontmatter; the same revision as the pin is best).
+   BORIS_BIN=/path/to/boris/zig-out/bin/boris zig build test
+   ```
+
+Update both pins together so the parser gate and the compile checks witness the
+same Boris revision.
+
+---
+
 ## Quick start
 
-From **`tools/migration-lab/`** (Zig **0.16+**):
+From the repository root (Zig **0.16+**):
 
 ```bash
 zig build
@@ -157,40 +188,12 @@ zig build run -- --mode=link-audit \
   --out=./.link-audit-report
 ```
 
-From the **repository root**, use this targeted aggregate gate after changing
-`tools/migration-lab/`. Root `zig build test` deliberately covers only the
-product compiler and does not include this standalone laboratory:
+This repository **is** the laboratory root, so `zig build` and `zig build test`
+run directly here:
 
 ```bash
-zig build --build-file tools/migration-lab/build.zig
-zig build --build-file tools/migration-lab/build.zig test
-zig build --build-file tools/migration-lab/build.zig run -- \
-  --wxr=tools/migration-lab/fixtures/mini-wxr/export.xml \
-  --media=tools/migration-lab/fixtures/mini-wxr/media \
-  --out=/tmp/wp-mig-report
-zig build --build-file tools/migration-lab/build.zig run -- \
-  --mode=instagram \
-  --dump=tools/migration-lab/fixtures/mini-instagram \
-  --out=/tmp/ig-mig-report
-zig build --build-file tools/migration-lab/build.zig run -- \
-  --mode=obsidian \
-  --vault=tools/migration-lab/fixtures/mini-obsidian \
-  --out=/tmp/obs-mig-report
-zig build --build-file tools/migration-lab/build.zig run -- \
-  --mode=notion \
-  --export=tools/migration-lab/fixtures/mini-notion \
-  --out=/tmp/notion-mig-report
-
-# Theme archaeology → safe Boris theme draft
-zig build --build-file tools/migration-lab/build.zig run -- \
-  --mode=theme-archaeology \
-  --root=./fixtures/mini-theme-astro \
-  --out=/tmp/theme-arch-out
-zig build --build-file tools/migration-lab/build.zig run -- \
-  --mode=theme-materialize \
-  --root=./fixtures/mini-theme-astro \
-  --ledger=/tmp/theme-arch-out/adaptation_ledger.json \
-  --out=/tmp/theme-materialize-out
+zig build
+zig build test   # with BORIS_BIN exported or `boris` on PATH (see Boris pins)
 ```
 
 ### Flags
@@ -216,7 +219,7 @@ zig build --build-file tools/migration-lab/build.zig run -- \
 | `--filed-root=DIR` | | Filed.fyi Astro source root (implies `--mode=filed`) |
 | `--locale=en` | `en` | Starlight discovery key (**en only**). Uses `src/content/docs/en/` when present; else root-locale files under `src/content/docs/` |
 | `--max-pages=N` | `40` | Starlight converted-page cap (dogfood often 40–80) |
-| `--boris=PATH` | auto | Optional product `boris` binary for Starlight compile verification |
+| `--boris=PATH` | `BORIS_BIN` / PATH | Product `boris` binary for Starlight compile verification; falls back to `BORIS_BIN` then `boris` on PATH |
 
 Exit codes: **0** success, **2** usage, **3** I/O error.
 
@@ -229,7 +232,9 @@ Exit codes: **0** success, **2** usage, **3** I/O error.
    creating a stage.
 2. **No network** — no fetches, no package installs, no oEmbed expansion.
 3. **No destructive source ops** — no delete/rename of WXR, media, vault, or scan-root files.
-4. **No product coupling** — does not import `src/` compiler modules; not in root `zig build test`.
+4. **No product coupling** — imports no product compiler modules except the
+   pinned `parser` package used as the astro-import-apply final gate; the
+   product binary is an explicit pinned prerequisite, never a build step.
 5. **Deterministic** — sorted ids/paths; fixed field order; no host timestamps in report bodies.
 6. **Never silently discard** — unsupported items are preserved under `content/_preserved/` (WordPress) or left raw in-place (Obsidian links) and listed in the report.
 7. **Instagram** — no zip extraction; dump must already be unpacked. DMs, logins,
@@ -260,7 +265,7 @@ Exit codes: **0** success, **2** usage, **3** I/O error.
 14. **Astro import plan** — never applies a plan, writes content, copies an
    asset, executes project code, or treats an inferred route as observed. Its
    exact supported profile and digest algorithm are in
-   [`astro-import-plan.md`](../../docs/contracts/astro-import-plan.md). Every
+   [`astro-import-plan.md`](docs/contracts/astro-import-plan.md). Every
    selected content-root component is opened without following symlinks.
 15. **Astro import schemas** — Ajv is a test-only locked dependency under
    `schema-validation/`; it is not linked into Boris, shipped in product
@@ -395,7 +400,7 @@ filled from WordPress conventions or template filenames.
 
 Boris core content-local assets accept only ASCII path segments
 `[A-Za-z0-9._-]+` under sibling `{page-stem}.assets/` trees (normative:
-[`docs/contracts/content-local-assets.md`](../../docs/contracts/content-local-assets.md)).
+[docs/contracts/content-local-assets.md](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/contracts/content-local-assets.md)).
 Astro/Starlight archives frequently use **spaces**, **Unicode**, or **literal
 `%20`-style** names that the product compiler rejects by design.
 
@@ -535,7 +540,7 @@ neutral category, and `stripped: true`.
 
 A bounded Filed.fyi adoption pass was recorded historically; current lab
 state is the v0.8 snapshot in
-[`docs/archived/capability-matrix-v0.8.md`](../../docs/archived/capability-matrix-v0.8.md).
+[capability-matrix-v0.8.md](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/archived/capability-matrix-v0.8.md).
 
 ## Starlight read-only dogfood (locale-dir + root-locale)
 
@@ -669,7 +674,7 @@ it does not consume another product-limit slot. Here `proposed_kind` records a
 defensible semantic mapping, not eligibility for automatic emission.
 
 Bounded real-site relationship-candidate results are summarized in the v0.8
-snapshot [`docs/archived/capability-matrix-v0.8.md`](../../docs/archived/capability-matrix-v0.8.md).
+snapshot [capability-matrix-v0.8.md](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/archived/capability-matrix-v0.8.md).
 
 ### Boundary classes
 
@@ -724,7 +729,7 @@ git clone https://github.com/withastro/starlight.git /tmp/starlight
 cd /tmp/starlight && git checkout 02fea60ecf5b07449dc6620cb85bd746944b79aa
 
 # Project root for the docs package is /tmp/starlight/docs (root-locale English).
-cd /path/to/boris/tools/migration-lab
+cd /path/to/boris-migration-lab
 zig build run -- --mode=starlight \
   --root=/tmp/starlight/docs \
   --out=/tmp/starlight-boris-out \

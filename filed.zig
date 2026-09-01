@@ -1206,7 +1206,8 @@ test "fixture: filed-parent-conflict-invalid review, no silent pick, source immu
 test "compile: representative normalized Filed output with product Boris when available" {
     const io = std.testing.io;
     const gpa = std.testing.allocator;
-    // Lab tests run with cwd = tools/migration-lab/. Product binary is at repo root.
+    // Lab tests run with cwd = repository root; the product binary is a pinned
+    // external prerequisite (BORIS_BIN or PATH), never a build step.
     const lab_out = "fixtures/.test-filed-parent-compile";
     Io.Dir.cwd().deleteTree(io, lab_out) catch {};
     try run(io, gpa, .{ .source_root_dir = "fixtures/filed-parent-normalize", .out_dir = lab_out, .quiet = true });

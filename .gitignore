@@ -28,3 +28,4 @@ fixtures/.test-starlight-*/
 zig-out/
 zig-pkg/
 test-output/
+node_modules/
