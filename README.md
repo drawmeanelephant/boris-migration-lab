@@ -53,12 +53,12 @@ unsupported constructs, dropped/preserved metadata, and reviewer decisions
 belong in lab reports, ledgers, manifests, review records, or importer-owned
 sidecars. They must not silently become Boris frontmatter, publication settings,
 or graph semantics. Generated candidate Markdown remains subject to the
-closed [frontmatter.md](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/contracts/frontmatter.md)
+closed [frontmatter.md](https://github.com/drawmeanelephant/boris/blob/v0.8.2/docs/contracts/frontmatter.md)
 and graph contracts. A provenance comment in a candidate body is a lab annotation, not a
 product metadata field.
 
 The complete fact/projection/verification boundary is the canonical
-[publication model contract](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/contracts/publication-model.md)
+[publication model contract](https://github.com/drawmeanelephant/boris/blob/v0.8.2/docs/contracts/publication-model.md)
 (product-owned; pinned to the same Boris revision as the parser package).
 
 Future Facebook, Instagram, and Google Takeout dogfooding starts with the
@@ -74,18 +74,17 @@ The laboratory has exactly two couplings to the Boris product, both pinned:
 
 1. **Parser package (build-time).** `astro-import-apply` links Boris's
    frontmatter parser in-process as its final gate for generated candidate
-   Markdown. The parser is consumed as a `build.zig.zon` dependency pinned by
-   URL + hash in [`build.zig.zon`](build.zig.zon) — never by a relative
-   product-source path. The pin currently tracks the commit of
-   [drawmeanelephant/boris#841](https://github.com/drawmeanelephant/boris/pull/841)
-   (the parser-package freeze); re-pin to the next released Boris tag
-   (e.g. `v0.9.x`) when one exists.
+   Markdown. The parser is consumed as a `build.zig.zon` dependency pinned   by URL + hash in [`build.zig.zon`](build.zig.zon) — never by a relative
+   product-source path. The pin tracks released tag **`v0.8.2`** — the first
+   Boris release that carries the `parser` package module (published by
+   [drawmeanelephant/boris#841](https://github.com/drawmeanelephant/boris/pull/841),
+   cut 2026-09-02). Advance it at the next Boris release.
 2. **Product binary (black-box compile tests).** Some tests and the Starlight
    `--boris=PATH` compile verification spawn a `boris` binary. It is an
    external prerequisite, like `zig` itself: `zig build test` reads `BORIS_BIN`
    (a path to a `boris` executable) or falls back to `boris` on PATH. A missing
    binary is a loud failure in the live black-box tests, never a silent skip.
-   CI builds the binary from the pinned Boris revision and exports `BORIS_BIN`.
+   CI builds the binary from the pinned Boris tag and exports `BORIS_BIN`.
 
    ```bash
    # Local: point at a Boris checkout's binary (any revision that accepts the
@@ -94,7 +93,7 @@ The laboratory has exactly two couplings to the Boris product, both pinned:
    ```
 
 Update both pins together so the parser gate and the compile checks witness the
-same Boris revision.
+same Boris release.
 
 ---
 
@@ -400,7 +399,7 @@ filled from WordPress conventions or template filenames.
 
 Boris core content-local assets accept only ASCII path segments
 `[A-Za-z0-9._-]+` under sibling `{page-stem}.assets/` trees (normative:
-[docs/contracts/content-local-assets.md](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/contracts/content-local-assets.md)).
+[docs/contracts/content-local-assets.md](https://github.com/drawmeanelephant/boris/blob/v0.8.2/docs/contracts/content-local-assets.md)).
 Astro/Starlight archives frequently use **spaces**, **Unicode**, or **literal
 `%20`-style** names that the product compiler rejects by design.
 
@@ -540,7 +539,7 @@ neutral category, and `stripped: true`.
 
 A bounded Filed.fyi adoption pass was recorded historically; current lab
 state is the v0.8 snapshot in
-[capability-matrix-v0.8.md](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/archived/capability-matrix-v0.8.md).
+[capability-matrix-v0.8.md](https://github.com/drawmeanelephant/boris/blob/v0.8.2/docs/archived/capability-matrix-v0.8.md).
 
 ## Starlight read-only dogfood (locale-dir + root-locale)
 
@@ -674,7 +673,7 @@ it does not consume another product-limit slot. Here `proposed_kind` records a
 defensible semantic mapping, not eligibility for automatic emission.
 
 Bounded real-site relationship-candidate results are summarized in the v0.8
-snapshot [capability-matrix-v0.8.md](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/archived/capability-matrix-v0.8.md).
+snapshot [capability-matrix-v0.8.md](https://github.com/drawmeanelephant/boris/blob/v0.8.2/docs/archived/capability-matrix-v0.8.md).
 
 ### Boundary classes
 

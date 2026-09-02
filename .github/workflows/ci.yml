@@ -26,13 +26,13 @@ jobs:
 
       # The black-box compile tests consume the product `boris` binary as a
       # pinned external prerequisite (see README "Boris pins"): build it from
-      # the exact revision the parser-package pin references, so a missing
-      # binary is a failure, never a skip. Keep the SHA in sync with
+      # the exact released tag the parser-package pin references, so a missing
+      # binary is a failure, never a skip. Keep the tag in sync with
       # build.zig.zon.
       - name: Build pinned product Boris (black-box prerequisite)
         run: |
           git clone --quiet https://github.com/drawmeanelephant/boris.git boris-src
-          git -C boris-src checkout --quiet f6a4973
+          git -C boris-src checkout --quiet v0.8.2
           zig build --build-file boris-src/build.zig
 
       - name: Migration-lab aggregate tests

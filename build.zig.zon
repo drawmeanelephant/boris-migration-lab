@@ -8,14 +8,14 @@
     // package, never by a relative `../../src` path, so the tree stays
     // forkable.
     //
-    // Standalone pin: URL + hash at a Boris commit that publishes the `parser`
-    // package module (the freeze commit of PR drawmeanelephant/boris#841).
-    // Re-pin to the next released Boris tag (e.g. v0.9.x) when one exists;
-    // see README "Boris pins".
+    // Standalone pin: URL + hash of released tag v0.8.2 — the first Boris
+    // release that carries the `parser` package module (published by
+    // drawmeanelephant/boris#841; cut 2026-09-02). Advance the pin at the
+    // next Boris release; see README "Boris pins".
     .dependencies = .{
         .boris = .{
-            .url = "https://github.com/drawmeanelephant/boris/archive/f6a4973.tar.gz",
-            .hash = "boris-0.8.1-_G6nDQoNjgAaqIOnfyzVxOumKVgpCVDD6nBb708y-C2k",
+            .url = "https://github.com/drawmeanelephant/boris/archive/refs/tags/v0.8.2.tar.gz",
+            .hash = "boris-0.8.2-_G6nDQu8cACHNTv2O7h5ePeepUEMg1Wo7Iq5gvS9KQue",
         },
     },
     .paths = .{

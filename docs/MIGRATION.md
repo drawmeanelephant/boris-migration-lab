@@ -17,7 +17,7 @@ not a change to product contracts.
 > plain `zig build` / `zig build test` at the root.
 
 Metadata placement and evidence vocabulary are governed by the canonical
-[publication model contract](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/contracts/publication-model.md). This guide
+[publication model contract](https://github.com/drawmeanelephant/boris/blob/v0.8.2/docs/contracts/publication-model.md). This guide
 applies that boundary to migration work; it does not create a second metadata
 grammar.
 
@@ -25,7 +25,7 @@ grammar.
 |----------|------|
 | This guide | Author-facing adoption sequence |
 | [`fixtures/migration-site/`](../fixtures/migration-site/) | Contoso conversion fixture (~32 pages + theme) |
-| [`examples/reference-site/`](https://github.com/drawmeanelephant/boris/tree/f6a4973/examples/reference-site) (Boris repo, pinned) | Optional theme dogfood (Aside, Details, page-local assets, layout rules) |
+| [`examples/reference-site/`](https://github.com/drawmeanelephant/boris/tree/v0.8.2/examples/reference-site) (Boris repo, pinned) | Optional theme dogfood (Aside, Details, page-local assets, layout rules) |
 | [`boris-migration-lab`](../README.md) | Standalone **migration laboratory** — this repository (drafts + reports) |
 | [`README.md`](../README.md) | Product front door + five-minute build |
 
@@ -65,7 +65,7 @@ Use the following routing rule during conversion:
 
 - A page `title`, identity, `parent`, status, tags, relations, body, and
   validated structural references are document facts. They must satisfy the
-  closed [`frontmatter.md`](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/contracts/frontmatter.md) and graph contracts.
+  closed [`frontmatter.md`](https://github.com/drawmeanelephant/boris/blob/v0.8.2/docs/contracts/frontmatter.md) and graph contracts.
 - A site URL such as `https://docs.example.com`, a public/preview target,
   theme or layout, feed/sitemap policy, machine-output scope, and deployment
   output root are publication facts. Keep them in publication configuration,
@@ -80,7 +80,7 @@ authority that widens Boris grammar. A provenance comment placed in a candidate
 body is a lab annotation; it is not product frontmatter, graph semantics, or
 proof that the candidate is correct. Review the candidate and its provenance
 before passing it to the product compiler. See the canonical
-[publication model](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/contracts/publication-model.md) for the ownership matrix,
+[publication model](https://github.com/drawmeanelephant/boris/blob/v0.8.2/docs/contracts/publication-model.md) for the ownership matrix,
 projection boundaries, and verification vocabulary.
 
 ---
@@ -88,7 +88,7 @@ projection boundaries, and verification vocabulary.
 ## Non-negotiables (before bulk conversion)
 
 1. **Closed frontmatter** — only `id`, `title`, `parent`, `status`, `tags`, and
-   bounded [`relations`](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/contracts/semantic-relations.md). Migration tools must
+   bounded [`relations`](https://github.com/drawmeanelephant/boris/blob/v0.8.2/docs/contracts/semantic-relations.md). Migration tools must
    not invent relation kinds or targets from ambiguous source metadata.
 2. **Parent key is `parent` only** — `parentEntry` / `parent_entry` fail as
    unknown keys on the product parser. The Filed migration lab rewrites those
@@ -182,7 +182,7 @@ and flags: [`README.md`](../README.md).
 
 Filed.fyi and theme-materialization dogfood happened (v0.5–v0.7). The long
 reports were retired. Current state is the Labs rows in
-[`docs/STATUS.md`](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/STATUS.md). These passes are historical evidence, not a
+[`docs/STATUS.md`](https://github.com/drawmeanelephant/boris/blob/v0.8.2/docs/STATUS.md). These passes are historical evidence, not a
 promise of universal automatic conversion.
 
 **What to open after a lab run:** `REPORT.md` / `report.json` (and mode-specific
@@ -264,7 +264,7 @@ configuration.
 
 **Manual human review (required even when the lab is green):**
 
-- [ ] Only keys accepted by the closed [`frontmatter.md`](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/contracts/frontmatter.md)
+- [ ] Only keys accepted by the closed [`frontmatter.md`](https://github.com/drawmeanelephant/boris/blob/v0.8.2/docs/contracts/frontmatter.md)
   contract remain in page frontmatter; source-only metadata stays in provenance
 - [ ] Site URL, theme/layout, feed/sitemap policy, deployment choice, and output
   roots are publication configuration, not page metadata
@@ -405,7 +405,7 @@ rg -n 'https?://' test-output/reference-theme --glob '*.html' || true
 
 Upload `bundle.md` (or the directory) as **grounded context** for an LLM —
 not as a substitute for source control or the HTML site. Contract:
-[context-bundle.md](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/contracts/context-bundle.md).
+[context-bundle.md](https://github.com/drawmeanelephant/boris/blob/v0.8.2/docs/contracts/context-bundle.md).
 
 ### 5. Use Aside, Details, includes, wiki-links, heading links, and layout rules
 
@@ -441,12 +441,12 @@ rg -n 'data-layout=' \
 - Selectors: `id:<entity-id>`, `glob:<segment-pattern>`, `role:trunk|satellite`.
 - One managed theme root per target; fallback layout is `--theme` /
   `--target-layout` / `--html-layout`.
-- Contract: [templating-and-themes.md](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/contracts/templating-and-themes.md).
+- Contract: [templating-and-themes.md](https://github.com/drawmeanelephant/boris/blob/v0.8.2/docs/contracts/templating-and-themes.md).
 
 **Page-local assets (product):** sibling `intro.assets/diagram.svg` next to
 `intro.md`; Markdown image `![alt](intro.assets/diagram.svg)` is rewritten to
 a published page-relative URL. Not a global media library. Contract:
-[content-local-assets.md](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/contracts/content-local-assets.md).
+[content-local-assets.md](https://github.com/drawmeanelephant/boris/blob/v0.8.2/docs/contracts/content-local-assets.md).
 
 **Manual:** keep examples of these syntaxes in **fenced** code blocks on
 migration notes pages so they are not executed.
@@ -566,7 +566,7 @@ beacon. Compile-time theme asset copy does **not** fetch CDNs.
    spliced via `{{footer}}`) and add a first-party or vendor snippet you
    accept as trusted HTML. Raw HTML in layouts and Markdown is **passed
    through** (Oliver passes author HTML through; see
-   [oliver-renderer](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/contracts/oliver-renderer.md)).
+   [oliver-renderer](https://github.com/drawmeanelephant/boris/blob/v0.8.2/docs/contracts/oliver-renderer.md)).
 2. **Host / CDN injection** — configure the static host to inject a script
    without touching the Boris tree.
 
@@ -689,23 +689,23 @@ Before moving files, make a small manual conversion ledger:
   `tags`; remove or preserve elsewhere every other YAML key. In particular,
   Material/blog `authors`, `date`, `categories`, and blog-specific metadata
   need an authoring or publishing decision outside Boris's source grammar.
-  See the [frontmatter contract](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/contracts/frontmatter.md).
+  See the [frontmatter contract](https://github.com/drawmeanelephant/boris/blob/v0.8.2/docs/contracts/frontmatter.md).
 - [ ] **Navigation:** use `mkdocs.yml` only as an inventory, then flatten each
   nested `nav:` branch into a Trunk landing page plus direct Satellite pages.
   A Satellite cannot parent another Satellite; see the
-  [parent/graph rules](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/contracts/ir-schema.md#trunk-satellite-graph-rules).
+  [parent/graph rules](https://github.com/drawmeanelephant/boris/blob/v0.8.2/docs/contracts/ir-schema.md#trunk-satellite-graph-rules).
 - [ ] **Links:** replace relative Markdown page links such as
   `[Install](../setup.md)` with `[[setup|Install]]` (and validate any heading
   fragment against the rendered heading id). The exact include/wiki syntax and
-  failure behavior are in the [includes and wiki-links contract](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/contracts/includes-and-wiki-links.md).
+  failure behavior are in the [includes and wiki-links contract](https://github.com/drawmeanelephant/boris/blob/v0.8.2/docs/contracts/includes-and-wiki-links.md).
 - [ ] **Reusable Markdown:** replace plugin- or hook-expanded snippets with
   explicit `{{include includes/name.md}}` directives; keep fragments under the
   content-root `includes/` directory rather than treating them as pages.
 - [ ] **Local assets:** inventory every image, download, font, and stylesheet
   referenced by content. Theme static bytes go under `theme/assets/`;
   page-owned media goes under sibling `<stem>.assets/`. Check a deep generated
-  page for working URLs. See [templating and themes](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/contracts/templating-and-themes.md)
-  and [content-local assets](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/contracts/content-local-assets.md).
+  page for working URLs. See [templating and themes](https://github.com/drawmeanelephant/boris/blob/v0.8.2/docs/contracts/templating-and-themes.md)
+  and [content-local assets](https://github.com/drawmeanelephant/boris/blob/v0.8.2/docs/contracts/content-local-assets.md).
 - [ ] **Runtime features:** replace Material plugins, macros, Python hooks,
   generated navigation, and blog/archive behavior with static Markdown,
   explicit includes, a bounded Boris theme, or a separate pre-conversion step.
@@ -829,16 +829,16 @@ PATH), see [`README.md`](../README.md).
 | Doc | Role |
 |-----|------|
 | [`fixtures/migration-site/README.md`](../fixtures/migration-site/README.md) | Contoso fixture how-to |
-| [`examples/reference-site/README.md`](https://github.com/drawmeanelephant/boris/blob/f6a4973/examples/reference-site/README.md) (Boris repo, pinned) | Theme dogfood commands |
+| [`examples/reference-site/README.md`](https://github.com/drawmeanelephant/boris/blob/v0.8.2/examples/reference-site/README.md) (Boris repo, pinned) | Theme dogfood commands |
 | [`README.md`](../README.md) | Standalone labs |
 | [`README.md`](../README.md) | Product front door + CLI |
-| [`docs/STATUS.md`](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/STATUS.md) | Current phase |
-| [`docs/contracts/publication-model.md`](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/contracts/publication-model.md) | Document/publication/provenance ownership and projection claims |
-| [`docs/contracts/frontmatter.md`](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/contracts/frontmatter.md) | Normative FM grammar |
-| [`docs/contracts/includes-and-wiki-links.md`](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/contracts/includes-and-wiki-links.md) | Includes + wiki |
-| [`docs/contracts/heading-ids.md`](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/contracts/heading-ids.md) | Fragment ids |
-| [`docs/contracts/components.md`](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/contracts/components.md) | Aside / Details |
-| [`docs/contracts/content-local-assets.md`](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/contracts/content-local-assets.md) | Page-local `.assets/` |
-| [`docs/contracts/templating-and-themes.md`](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/contracts/templating-and-themes.md) | Themes + layout rules |
-| [`docs/contracts/parent-relationships.md`](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/contracts/parent-relationships.md) | Graph parents |
-| [`docs/contracts/multi-target-isolated-output.md`](https://github.com/drawmeanelephant/boris/blob/f6a4973/docs/contracts/multi-target-isolated-output.md) | Prod / preview isolation |
+| [`docs/STATUS.md`](https://github.com/drawmeanelephant/boris/blob/v0.8.2/docs/STATUS.md) | Current phase |
+| [`docs/contracts/publication-model.md`](https://github.com/drawmeanelephant/boris/blob/v0.8.2/docs/contracts/publication-model.md) | Document/publication/provenance ownership and projection claims |
+| [`docs/contracts/frontmatter.md`](https://github.com/drawmeanelephant/boris/blob/v0.8.2/docs/contracts/frontmatter.md) | Normative FM grammar |
+| [`docs/contracts/includes-and-wiki-links.md`](https://github.com/drawmeanelephant/boris/blob/v0.8.2/docs/contracts/includes-and-wiki-links.md) | Includes + wiki |
+| [`docs/contracts/heading-ids.md`](https://github.com/drawmeanelephant/boris/blob/v0.8.2/docs/contracts/heading-ids.md) | Fragment ids |
+| [`docs/contracts/components.md`](https://github.com/drawmeanelephant/boris/blob/v0.8.2/docs/contracts/components.md) | Aside / Details |
+| [`docs/contracts/content-local-assets.md`](https://github.com/drawmeanelephant/boris/blob/v0.8.2/docs/contracts/content-local-assets.md) | Page-local `.assets/` |
+| [`docs/contracts/templating-and-themes.md`](https://github.com/drawmeanelephant/boris/blob/v0.8.2/docs/contracts/templating-and-themes.md) | Themes + layout rules |
+| [`docs/contracts/parent-relationships.md`](https://github.com/drawmeanelephant/boris/blob/v0.8.2/docs/contracts/parent-relationships.md) | Graph parents |
+| [`docs/contracts/multi-target-isolated-output.md`](https://github.com/drawmeanelephant/boris/blob/v0.8.2/docs/contracts/multi-target-isolated-output.md) | Prod / preview isolation |
