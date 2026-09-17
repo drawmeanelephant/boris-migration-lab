@@ -165,6 +165,8 @@ pub const Options = struct {
     gate: bool = false,
     /// Comma-separated Tinderbox link type names allowed as Boris relation kinds.
     relation_kinds: []const u8 = "",
+    /// Explicit Tinderbox type → closed Boris kind, e.g. agree=relates_to.
+    relation_map: []const u8 = "",
     /// Unpacked Notion Markdown & CSV export root.
     export_dir: ?[]const u8 = null,
     /// Filed.fyi Astro source root (read-only; implies filed mode).
@@ -339,6 +341,14 @@ pub fn parseOptions(args: []const []const u8) ParseError!Options {
             index += 1;
             if (index >= args.len or args[index].len == 0) return error.MissingValue;
             options.relation_kinds = args[index];
+        } else if (std.mem.startsWith(u8, arg, "--relation-map=")) {
+            const value = arg["--relation-map=".len..];
+            if (value.len == 0) return error.MissingValue;
+            options.relation_map = value;
+        } else if (std.mem.eql(u8, arg, "--relation-map")) {
+            index += 1;
+            if (index >= args.len or args[index].len == 0) return error.MissingValue;
+            options.relation_map = args[index];
         } else if (std.mem.startsWith(u8, arg, "--export=")) {
             const value = arg["--export=".len..];
             if (value.len == 0) return error.MissingValue;
@@ -531,7 +541,8 @@ fn printUsage() void {
         \\  --mode=tinderbox   Inventory + content/ tree + conversion report
         \\  --tbx=FILE         Tinderbox XML document (required; never modified)
         \\  --gate             Run the pinned Boris parser on generated pages
-        \\  --relation-kinds=a,b  Allowlisted Tinderbox link types → relations
+        \\  --relation-kinds=a,b  Allowlisted Tinderbox link types → relations (kind = type name)
+        \\  --relation-map=a=relates_to  Map Tinderbox type names onto closed Boris kinds
         \\  Writes: content/**, report.json, REPORT.md
         \\  Aliases: tinderbox-emit | tbx
         \\  Prototypes, agents, adornments, and aliases are not emitted as pages.
@@ -766,6 +777,7 @@ pub fn main(init: std.process.Init) u8 {
                 .lab_mode = if (opts.mode == .tinderbox) .emit else .inventory,
                 .gate = opts.gate,
                 .relation_kinds_csv = opts.relation_kinds,
+                .relation_map_csv = opts.relation_map,
             }) catch |err| {
                 std.log.err("migration-lab (tinderbox) failed: {s}", .{@errorName(err)});
                 return ExitCode.io_error.int();
@@ -1266,11 +1278,13 @@ test "parseOptions: tinderbox flags" {
         "a.tbx",
         "--gate",
         "--relation-kinds=agree,disagree",
+        "--relation-map=agree=relates_to",
     });
     try std.testing.expect(o2.mode == .tinderbox);
     try std.testing.expectEqualStrings("a.tbx", o2.tbx_path.?);
     try std.testing.expect(o2.gate);
     try std.testing.expectEqualStrings("agree,disagree", o2.relation_kinds);
+    try std.testing.expectEqualStrings("agree=relates_to", o2.relation_map);
 
     const o3 = try parseOptions(&.{ "boris-migration-lab", "--mode=tbx-inventory", "--tbx=./x.tbx" });
     try std.testing.expect(o3.mode == .tinderbox_inventory);

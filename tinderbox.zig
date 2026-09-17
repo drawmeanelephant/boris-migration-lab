@@ -24,6 +24,8 @@ pub const RunOptions = struct {
     lab_mode: LabMode = .inventory,
     gate: bool = false,
     relation_kinds_csv: []const u8 = "",
+    /// Explicit Tinderbox type → Boris relation kind, e.g. `agree=relates_to,disagree=relates_to`.
+    relation_map_csv: []const u8 = "",
 };
 
 pub const ConversionClass = enum {
@@ -88,6 +90,7 @@ const Note = struct {
     sibling_index: usize,
     depth: usize,
     text: []const u8,
+    html: []const u8,
     has_html: bool,
     has_rtfd: bool,
     html_bold_italic: bool,
@@ -416,6 +419,66 @@ fn htmlComplex(html: []const u8) bool {
     return false;
 }
 
+fn eqlIgnoreCase(a: []const u8, b: []const u8) bool {
+    if (a.len != b.len) return false;
+    for (a, b) |x, y| {
+        const xl: u8 = if (x >= 'A' and x <= 'Z') x + 32 else x;
+        const yl: u8 = if (y >= 'A' and y <= 'Z') y + 32 else y;
+        if (xl != yl) return false;
+    }
+    return true;
+}
+
+/// Best-effort HTML → Markdown for `<p>`, `<br>`, `<b>`/`<strong>`, `<i>`/`<em>`.
+/// Returns null when unsupported tags are present (caller keeps plain `$Text`).
+pub fn htmlToMarkdown(allocator: std.mem.Allocator, html: []const u8) !?[]u8 {
+    if (htmlComplex(html)) return null;
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(allocator);
+    var i: usize = 0;
+    while (i < html.len) {
+        if (html[i] == '<') {
+            const gt = std.mem.indexOfScalarPos(u8, html, i, '>') orelse {
+                out.deinit(allocator);
+                return null;
+            };
+            var tag = std.mem.trim(u8, html[i + 1 .. gt], " \t\r\n");
+            if (tag.len > 0 and tag[tag.len - 1] == '/') tag = std.mem.trim(u8, tag[0 .. tag.len - 1], " \t");
+            const slash = tag.len > 0 and tag[0] == '/';
+            const name_src = if (slash) tag[1..] else tag;
+            var name_end: usize = 0;
+            while (name_end < name_src.len and isNameChar(name_src[name_end])) : (name_end += 1) {}
+            const name = std.mem.trim(u8, name_src[0..name_end], " \t");
+            if (eqlIgnoreCase(name, "p") or eqlIgnoreCase(name, "html")) {
+                if (slash and eqlIgnoreCase(name, "p") and out.items.len > 0) try out.appendSlice(allocator, "\n\n");
+            } else if (eqlIgnoreCase(name, "br")) {
+                try out.append(allocator, '\n');
+            } else if (eqlIgnoreCase(name, "b") or eqlIgnoreCase(name, "strong")) {
+                try out.appendSlice(allocator, "**");
+            } else if (eqlIgnoreCase(name, "i") or eqlIgnoreCase(name, "em")) {
+                try out.append(allocator, '*');
+            } else {
+                out.deinit(allocator);
+                return null;
+            }
+            i = gt + 1;
+            continue;
+        }
+        const start = i;
+        while (i < html.len and html[i] != '<') : (i += 1) {}
+        const decoded = try unescapeXml(allocator, html[start..i]);
+        defer allocator.free(decoded);
+        try out.appendSlice(allocator, decoded);
+    }
+    while (out.items.len > 0) {
+        const last = out.items[out.items.len - 1];
+        if (last == '\n' or last == ' ' or last == '\r' or last == '\t') {
+            _ = out.pop();
+        } else break;
+    }
+    return try out.toOwnedSlice(allocator);
+}
+
 fn collectUserAttrNames(xml: []const u8, retain: std.mem.Allocator) ![][]const u8 {
     var list: std.ArrayList([]const u8) = .empty;
     var seen = std.StringHashMap(void).init(retain);
@@ -509,6 +572,7 @@ fn parseOneNote(
     var user: std.ArrayList(Attr) = .empty;
     var name: []const u8 = "";
     var text: []const u8 = "";
+    var html: []const u8 = "";
     var has_html = false;
     var has_rtfd = false;
     var html_bold_italic = false;
@@ -566,6 +630,7 @@ fn parseOneNote(
         } else if (std.mem.eql(u8, child.name, "html")) {
             has_html = true;
             const inner = cdataInner(child.content);
+            html = inner;
             html_bold_italic = htmlBoldItalic(inner);
             html_complex = htmlComplex(inner);
         } else if (std.mem.eql(u8, child.name, "rtfd")) {
@@ -585,6 +650,7 @@ fn parseOneNote(
         .sibling_index = sibling_index,
         .depth = depth,
         .text = text,
+        .html = html,
         .has_html = has_html,
         .has_rtfd = has_rtfd,
         .html_bold_italic = html_bold_italic,
@@ -804,6 +870,40 @@ fn parseCsv(retain: std.mem.Allocator, csv: []const u8) ![][]const u8 {
     return try list.toOwnedSlice(retain);
 }
 
+pub const RelationMap = struct {
+    from: []const u8,
+    to: []const u8,
+};
+
+/// Closed product relation kinds accepted as `--relation-map` targets.
+pub fn validRelationKind(s: []const u8) bool {
+    return std.mem.eql(u8, s, "relates_to");
+}
+
+/// Parse `agree=relates_to,disagree=relates_to`. Empty input is an empty map.
+pub fn parseRelationMap(retain: std.mem.Allocator, csv: []const u8) ![]RelationMap {
+    var list: std.ArrayList(RelationMap) = .empty;
+    var it = std.mem.splitScalar(u8, csv, ',');
+    while (it.next()) |part| {
+        const t = std.mem.trim(u8, part, " \t");
+        if (t.len == 0) continue;
+        const eq = std.mem.indexOfScalar(u8, t, '=') orelse return error.InvalidRelationMap;
+        const from = std.mem.trim(u8, t[0..eq], " \t");
+        const to = std.mem.trim(u8, t[eq + 1 ..], " \t");
+        if (from.len == 0 or to.len == 0) return error.InvalidRelationMap;
+        if (!validRelationKind(to)) return error.InvalidRelationMap;
+        try list.append(retain, .{ .from = from, .to = to });
+    }
+    return try list.toOwnedSlice(retain);
+}
+
+fn mappedKind(maps: []const RelationMap, name: []const u8) ?[]const u8 {
+    for (maps) |m| {
+        if (std.mem.eql(u8, m.from, name)) return m.to;
+    }
+    return null;
+}
+
 fn isAllowlisted(kinds: []const []const u8, name: []const u8) bool {
     for (kinds) |k| if (std.mem.eql(u8, k, name)) return true;
     return false;
@@ -897,6 +997,7 @@ fn buildEmitPages(
     retain: std.mem.Allocator,
     doc: Document,
     relation_kinds: []const []const u8,
+    relation_map: []const RelationMap,
     gate: bool,
 ) ![]EmitPage {
     const ids = try assignEntityIds(retain, doc.notes);
@@ -982,6 +1083,14 @@ fn buildEmitPages(
                     class = ConversionClass.worse(class, .human_review);
                     try appendUnique(retain, &review, "unresolved_basic_link");
                 }
+            } else if (mappedKind(relation_map, l.type_name)) |kind| {
+                if (dest_entity) |d| {
+                    try relations.append(retain, .{ .name = kind, .value = d });
+                    class = ConversionClass.worse(class, .transformed);
+                } else {
+                    class = ConversionClass.worse(class, .human_review);
+                    try appendUnique(retain, &review, "unresolved_named_link");
+                }
             } else if (isAllowlisted(relation_kinds, l.type_name)) {
                 if (dest_entity) |d| {
                     try relations.append(retain, .{ .name = l.type_name, .value = d });
@@ -1032,7 +1141,11 @@ fn buildEmitPages(
 
 fn renderBody(retain: std.mem.Allocator, n: Note, wiki: []const []const u8) ![]const u8 {
     var buf: std.ArrayList(u8) = .empty;
-    try buf.appendSlice(retain, n.text);
+    var body_src: []const u8 = n.text;
+    if (n.html.len > 0) {
+        if (try htmlToMarkdown(retain, n.html)) |md| body_src = md;
+    }
+    try buf.appendSlice(retain, body_src);
     if (lookupNoteAttr(n, "URL")) |url| {
         if (url.len > 0) {
             if (buf.items.len > 0 and buf.items[buf.items.len - 1] != '\n') try buf.append(retain, '\n');
@@ -1121,7 +1234,7 @@ fn renderPage(
         for (relations, 0..) |r, i| {
             if (i > 0) try buf.appendSlice(retain, ", ");
             try buf.appendSlice(retain, r.name);
-            try buf.append(retain, ':');
+            try buf.append(retain, '=');
             try buf.appendSlice(retain, r.value);
         }
         try buf.appendSlice(retain, "]\n");
@@ -1314,6 +1427,7 @@ fn emitReportJson(
     pages: []const EmitPage,
     skipped: []const []const u8,
     relation_kinds: []const []const u8,
+    relation_map: []const RelationMap,
 ) ![]u8 {
     var buf: std.ArrayList(u8) = .empty;
     errdefer buf.deinit(a);
@@ -1376,7 +1490,7 @@ fn emitReportJson(
     }
     try buf.appendSlice(a, "  ],\n  \"links\": [\n");
     for (doc.links, 0..) |l, i| {
-        const landing = linkLanding(l, relation_kinds);
+        const landing = linkLanding(l, relation_kinds, relation_map);
         try buf.appendSlice(a, "    {\n      \"type\": ");
         try jsonEscapeAppend(&buf, a, l.type_name);
         try buf.appendSlice(a, ",\n      \"source_id\": ");
@@ -1395,10 +1509,11 @@ fn emitReportJson(
     return try buf.toOwnedSlice(a);
 }
 
-fn linkLanding(l: Link, relation_kinds: []const []const u8) []const u8 {
+fn linkLanding(l: Link, relation_kinds: []const []const u8, relation_map: []const RelationMap) []const u8 {
     if (isPrototypeLinkType(l.type_name)) return "skipped_prototype";
     if (l.is_text_link) return "human_review";
     if (isWikiLinkType(l.type_name)) return "wiki";
+    if (mappedKind(relation_map, l.type_name)) |_| return "relation";
     if (isAllowlisted(relation_kinds, l.type_name)) return "relation";
     return "human_review";
 }
@@ -1476,7 +1591,8 @@ pub fn run(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
     }
 
     const relation_kinds = try parseCsv(retain, opts.relation_kinds_csv);
-    const pages = try buildEmitPages(retain, doc, relation_kinds, opts.gate);
+    const relation_map = try parseRelationMap(retain, opts.relation_map_csv);
+    const pages = try buildEmitPages(retain, doc, relation_kinds, relation_map, opts.gate);
     const skipped = try skippedLabels(retain, doc.notes);
 
     if (opts.gate) {
@@ -1489,7 +1605,7 @@ pub fn run(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
         try writeBytes(io, out, rel, md);
     }
 
-    const report_json = try emitReportJson(retain, opts.tbx_path, sha, doc, pages, skipped, relation_kinds);
+    const report_json = try emitReportJson(retain, opts.tbx_path, sha, doc, pages, skipped, relation_kinds, relation_map);
     const report_md = try emitReportMd(retain, opts.tbx_path, pages, skipped);
     try writeBytes(io, out, "report.json", report_json);
     try writeBytes(io, out, "REPORT.md", report_md);
@@ -1521,6 +1637,7 @@ const mini_xml =
     \\<attribute name="Xpos" >0</attribute>
     \\<attribute name="Ypos" >0</attribute>
     \\<text >Hello &amp; world</text>
+    \\<html ><![CDATA[<p>Hello &amp; <b>world</b></p>]]></html>
     \\</item>
     \\<item ID="3" Creator="lab" >
     \\<attribute name="Alias" >2</attribute>
@@ -1565,6 +1682,8 @@ test "parse synthetic tbx: alias, text-link, histogram" {
     const alias = findNote(doc.notes, "3") orelse return error.TestUnexpectedResult;
     try std.testing.expectEqualStrings("Child", child.name);
     try std.testing.expectEqualStrings("Hello & world", child.text);
+    try std.testing.expect(child.has_html);
+    try std.testing.expect(child.html_bold_italic);
     try std.testing.expectEqualStrings("child", lookupNoteAttr(child.*, "BorisId").?);
     try std.testing.expect(alias.is_alias);
     try std.testing.expectEqualStrings("2", alias.alias_of.?);
@@ -1673,4 +1792,98 @@ test "fixture: tinderbox emit determinism + skips prototypes/aliases" {
     const url_page = try readFileAlloc(io, a, "content/grok-bot/feature-gym/url.md", gpa);
     defer gpa.free(url_page);
     try std.testing.expect(std.mem.indexOf(u8, url_page, "https://github.com/drawmeanelephant/boris") != null);
+}
+
+test "htmlToMarkdown: paragraphs, emphasis, fallback on unknown tags" {
+    const gpa = std.testing.allocator;
+    const md = (try htmlToMarkdown(gpa, "<p>Hello <b>world</b> and <i>more</i></p>")).?;
+    defer gpa.free(md);
+    try std.testing.expectEqualStrings("Hello **world** and *more*", md);
+
+    const paras = (try htmlToMarkdown(gpa, "<p>One</p><p>Two</p>")).?;
+    defer gpa.free(paras);
+    try std.testing.expectEqualStrings("One\n\nTwo", paras);
+
+    const amp = (try htmlToMarkdown(gpa, "<p>A &amp; B</p>")).?;
+    defer gpa.free(amp);
+    try std.testing.expectEqualStrings("A & B", amp);
+
+    try std.testing.expect((try htmlToMarkdown(gpa, "<p>x</p><div>y</div>")) == null);
+    try std.testing.expect((try htmlToMarkdown(gpa, "<p>x</p><u>y</u>")) == null);
+}
+
+test "parseRelationMap: explicit remap only, closed target kinds" {
+    const gpa = std.testing.allocator;
+    const empty = try parseRelationMap(gpa, "");
+    defer gpa.free(empty);
+    try std.testing.expectEqual(@as(usize, 0), empty.len);
+
+    const maps = try parseRelationMap(gpa, " agree = relates_to , disagree=relates_to ");
+    defer gpa.free(maps);
+    try std.testing.expectEqual(@as(usize, 2), maps.len);
+    try std.testing.expectEqualStrings("agree", maps[0].from);
+    try std.testing.expectEqualStrings("relates_to", maps[0].to);
+
+    try std.testing.expectError(error.InvalidRelationMap, parseRelationMap(gpa, "agree"));
+    try std.testing.expectError(error.InvalidRelationMap, parseRelationMap(gpa, "agree=not_a_kind"));
+}
+
+test "fixture: relation-map lands named links as relates_to; html paragraphs unwrap" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    const tbx = "fixtures/mini-tinderbox/Grok-Bot-Feature-Corpus.tbx";
+
+    const out = "fixtures/.test-tinderbox-emit-map";
+    Io.Dir.cwd().deleteTree(io, out) catch {};
+
+    try run(io, gpa, .{
+        .tbx_path = tbx,
+        .out_dir = out,
+        .quiet = true,
+        .lab_mode = .emit,
+        .gate = true,
+        .relation_map_csv = "agree=relates_to,disagree=relates_to,example=relates_to,clarify=relates_to",
+    });
+
+    var dir = try Io.Dir.cwd().openDir(io, out, .{});
+    defer dir.close(io);
+    const report = try readFileAlloc(io, dir, "report.json", gpa);
+    defer gpa.free(report);
+    try std.testing.expect(std.mem.indexOf(u8, report, "named_link_not_allowlisted") == null);
+    try std.testing.expect(std.mem.indexOf(u8, report, "\"landing\": \"relation\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, report, "text_link") != null);
+
+    const page = try readFileAlloc(io, dir, "content/grok-bot/feature-gym/links.md", gpa);
+    defer gpa.free(page);
+    try std.testing.expect(std.mem.indexOf(u8, page, "relations: [") != null);
+    try std.testing.expect(std.mem.indexOf(u8, page, "relates_to=") != null);
+}
+
+test "synthetic emit: mapped agree + HTML bold in body" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    const src_dir = "fixtures/.test-tinderbox-mini";
+    const out = "fixtures/.test-tinderbox-mini-out";
+    Io.Dir.cwd().deleteTree(io, src_dir) catch {};
+    Io.Dir.cwd().deleteTree(io, out) catch {};
+    try Io.Dir.cwd().createDirPath(io, src_dir);
+    var dir = try Io.Dir.cwd().openDir(io, src_dir, .{});
+    defer dir.close(io);
+    try dir.writeFile(io, .{ .sub_path = "mini.tbx", .data = mini_xml });
+
+    try run(io, gpa, .{
+        .tbx_path = "fixtures/.test-tinderbox-mini/mini.tbx",
+        .out_dir = out,
+        .quiet = true,
+        .lab_mode = .emit,
+        .gate = true,
+        .relation_map_csv = "agree=relates_to",
+    });
+
+    var out_dir = try Io.Dir.cwd().openDir(io, out, .{});
+    defer out_dir.close(io);
+    const child = try readFileAlloc(io, out_dir, "content/child.md", gpa);
+    defer gpa.free(child);
+    try std.testing.expect(std.mem.indexOf(u8, child, "Hello & **world**") != null);
+    try std.testing.expect(std.mem.indexOf(u8, child, "relations: [relates_to=") != null);
 }

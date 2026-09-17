@@ -24,12 +24,12 @@ published_at, summary}`.
 | Outline note (`$Name`, nested `<item>`) | transformed | Candidate page; `title` from `$Name` |
 | Outline parent | transformed | `parent:` from `$BorisParent` if valid, else mapped outline parent entity id |
 | Document root / no parent | exact | Trunk (omit `parent`) |
-| `$Text` (plain) | exact or transformed | Markdown body (plain dump) |
-| HTML companion of `$Text` | transformed | Ignored for body; `has_html` in inventory |
+| `$Text` (plain) | exact or transformed | Markdown body (plain dump, or HTML transform when companions convert) |
+| HTML companion of `$Text` | transformed | `<p>`/`<br>`/`<b>`/`<i>` → Markdown; otherwise `$Text`. See [tinderbox-rich-text.md](tinderbox-rich-text.md) |
 | RTFD companion | human_review | Body still uses plain `$Text`; `rtfd_present` + review. See [tinderbox-rich-text.md](tinderbox-rich-text.md) |
 | Basic link `*untitled` / untitled / `related` / `note` | transformed | `[[entity-id]]` when dest emits; else human_review |
-| Named basic link (allowlisted kind) | transformed | `relations: [kind:target]` — see [tinderbox-named-links.md](tinderbox-named-links.md) |
-| Named basic link (not allowlisted) | human_review | Ledger only; never invent a relation kind |
+| Named basic link (remapped or allowlisted kind) | transformed | `relations: [kind=target]` — see [tinderbox-named-links.md](tinderbox-named-links.md) |
+| Named basic link (not remapped / not allowlisted) | human_review | Ledger only; never invent a relation kind |
 | Automatic `prototype` link | unsupported | Not a page edge; counted in inventory histogram |
 | Text link (`sstart >= 0`) | human_review | Offsets inventoried; not rewritten into `$Text` in v1 |
 | `$Tags` | exact | `tags: []` (semicolon split) |

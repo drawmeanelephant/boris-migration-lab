@@ -24,6 +24,15 @@ Source: `Grok-Bot-Feature-Corpus.tbx`
 | `URL attribute note` | System `$URL` |
 | User attrs | `BorisId`, `BorisParent`, `BorisStatus`, `ExportClass`, `FixtureRole`, `MapsToBoris` |
 
+## Regenerable smoke document (optional)
+
+[`scripts/seed-tinderbox-corpus.sh`](../../scripts/seed-tinderbox-corpus.sh)
+creates a **new** Tinderbox document and saves it only inside this repository
+(default: `Grok-Bot-Feature-Corpus.seeded.tbx`, gitignored). It refuses Desktop
+and playground paths and will not overwrite this golden `.tbx`.
+
+Text links, aliases, and HTML bold/italic still need a manual Tinderbox UI pass.
+
 ## Golden inventory counts
 
 | Kind | Count |

@@ -229,7 +229,8 @@ zig build test   # with BORIS_BIN exported or `boris` on PATH (see Boris pins)
 | `--vault=DIR` | | Obsidian vault root (implies `--mode=obsidian`) |
 | `--tbx=FILE` | | Tinderbox `.tbx` XML path (implies `--mode=tinderbox-inventory` unless `--mode=tinderbox`) |
 | `--gate` | off | Tinderbox emit: run the pinned Boris parser on generated Markdown |
-| `--relation-kinds=a,b` | | Tinderbox emit: allowlisted link type names → `relations:` |
+| `--relation-kinds=a,b` | | Tinderbox emit: allowlisted link type names → `relations:` (kind = type name) |
+| `--relation-map=a=relates_to` | | Tinderbox emit: map Tinderbox type names onto closed Boris kinds |
 | `--export=DIR` | | Unpacked Notion Markdown & CSV export root (implies `--mode=notion`) |
 | `--filed-root=DIR` | | Filed.fyi Astro source root (implies `--mode=filed`) |
 | `--locale=en` | `en` | Starlight discovery key (**en only**). Uses `src/content/docs/en/` when present; else root-locale files under `src/content/docs/` |
@@ -936,11 +937,27 @@ Writes candidate `content/` plus `report.json` / `REPORT.md`.
 | `$Tags` | `tags: []` |
 | `$BorisStatus` when `draft`/`published`/`archived` | `status:` |
 | Untitled basic links (`*untitled` / `note` / `related`) | `[[entity-id]]` |
-| Allowlisted named types (`--relation-kinds`) | `relations: [kind:target]` |
+| Named types via `--relation-map=agree=relates_to` | `relations: [relates_to=target]` |
+| Allowlisted named types (`--relation-kinds`) | `relations: [kind=target]` using the Tinderbox type name |
+| HTML `<p>` / `<b>` / `<i>` companions | Markdown body (`**` / `*`); other tags stay `$Text` |
 | Prototypes, agents, adornments, aliases | skipped as pages; listed in the report |
 | Unknown user attrs | dropped + listed |
 
 Optional `--gate` runs the pinned Boris parser on generated pages.
+
+```bash
+zig build run -- --mode=tinderbox \
+  --tbx=./fixtures/mini-tinderbox/Grok-Bot-Feature-Corpus.tbx \
+  --out=./.tbx-emit \
+  --relation-map=agree=relates_to,disagree=relates_to,example=relates_to,clarify=relates_to \
+  --gate
+```
+
+An optional Mac-only AppleScript seeder lives at
+[`scripts/seed-tinderbox-corpus.sh`](scripts/seed-tinderbox-corpus.sh). It
+creates a **new** document and will only save inside this repository. It
+refuses Desktop / playground paths and will not overwrite the golden
+`Grok-Bot-Feature-Corpus.tbx`.
 
 ### Fixture
 
