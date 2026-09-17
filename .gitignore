@@ -20,6 +20,7 @@ fixtures/.test-adversarial*/
 fixtures/.ig-test-out*/
 fixtures/.test-obsidian-out*/
 fixtures/.test-tinderbox-*/
+fixtures/mini-tinderbox/*.seeded.tbx
 fixtures/.test-notion-out*/
 fixtures/.test-starlight-*/
 .dogfood-sl-out/
