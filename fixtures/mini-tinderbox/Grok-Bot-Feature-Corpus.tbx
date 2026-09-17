@@ -1,0 +1,2159 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<tinderbox version="2" revision="16" savedBy="version 11.8.0 b808" uuid="8A26098A-A413-4163-901F-F3297867BC90" >
+<attrib Name="anything" editable="0" visibleInEditor="1" lines="1" default="" >
+<attrib Name="System" parent="anything" editable="0" visibleInEditor="1" lines="1" default="" >
+<attrib Name="AI" parent="System" editable="0" visibleInEditor="1" lines="1" default="" >
+<attrib Name="DominantLanguage" parent="AI" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="NLNames" parent="AI" editable="1" visibleInEditor="1" lines="1" type="8" default="" >
+</attrib>
+<attrib Name="NLOrganizations" parent="AI" editable="1" visibleInEditor="1" lines="1" type="8" default="" >
+</attrib>
+<attrib Name="NLPlaces" parent="AI" editable="1" visibleInEditor="1" lines="1" type="8" default="" >
+</attrib>
+<attrib Name="NLTags" parent="AI" editable="1" visibleInEditor="1" lines="1" type="8" default="" >
+</attrib>
+<attrib Name="Sentiment" parent="AI" editable="1" visibleInEditor="1" lines="1" type="2" default="0" >
+</attrib>
+<attrib Name="Sentiments" parent="AI" editable="1" visibleInEditor="1" lines="1" type="10" default="" >
+</attrib>
+</attrib>
+<attrib Name="Agent" parent="System" editable="0" visibleInEditor="1" lines="1" type="4" default="false" >
+<attrib Name="AgentAction" parent="Agent" editable="1" visibleInEditor="1" lines="1" type="7" default="" >
+</attrib>
+<attrib Name="AgentCaseSensitive" parent="Agent" editable="1" visibleInEditor="1" lines="1" type="4" default="true" >
+</attrib>
+<attrib Name="AgentPriority" parent="Agent" editable="1" visibleInEditor="1" lines="1" type="2" default="1" >
+</attrib>
+<attrib Name="AgentQuery" parent="Agent" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="CleanupAction" parent="Agent" editable="1" visibleInEditor="1" lines="1" canInherit="0" default="grid" >
+</attrib>
+</attrib>
+<attrib Name="Appearance" parent="System" editable="0" visibleInEditor="1" lines="1" default="" >
+<attrib Name="AccentColor" parent="Appearance" editable="1" visibleInEditor="1" lines="1" type="1" default="dark warm gray dark" >
+</attrib>
+<attrib Name="Badge" parent="Appearance" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="BadgeMonochrome" parent="Appearance" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="BadgeSize" parent="Appearance" editable="1" visibleInEditor="1" lines="1" type="2" default="0" >
+</attrib>
+<attrib Name="Border" parent="Appearance" editable="1" visibleInEditor="1" lines="1" type="2" default="1" >
+</attrib>
+<attrib Name="BorderBevel" parent="Appearance" editable="1" visibleInEditor="1" lines="1" default="plain" >
+</attrib>
+<attrib Name="BorderColor" parent="Appearance" editable="1" visibleInEditor="1" lines="1" type="1" default="automatic" >
+</attrib>
+<attrib Name="BorderDash" parent="Appearance" editable="1" visibleInEditor="1" lines="1" type="2" default="0" >
+</attrib>
+<attrib Name="CaptionAlignment" parent="Appearance" editable="1" visibleInEditor="1" lines="1" default="left" >
+</attrib>
+<attrib Name="CaptionColor" parent="Appearance" editable="1" visibleInEditor="1" lines="1" type="1" default="blue" >
+</attrib>
+<attrib Name="CaptionFont" parent="Appearance" editable="1" visibleInEditor="1" lines="1" type="11" default="SketchnoteSquare" >
+</attrib>
+<attrib Name="CaptionOpacity" parent="Appearance" editable="1" visibleInEditor="1" lines="1" type="2" default="1" >
+</attrib>
+<attrib Name="CaptionSize" parent="Appearance" editable="1" visibleInEditor="1" lines="1" type="2" default="100" >
+</attrib>
+<attrib Name="Color" parent="Appearance" editable="1" visibleInEditor="1" lines="1" type="1" default="7" >
+</attrib>
+<attrib Name="Flags" parent="Appearance" editable="1" visibleInEditor="1" lines="1" type="10" canInherit="0" default="" >
+</attrib>
+<attrib Name="Opacity" parent="Appearance" editable="1" visibleInEditor="1" lines="1" type="2" default="1" >
+</attrib>
+<attrib Name="Pattern" parent="Appearance" editable="1" visibleInEditor="1" lines="1" default="plain" >
+</attrib>
+<attrib Name="PlotColor" parent="Appearance" editable="1" visibleInEditor="1" lines="1" type="1" default="light green" >
+</attrib>
+<attrib Name="Shadow" parent="Appearance" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="ShadowBlur" parent="Appearance" editable="1" visibleInEditor="1" lines="1" type="2" default="5" >
+</attrib>
+<attrib Name="ShadowColor" parent="Appearance" editable="1" visibleInEditor="1" lines="1" type="1" default="lighter black" >
+</attrib>
+<attrib Name="ShadowDistance" parent="Appearance" editable="1" visibleInEditor="1" lines="1" type="2" default="5" >
+</attrib>
+<attrib Name="Shape" parent="Appearance" editable="1" visibleInEditor="1" lines="1" suggested="normal;rectangle;rounded;oval;diamond;tag;vertical tag;bubble;hex;lozenge;cloud;leaf;banner;arrow" default="" >
+</attrib>
+</attrib>
+<attrib Name="Composites" parent="System" editable="0" visibleInEditor="1" lines="1" default="" >
+<attrib Name="Associates" parent="Composites" editable="0" visibleInEditor="1" lines="1" type="8" canInherit="0" default="" >
+</attrib>
+<attrib Name="IsComposite" parent="Composites" editable="0" visibleInEditor="1" lines="1" type="4" canInherit="0" default="false" >
+</attrib>
+<attrib Name="IsMultiple" parent="Composites" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="NeverComposite" parent="Composites" editable="1" visibleInEditor="1" lines="1" type="4" canInherit="0" default="true" >
+</attrib>
+<attrib Name="OnJoin" parent="Composites" editable="1" visibleInEditor="1" lines="1" type="7" default="" >
+</attrib>
+<attrib Name="Role" parent="Composites" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+</attrib>
+<attrib Name="Events" parent="System" editable="0" visibleInEditor="1" lines="1" default="" >
+<attrib Name="DueDate" parent="Events" editable="1" visibleInEditor="1" lines="1" type="5" default="never" >
+</attrib>
+<attrib Name="EndDate" parent="Events" editable="1" visibleInEditor="1" lines="1" type="5" default="never" >
+</attrib>
+<attrib Name="Participants" parent="Events" editable="1" visibleInEditor="1" lines="1" type="8" default="" >
+</attrib>
+<attrib Name="StartDate" parent="Events" editable="1" visibleInEditor="1" lines="1" type="5" default="never" >
+</attrib>
+<attrib Name="TimelineAliases" parent="Events" editable="1" visibleInEditor="1" lines="1" type="4" default="true" >
+</attrib>
+<attrib Name="TimelineBand" parent="Events" editable="1" visibleInEditor="1" lines="1" type="2" canInherit="0" default="0" >
+</attrib>
+<attrib Name="TimelineBandLabelColor" parent="Events" editable="1" visibleInEditor="1" lines="1" type="1" default="black" >
+</attrib>
+<attrib Name="TimelineBandLabelOpacity" parent="Events" editable="1" visibleInEditor="1" lines="1" type="2" default="0.25" >
+</attrib>
+<attrib Name="TimelineBandLabels" parent="Events" editable="1" visibleInEditor="1" lines="1" type="10" default="" >
+</attrib>
+<attrib Name="TimelineColor" parent="Events" editable="1" visibleInEditor="1" lines="1" type="1" default="lighter warm gray" >
+</attrib>
+<attrib Name="TimelineDescendants" parent="Events" editable="1" visibleInEditor="1" lines="1" type="4" default="true" >
+</attrib>
+<attrib Name="TimelineDrawLinks" parent="Events" editable="1" visibleInEditor="1" lines="1" type="4" default="true" >
+</attrib>
+<attrib Name="TimelineEnd" parent="Events" editable="1" visibleInEditor="1" lines="1" type="5" default="never" >
+</attrib>
+<attrib Name="TimelineEndAttribute" parent="Events" editable="1" visibleInEditor="1" lines="1" default="EndDate" >
+</attrib>
+<attrib Name="TimelineGridColor" parent="Events" editable="1" visibleInEditor="1" lines="1" type="1" default="#009090" >
+</attrib>
+<attrib Name="TimelineMarker" parent="Events" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="TimelineScaleColor" parent="Events" editable="1" visibleInEditor="1" lines="1" type="1" default="cool gray" >
+</attrib>
+<attrib Name="TimelineScaleColor2" parent="Events" editable="1" visibleInEditor="1" lines="1" type="1" default="" >
+</attrib>
+<attrib Name="TimelineStart" parent="Events" editable="1" visibleInEditor="1" lines="1" type="5" default="never" >
+</attrib>
+<attrib Name="TimelineStartAttribute" parent="Events" editable="1" visibleInEditor="1" lines="1" default="StartDate" >
+</attrib>
+</attrib>
+<attrib Name="Gaudi" parent="System" editable="0" visibleInEditor="1" lines="1" default="" >
+<attrib Name="GaudiHidden" parent="Gaudi" editable="1" visibleInEditor="1" lines="1" type="4" canInherit="0" default="false" >
+</attrib>
+<attrib Name="Xg" parent="Gaudi" editable="1" visibleInEditor="1" lines="1" type="2" canInherit="0" default="0" >
+</attrib>
+<attrib Name="Yg" parent="Gaudi" editable="1" visibleInEditor="1" lines="1" type="2" canInherit="0" default="0" >
+</attrib>
+</attrib>
+<attrib Name="General" parent="System" editable="0" visibleInEditor="1" lines="1" default="" >
+<attrib Name="AdornmentCount" parent="General" editable="0" visibleInEditor="1" lines="1" type="2" default="0" >
+</attrib>
+<attrib Name="Aliases" parent="General" editable="1" visibleInEditor="1" lines="1" type="10" default="" >
+</attrib>
+<attrib Name="Caption" parent="General" editable="1" visibleInEditor="1" lines="1" canInherit="0" default="" >
+</attrib>
+<attrib Name="Checked" parent="General" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="ChildCount" parent="General" editable="0" visibleInEditor="1" lines="1" type="2" default="0" >
+</attrib>
+<attrib Name="ClusterTerms" parent="General" editable="1" visibleInEditor="1" lines="1" type="8" default="" >
+</attrib>
+<attrib Name="Container" parent="General" editable="1" visibleInEditor="1" lines="1" canInherit="0" default="" >
+</attrib>
+<attrib Name="Created" parent="General" editable="0" visibleInEditor="1" lines="1" type="5" canInherit="0" default="never" >
+</attrib>
+<attrib Name="CreatedFrom" parent="General" editable="1" visibleInEditor="1" lines="1" canInherit="0" default="" >
+</attrib>
+<attrib Name="Creator" parent="General" editable="0" visibleInEditor="1" lines="1" kind="1" canInherit="0" default="tbuddy" >
+</attrib>
+<attrib Name="DescendantCount" parent="General" editable="0" visibleInEditor="1" lines="1" type="2" default="0" >
+</attrib>
+<attrib Name="DisplayExpression" parent="General" editable="1" visibleInEditor="1" lines="1" type="7" default="" >
+</attrib>
+<attrib Name="DisplayExpressionDisabled" parent="General" editable="1" visibleInEditor="1" lines="1" type="4" canInherit="0" default="false" >
+</attrib>
+<attrib Name="DisplayName" parent="General" editable="0" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="DoNotDelete" parent="General" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="Edict" parent="General" editable="1" visibleInEditor="1" lines="1" type="7" default="" >
+</attrib>
+<attrib Name="EdictDisabled" parent="General" editable="1" visibleInEditor="1" lines="1" type="4" canInherit="0" default="false" >
+</attrib>
+<attrib Name="EnabledWhen" parent="General" editable="1" visibleInEditor="1" lines="1" type="7" default="" >
+</attrib>
+<attrib Name="File" parent="General" editable="1" visibleInEditor="1" lines="1" type="3" default="" >
+</attrib>
+<attrib Name="HoverBackgroundColor" parent="General" editable="1" visibleInEditor="1" lines="1" type="1" default="black" >
+</attrib>
+<attrib Name="HoverExpression" parent="General" editable="1" visibleInEditor="1" lines="1" type="7" default="" >
+</attrib>
+<attrib Name="HoverImage" parent="General" editable="1" visibleInEditor="1" lines="1" type="3" default="" >
+</attrib>
+<attrib Name="HoverOpacity" parent="General" editable="1" visibleInEditor="1" lines="1" type="2" default="0.5" >
+</attrib>
+<attrib Name="ID" parent="General" editable="0" visibleInEditor="1" lines="1" type="2" canInherit="0" default="0" >
+</attrib>
+<attrib Name="IDString" parent="General" editable="0" visibleInEditor="1" lines="1" canInherit="0" default="" >
+</attrib>
+<attrib Name="InboundLinkCount" parent="General" editable="0" visibleInEditor="1" lines="1" type="2" canInherit="0" default="0" >
+</attrib>
+<attrib Name="IsAction" parent="General" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="IsAdornment" parent="General" editable="0" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="IsAgent" parent="General" editable="0" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="IsAlias" parent="General" editable="0" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="IsPrototype" parent="General" editable="1" visibleInEditor="1" lines="1" type="4" canInherit="0" default="false" >
+</attrib>
+<attrib Name="LocalAttributes" parent="General" editable="0" visibleInEditor="1" lines="1" type="8" canInherit="0" default="" >
+</attrib>
+<attrib Name="Modified" parent="General" editable="0" visibleInEditor="1" lines="1" type="5" canInherit="0" default="never" >
+</attrib>
+<attrib Name="Name" parent="General" editable="1" visibleInEditor="1" lines="1" canInherit="0" default="untitled" >
+</attrib>
+<attrib Name="OnAdd" parent="General" editable="1" visibleInEditor="1" lines="1" type="7" default="" >
+</attrib>
+<attrib Name="OnMouseDown" parent="General" editable="1" visibleInEditor="1" lines="1" type="7" default="" >
+</attrib>
+<attrib Name="OnMouseDrag" parent="General" editable="1" visibleInEditor="1" lines="1" type="7" default="" >
+</attrib>
+<attrib Name="OnMouseUp" parent="General" editable="1" visibleInEditor="1" lines="1" type="7" default="" >
+</attrib>
+<attrib Name="OnPaste" parent="General" editable="1" visibleInEditor="1" lines="1" type="7" default="" >
+</attrib>
+<attrib Name="OnRemove" parent="General" editable="1" visibleInEditor="1" lines="1" type="7" default="" >
+</attrib>
+<attrib Name="OutboundLinkCount" parent="General" editable="0" visibleInEditor="1" lines="1" type="2" canInherit="0" default="0" >
+</attrib>
+<attrib Name="OutlineDepth" parent="General" editable="0" visibleInEditor="1" lines="1" type="2" canInherit="0" default="0" >
+</attrib>
+<attrib Name="OutlineOrder" parent="General" editable="0" visibleInEditor="1" lines="1" type="2" canInherit="0" default="0" >
+</attrib>
+<attrib Name="Path" parent="General" editable="0" visibleInEditor="1" lines="1" canInherit="0" default="" >
+</attrib>
+<attrib Name="PlainLinkCount" parent="General" editable="0" visibleInEditor="1" lines="1" type="2" canInherit="0" default="0" >
+</attrib>
+<attrib Name="Private" parent="General" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="Prototype" parent="General" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="PrototypeBequeathsChildren" parent="General" editable="1" visibleInEditor="1" lines="1" type="4" default="true" >
+</attrib>
+<attrib Name="Rule" parent="General" editable="1" visibleInEditor="1" lines="1" type="7" default="" >
+</attrib>
+<attrib Name="RuleDisabled" parent="General" editable="1" visibleInEditor="1" lines="1" type="4" canInherit="0" default="false" >
+</attrib>
+<attrib Name="RunCommandShell" parent="General" editable="1" visibleInEditor="1" lines="1" default="/bin/sh" >
+</attrib>
+<attrib Name="Searchable" parent="General" editable="1" visibleInEditor="1" lines="1" type="4" canInherit="0" default="true" >
+</attrib>
+<attrib Name="SelectionCount" parent="General" editable="0" visibleInEditor="1" lines="1" type="2" default="0" >
+</attrib>
+<attrib Name="SiblingOrder" parent="General" editable="1" visibleInEditor="1" lines="1" type="2" canInherit="0" default="0" >
+</attrib>
+<attrib Name="Subtitle" parent="General" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="TextLinkCount" parent="General" editable="0" visibleInEditor="1" lines="1" type="2" canInherit="0" default="0" >
+</attrib>
+<attrib Name="WebLinkCount" parent="General" editable="0" visibleInEditor="1" lines="1" type="2" canInherit="0" default="0" >
+</attrib>
+</attrib>
+<attrib Name="Grid" parent="System" editable="0" visibleInEditor="1" lines="1" default="" >
+<attrib Name="GridColor" parent="Grid" editable="1" visibleInEditor="1" lines="1" type="1" default="#ffffff" >
+</attrib>
+<attrib Name="GridColumns" parent="Grid" editable="1" visibleInEditor="1" lines="1" type="2" default="1" >
+</attrib>
+<attrib Name="GridLabelFont" parent="Grid" editable="1" visibleInEditor="1" lines="1" type="11" default="IdealSansSSm-Book" >
+</attrib>
+<attrib Name="GridLabelSize" parent="Grid" editable="1" visibleInEditor="1" lines="1" type="2" default="10" >
+</attrib>
+<attrib Name="GridLabels" parent="Grid" editable="1" visibleInEditor="1" lines="1" type="10" default="" >
+</attrib>
+<attrib Name="GridOpacity" parent="Grid" editable="1" visibleInEditor="1" lines="1" type="2" default="0.75" >
+</attrib>
+<attrib Name="GridRows" parent="Grid" editable="1" visibleInEditor="1" lines="1" type="2" default="1" >
+</attrib>
+</attrib>
+<attrib Name="HTML" parent="System" editable="0" visibleInEditor="1" lines="1" default="" >
+<attrib Name="HTMLBoldEnd" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;/b&gt;" >
+</attrib>
+<attrib Name="HTMLBoldStart" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;b&gt;" >
+</attrib>
+<attrib Name="HTMLCloud1End" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;/span&gt;" >
+</attrib>
+<attrib Name="HTMLCloud1Start" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;span style=&quot;font-size: 0.75em&quot; &gt;" >
+</attrib>
+<attrib Name="HTMLCloud2End" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;/span&gt;" >
+</attrib>
+<attrib Name="HTMLCloud2Start" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;span style=&quot;font-size: 1em&quot; &gt;" >
+</attrib>
+<attrib Name="HTMLCloud3End" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;/span&gt;" >
+</attrib>
+<attrib Name="HTMLCloud3Start" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;span style=&quot;font-size: 1.4em&quot; &gt;" >
+</attrib>
+<attrib Name="HTMLCloud4End" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;/span&gt;" >
+</attrib>
+<attrib Name="HTMLCloud4Start" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;span style=&quot;font-size: 2em&quot; &gt;" >
+</attrib>
+<attrib Name="HTMLCloud5End" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;/span&gt;" >
+</attrib>
+<attrib Name="HTMLCloud5Start" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;span style=&quot;font-size: 2.8em&quot; &gt;" >
+</attrib>
+<attrib Name="HTMLCodeEnd" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;/code&gt;" >
+</attrib>
+<attrib Name="HTMLCodeStart" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;code&gt;" >
+</attrib>
+<attrib Name="HTMLDontExport" parent="HTML" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="HTMLEntities" parent="HTML" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="HTMLExportAfter" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="HTMLExportBefore" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="HTMLExportChildren" parent="HTML" editable="1" visibleInEditor="1" lines="1" type="4" default="true" >
+</attrib>
+<attrib Name="HTMLExportCommand" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="HTMLExportExtension" parent="HTML" editable="1" visibleInEditor="1" lines="1" default=".html" >
+</attrib>
+<attrib Name="HTMLExportFileName" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="HTMLExportFileNameSpacer" parent="HTML" editable="1" visibleInEditor="1" lines="1" default=" " >
+</attrib>
+<attrib Name="HTMLExportPath" parent="HTML" editable="0" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="HTMLExportTemplate" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="HTMLFileNameLowerCase" parent="HTML" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="HTMLFileNameMaxLength" parent="HTML" editable="1" visibleInEditor="1" lines="1" type="2" default="100" >
+</attrib>
+<attrib Name="HTMLFirstParagraphEnd" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;/p&gt;" >
+</attrib>
+<attrib Name="HTMLFirstParagraphStart" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;p&gt;" >
+</attrib>
+<attrib Name="HTMLFont" parent="HTML" editable="1" visibleInEditor="1" lines="1" type="11" default="Menlo" >
+</attrib>
+<attrib Name="HTMLFontSize" parent="HTML" editable="1" visibleInEditor="1" lines="1" type="2" default="13" >
+</attrib>
+<attrib Name="HTMLImageEnd" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&gt;" >
+</attrib>
+<attrib Name="HTMLImageStart" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;img" >
+</attrib>
+<attrib Name="HTMLIndentedParagraphEnd" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;/blockquote&gt;" >
+</attrib>
+<attrib Name="HTMLIndentedParagraphStart" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;blockquote&gt;" >
+</attrib>
+<attrib Name="HTMLItalicEnd" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;/i&gt;" >
+</attrib>
+<attrib Name="HTMLItalicStart" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;i&gt;" >
+</attrib>
+<attrib Name="HTMLLinkExtension" parent="HTML" editable="1" visibleInEditor="1" lines="1" default=".html" >
+</attrib>
+<attrib Name="HTMLListEnd" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;/ul&gt;" >
+</attrib>
+<attrib Name="HTMLListItemEnd" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;/li&gt;" >
+</attrib>
+<attrib Name="HTMLListItemStart" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;li&gt;" >
+</attrib>
+<attrib Name="HTMLListStart" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;ul&gt;" >
+</attrib>
+<attrib Name="HTMLMarkdown" parent="HTML" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="HTMLMarkupText" parent="HTML" editable="1" visibleInEditor="1" lines="1" type="4" default="true" >
+</attrib>
+<attrib Name="HTMLOrderedListEnd" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;/ol&gt;" >
+</attrib>
+<attrib Name="HTMLOrderedListItemEnd" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;/li&gt;" >
+</attrib>
+<attrib Name="HTMLOrderedListItemStart" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;li&gt;" >
+</attrib>
+<attrib Name="HTMLOrderedListStart" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;ol&gt;" >
+</attrib>
+<attrib Name="HTMLOverwriteImages" parent="HTML" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="HTMLParagraphEnd" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;/p&gt;" >
+</attrib>
+<attrib Name="HTMLParagraphStart" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;p&gt;" >
+</attrib>
+<attrib Name="HTMLPreviewCommand" parent="HTML" editable="1" visibleInEditor="1" lines="1" suggested="CommonMark;Markdown;MultiMarkdown" default="" >
+</attrib>
+<attrib Name="HTMLQuoteHTML" parent="HTML" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="HTMLStrikeEnd" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;/strike&gt;" >
+</attrib>
+<attrib Name="HTMLStrikeStart" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;strike&gt;" >
+</attrib>
+<attrib Name="HTMLSubscriptEnd" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;/sub&gt;" >
+</attrib>
+<attrib Name="HTMLSubscriptStart" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;sub&gt;" >
+</attrib>
+<attrib Name="HTMLSuperscriptEnd" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;/sup&gt;" >
+</attrib>
+<attrib Name="HTMLSuperscriptStart" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;sup&gt;" >
+</attrib>
+<attrib Name="HTMLUnderlineEnd" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;/u&gt;" >
+</attrib>
+<attrib Name="HTMLUnderlineStart" parent="HTML" editable="1" visibleInEditor="1" lines="1" default="&lt;u&gt;" >
+</attrib>
+<attrib Name="IsTemplate" parent="HTML" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="Marked2" parent="HTML" editable="1" visibleInEditor="1" lines="1" type="4" default="true" >
+</attrib>
+</attrib>
+<attrib Name="InformationCity" parent="System" editable="0" visibleInEditor="1" lines="1" default="" >
+<attrib Name="CityData" parent="InformationCity" editable="1" visibleInEditor="1" lines="1" type="13" default="" >
+</attrib>
+<attrib Name="CityHidden" parent="InformationCity" editable="1" visibleInEditor="1" lines="1" type="4" canInherit="0" default="false" >
+</attrib>
+<attrib Name="CityKind" parent="InformationCity" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="CityRotate" parent="InformationCity" editable="1" visibleInEditor="1" lines="1" type="2" default="0" >
+</attrib>
+<attrib Name="CityX" parent="InformationCity" editable="1" visibleInEditor="1" lines="1" type="2" canInherit="0" default="0" >
+</attrib>
+<attrib Name="CityY" parent="InformationCity" editable="1" visibleInEditor="1" lines="1" type="2" canInherit="0" default="0" >
+</attrib>
+</attrib>
+<attrib Name="Internal" parent="System" editable="0" visibleInEditor="0" lines="1" default="" >
+<attrib Name="Alias" parent="Internal" editable="0" visibleInEditor="0" lines="1" type="6" default="0" >
+</attrib>
+<attrib Name="EntryScript" parent="Internal" editable="0" visibleInEditor="0" lines="1" default="" >
+</attrib>
+<attrib Name="ExitScript" parent="Internal" editable="0" visibleInEditor="0" lines="1" default="" >
+</attrib>
+<attrib Name="WindowPlace" parent="Internal" editable="0" visibleInEditor="0" lines="1" kind="21" type="100" canInherit="0" default="Rect[ 50 50 750 1150]" >
+</attrib>
+</attrib>
+<attrib Name="Iris" parent="System" editable="0" visibleInEditor="1" lines="1" default="" >
+<attrib Name="IrisAngle" parent="Iris" editable="1" visibleInEditor="1" lines="1" type="2" default="0" >
+</attrib>
+<attrib Name="IrisRadius" parent="Iris" editable="1" visibleInEditor="1" lines="1" type="2" default="1" >
+</attrib>
+</attrib>
+<attrib Name="Map" parent="System" editable="0" visibleInEditor="1" lines="1" default="" >
+<attrib Name="AdornmentFont" parent="Map" editable="1" visibleInEditor="1" lines="1" type="11" default="RingsideCondensedSSm-Light" >
+</attrib>
+<attrib Name="Base" parent="Map" editable="1" visibleInEditor="1" lines="1" type="2" default="0.5" >
+</attrib>
+<attrib Name="Bend" parent="Map" editable="1" visibleInEditor="1" lines="1" type="2" default="0" >
+</attrib>
+<attrib Name="Direction" parent="Map" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="Fill" parent="Map" editable="1" visibleInEditor="1" lines="1" type="3" default="" >
+</attrib>
+<attrib Name="FillOffsetY" parent="Map" editable="1" visibleInEditor="1" lines="1" type="2" default="0" >
+</attrib>
+<attrib Name="FillOpacity" parent="Map" editable="1" visibleInEditor="1" lines="1" type="2" default="0.75" >
+</attrib>
+<attrib Name="HTMLMarkDown" parent="Map" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="Height" parent="Map" editable="1" visibleInEditor="1" lines="1" type="2" canInherit="0" default="2.48" >
+</attrib>
+<attrib Name="HoverFont" parent="Map" editable="1" visibleInEditor="1" lines="1" type="11" default="RingsideCondensedSSm-Med" >
+</attrib>
+<attrib Name="InteriorScale" parent="Map" editable="1" visibleInEditor="1" lines="1" kind="20" type="2" default="1.5" >
+</attrib>
+<attrib Name="LeafBase" parent="Map" editable="1" visibleInEditor="1" lines="1" type="2" default="0.5" >
+</attrib>
+<attrib Name="LeafBend" parent="Map" editable="1" visibleInEditor="1" lines="1" type="2" default="0" >
+</attrib>
+<attrib Name="LeafDirection" parent="Map" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="LeafTip" parent="Map" editable="1" visibleInEditor="1" lines="1" type="2" default="0.5" >
+</attrib>
+<attrib Name="Lock" parent="Map" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="MapBackgroundAccentColor" parent="Map" editable="1" visibleInEditor="1" lines="1" kind="24" type="1" default="gray" >
+</attrib>
+<attrib Name="MapBackgroundColor" parent="Map" editable="1" visibleInEditor="1" lines="1" kind="3" type="1" default="gray" >
+</attrib>
+<attrib Name="MapBackgroundColor2" parent="Map" editable="1" visibleInEditor="1" lines="1" type="1" default="gray" >
+</attrib>
+<attrib Name="MapBackgroundFill" parent="Map" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="MapBackgroundFillOpacity" parent="Map" editable="1" visibleInEditor="1" lines="1" type="2" default="0.1" >
+</attrib>
+<attrib Name="MapBackgroundPattern" parent="Map" editable="1" visibleInEditor="1" lines="1" kind="25" default="plain" >
+</attrib>
+<attrib Name="MapBackgroundShadow" parent="Map" editable="1" visibleInEditor="1" lines="1" type="4" default="true" >
+</attrib>
+<attrib Name="MapBodyTextColor" parent="Map" editable="1" visibleInEditor="1" lines="1" type="1" default="automatic" >
+</attrib>
+<attrib Name="MapBodyTextSize" parent="Map" editable="1" visibleInEditor="1" lines="1" type="2" default="0" >
+</attrib>
+<attrib Name="MapNameSize" parent="Map" editable="1" visibleInEditor="1" lines="1" type="2" default="100" >
+</attrib>
+<attrib Name="MapScrollX" parent="Map" editable="1" visibleInEditor="1" lines="1" type="2" canInherit="0" default="0" >
+</attrib>
+<attrib Name="MapScrollY" parent="Map" editable="1" visibleInEditor="1" lines="1" type="2" canInherit="0" default="0" >
+</attrib>
+<attrib Name="MapTextSize" parent="Map" editable="1" visibleInEditor="1" lines="1" type="2" default="100" >
+</attrib>
+<attrib Name="NameAlignment" parent="Map" editable="1" visibleInEditor="1" lines="1" default="left" >
+</attrib>
+<attrib Name="NameBold" parent="Map" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="NameColor" parent="Map" editable="1" visibleInEditor="1" lines="1" type="1" default="automatic" >
+</attrib>
+<attrib Name="NameFont" parent="Map" editable="1" visibleInEditor="1" lines="1" kind="2" type="11" default="IdealSansSSm-Book" >
+</attrib>
+<attrib Name="NameLeading" parent="Map" editable="1" visibleInEditor="1" lines="1" type="2" default="0" >
+</attrib>
+<attrib Name="NameOpacity" parent="Map" editable="1" visibleInEditor="1" lines="1" type="2" default="1" >
+</attrib>
+<attrib Name="NameStrike" parent="Map" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="NameVerticalAlignment" parent="Map" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="PlotBackgroundColor" parent="Map" editable="1" visibleInEditor="1" lines="1" type="1" default="white" >
+</attrib>
+<attrib Name="PlotBackgroundOpacity" parent="Map" editable="1" visibleInEditor="1" lines="1" type="2" default="0.5" >
+</attrib>
+<attrib Name="PlotColorList" parent="Map" editable="1" visibleInEditor="1" lines="1" type="10" default="2;7;3;8;4;9;0;5;1;6" >
+</attrib>
+<attrib Name="Sticky" parent="Map" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="Stripe" parent="Map" editable="1" visibleInEditor="1" lines="1" type="2" default="0" >
+</attrib>
+<attrib Name="StripeColor" parent="Map" editable="1" visibleInEditor="1" lines="1" type="1" default="" >
+</attrib>
+<attrib Name="SubtitleColor" parent="Map" editable="1" visibleInEditor="1" lines="1" type="1" default="automatic" >
+</attrib>
+<attrib Name="SubtitleOpacity" parent="Map" editable="1" visibleInEditor="1" lines="1" type="2" default="0.5" >
+</attrib>
+<attrib Name="SubtitleSize" parent="Map" editable="1" visibleInEditor="1" lines="1" type="2" default="75" >
+</attrib>
+<attrib Name="TableExpression" parent="Map" editable="1" visibleInEditor="1" lines="1" type="7" default="" >
+</attrib>
+<attrib Name="TableHeading" parent="Map" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="Tip" parent="Map" editable="1" visibleInEditor="1" lines="1" type="2" default="0.5" >
+</attrib>
+<attrib Name="TitleHeight" parent="Map" editable="1" visibleInEditor="1" lines="1" type="2" default="0" >
+</attrib>
+<attrib Name="TitleOpacity" parent="Map" editable="1" visibleInEditor="1" lines="1" type="2" default="1" >
+</attrib>
+<attrib Name="Width" parent="Map" editable="1" visibleInEditor="1" lines="1" type="2" canInherit="0" default="4" >
+</attrib>
+<attrib Name="Xpos" parent="Map" editable="1" visibleInEditor="1" lines="1" type="2" canInherit="0" default="0" >
+</attrib>
+<attrib Name="Ypos" parent="Map" editable="1" visibleInEditor="1" lines="1" type="2" canInherit="0" default="0" >
+</attrib>
+</attrib>
+<attrib Name="Net" parent="System" editable="0" visibleInEditor="1" lines="1" default="" >
+<attrib Name="AutoFetch" parent="Net" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="AutoFetchCommand" parent="Net" editable="1" visibleInEditor="1" lines="1" type="7" default="" >
+</attrib>
+<attrib Name="LastFetched" parent="Net" editable="0" visibleInEditor="1" lines="1" type="5" canInherit="0" default="never" >
+</attrib>
+<attrib Name="NoteURL" parent="Net" editable="0" visibleInEditor="1" lines="1" default="false" >
+</attrib>
+<attrib Name="RawData" parent="Net" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="URL" parent="Net" editable="1" visibleInEditor="1" lines="1" type="9" default="" >
+</attrib>
+<attrib Name="ViewInBrowser" parent="Net" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+</attrib>
+<attrib Name="Outline" parent="System" editable="0" visibleInEditor="1" lines="1" default="" >
+<attrib Name="IsSeparator" parent="Outline" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="OutlineBackgroundColor" parent="Outline" editable="1" visibleInEditor="1" lines="1" type="1" default="automatic" >
+</attrib>
+<attrib Name="OutlineColorSwatch" parent="Outline" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="OutlineNameSize" parent="Outline" editable="1" visibleInEditor="1" lines="1" type="2" default="100" >
+</attrib>
+<attrib Name="OutlineTextSize" parent="Outline" editable="1" visibleInEditor="1" lines="1" type="2" default="100" >
+</attrib>
+<attrib Name="PrototypeHighlightColor" parent="Outline" editable="1" visibleInEditor="1" lines="1" kind="13" type="1" default="#cceecc" >
+</attrib>
+<attrib Name="Separator" parent="Outline" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+</attrib>
+<attrib Name="People" parent="System" editable="0" visibleInEditor="1" lines="1" default="" >
+<attrib Name="Email" parent="People" editable="1" visibleInEditor="1" lines="1" type="14" default="" >
+</attrib>
+<attrib Name="EmailSubject" parent="People" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="EmailTemplate" parent="People" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="FullName" parent="People" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="Organization" parent="People" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="Telephone" parent="People" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="Twitter" parent="People" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+</attrib>
+<attrib Name="Places" parent="System" editable="0" visibleInEditor="1" lines="1" default="" >
+<attrib Name="Address" parent="Places" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="City" parent="Places" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="Country" parent="Places" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="District" parent="Places" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="FormattedAddress" parent="Places" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="GeocodedAddress" parent="Places" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="Latitude" parent="Places" editable="1" visibleInEditor="1" lines="1" type="2" default="0" >
+</attrib>
+<attrib Name="Longitude" parent="Places" editable="1" visibleInEditor="1" lines="1" type="2" default="0" >
+</attrib>
+<attrib Name="PostalCode" parent="Places" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="Range" parent="Places" editable="1" visibleInEditor="1" lines="1" type="2" default="0" >
+</attrib>
+<attrib Name="State" parent="Places" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+</attrib>
+<attrib Name="Poster" parent="System" editable="0" visibleInEditor="1" lines="1" default="" >
+<attrib Name="PosterCSS" parent="Poster" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="PosterLabels" parent="Poster" editable="1" visibleInEditor="1" lines="1" type="10" default="" >
+</attrib>
+<attrib Name="PosterSettings" parent="Poster" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="PosterTemplate" parent="Poster" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="PosterURL" parent="Poster" editable="1" visibleInEditor="1" lines="1" type="9" default="" >
+</attrib>
+<attrib Name="PosterX" parent="Poster" editable="1" visibleInEditor="1" lines="1" type="10" default="" >
+</attrib>
+<attrib Name="PosterY" parent="Poster" editable="1" visibleInEditor="1" lines="1" type="10" default="" >
+</attrib>
+<attrib Name="PosterZoom" parent="Poster" editable="1" visibleInEditor="1" lines="1" type="2" default="1" >
+</attrib>
+<attrib Name="ScreenHeight" parent="Poster" editable="0" visibleInEditor="1" lines="1" type="2" default="0" >
+</attrib>
+<attrib Name="ScreenWidth" parent="Poster" editable="0" visibleInEditor="1" lines="1" type="2" default="0" >
+</attrib>
+</attrib>
+<attrib Name="References" parent="System" editable="0" visibleInEditor="1" lines="1" default="" >
+<attrib Name="Abstract" parent="References" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="AccessDate" parent="References" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="ArticleTitle" parent="References" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="Author2" parent="References" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="Author3" parent="References" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="Author4" parent="References" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="Authors" parent="References" editable="1" visibleInEditor="1" lines="1" type="10" default="" >
+</attrib>
+<attrib Name="BookTitle" parent="References" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="CallNumber" parent="References" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="Citations" parent="References" editable="1" visibleInEditor="1" lines="1" type="13" default="" >
+</attrib>
+<attrib Name="CiteKey" parent="References" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="DOI" parent="References" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="Edition" parent="References" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="ISBN" parent="References" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="Issue" parent="References" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="Journal" parent="References" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="Pages" parent="References" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="PublicationCity" parent="References" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="PublicationYear" parent="References" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="Publisher" parent="References" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="ReadwiseDate" parent="References" editable="1" visibleInEditor="1" lines="1" type="5" default="never" >
+</attrib>
+<attrib Name="ReadwiseID" parent="References" editable="1" visibleInEditor="1" lines="1" type="2" default="0" >
+</attrib>
+<attrib Name="ReadwiseToken" parent="References" editable="1" visibleInEditor="1" lines="1" kind="28" default="" >
+</attrib>
+<attrib Name="RefFormat" parent="References" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="RefKeywords" parent="References" editable="1" visibleInEditor="1" lines="1" type="8" default="" >
+</attrib>
+<attrib Name="RefType" parent="References" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="ReferenceData" parent="References" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="ReferenceDictionary" parent="References" editable="1" visibleInEditor="1" lines="1" type="13" default="" >
+</attrib>
+<attrib Name="ReferenceRIS" parent="References" editable="1" visibleInEditor="1" lines="1" type="1" default="" >
+</attrib>
+<attrib Name="ReferenceTitle" parent="References" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="ReferenceURL" parent="References" editable="1" visibleInEditor="1" lines="1" type="9" default="" >
+</attrib>
+<attrib Name="SourceCreated" parent="References" editable="1" visibleInEditor="1" lines="1" type="5" default="never" >
+</attrib>
+<attrib Name="SourceModified" parent="References" editable="1" visibleInEditor="1" lines="1" type="5" default="never" >
+</attrib>
+<attrib Name="Tags" parent="References" editable="1" visibleInEditor="1" lines="1" type="8" default="" >
+</attrib>
+<attrib Name="Volume" parent="References" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+</attrib>
+<attrib Name="Sandbox" parent="System" editable="0" visibleInEditor="1" lines="1" default="" >
+<attrib Name="MyBoolean" parent="Sandbox" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="MyColor" parent="Sandbox" editable="1" visibleInEditor="1" lines="1" type="1" default="" >
+</attrib>
+<attrib Name="MyDate" parent="Sandbox" editable="1" visibleInEditor="1" lines="1" type="5" default="never" >
+</attrib>
+<attrib Name="MyDictionary" parent="Sandbox" editable="1" visibleInEditor="1" lines="1" type="13" default="" >
+</attrib>
+<attrib Name="MyInterval" parent="Sandbox" editable="1" visibleInEditor="1" lines="1" type="12" default="00:00" >
+</attrib>
+<attrib Name="MyList" parent="Sandbox" editable="1" visibleInEditor="1" lines="1" type="10" default="" >
+</attrib>
+<attrib Name="MyNumber" parent="Sandbox" editable="1" visibleInEditor="1" lines="1" type="2" default="0" >
+</attrib>
+<attrib Name="MySet" parent="Sandbox" editable="1" visibleInEditor="1" lines="1" type="8" default="" >
+</attrib>
+<attrib Name="MyString" parent="Sandbox" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+</attrib>
+<attrib Name="Scrivener" parent="System" editable="0" visibleInEditor="1" lines="1" default="" >
+<attrib Name="ScrivenerCompileAsIs" parent="Scrivener" editable="1" visibleInEditor="0" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="ScrivenerFileExtension" parent="Scrivener" editable="1" visibleInEditor="0" lines="1" default="" >
+</attrib>
+<attrib Name="ScrivenerFreeformFlag" parent="Scrivener" editable="1" visibleInEditor="0" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="ScrivenerID" parent="Scrivener" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="ScrivenerIconFileName" parent="Scrivener" editable="1" visibleInEditor="0" lines="1" default="" >
+</attrib>
+<attrib Name="ScrivenerIgnoresTitlePrefixAndSuffix" parent="Scrivener" editable="1" visibleInEditor="0" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="ScrivenerIncludeInCompile" parent="Scrivener" editable="1" visibleInEditor="0" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="ScrivenerIndexCardFileExension" parent="Scrivener" editable="1" visibleInEditor="0" lines="1" default="" >
+</attrib>
+<attrib Name="ScrivenerKeywords" parent="Scrivener" editable="1" visibleInEditor="1" lines="1" type="8" default="" >
+</attrib>
+<attrib Name="ScrivenerLabel" parent="Scrivener" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="ScrivenerLabelID" parent="Scrivener" editable="1" visibleInEditor="1" lines="1" type="2" default="0" >
+</attrib>
+<attrib Name="ScrivenerNote" parent="Scrivener" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="ScrivenerNoteRTF" parent="Scrivener" editable="1" visibleInEditor="0" lines="1" default="" >
+</attrib>
+<attrib Name="ScrivenerPageBreakBefore" parent="Scrivener" editable="1" visibleInEditor="0" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="ScrivenerPreferredExternalApplication" parent="Scrivener" editable="1" visibleInEditor="0" lines="1" default="" >
+</attrib>
+<attrib Name="ScrivenerShowSynopsisImage" parent="Scrivener" editable="1" visibleInEditor="0" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="ScrivenerStatus" parent="Scrivener" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="ScrivenerStatusID" parent="Scrivener" editable="1" visibleInEditor="1" lines="1" type="2" default="0" >
+</attrib>
+<attrib Name="ScrivenerTemplateFolder" parent="Scrivener" editable="1" visibleInEditor="0" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="ScrivenerType" parent="Scrivener" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+</attrib>
+<attrib Name="Sorting" parent="System" editable="0" visibleInEditor="1" lines="1" default="" >
+<attrib Name="Sort" parent="Sorting" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="SortAlso" parent="Sorting" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="SortAlsoTransform" parent="Sorting" editable="1" visibleInEditor="1" lines="1" default="case-sensitive" >
+</attrib>
+<attrib Name="SortBackward" parent="Sorting" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="SortBackwardAlso" parent="Sorting" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="SortTransform" parent="Sorting" editable="1" visibleInEditor="1" lines="1" default="case-sensitive" >
+</attrib>
+</attrib>
+<attrib Name="Storyspace" parent="System" editable="0" visibleInEditor="1" lines="1" default="" >
+<attrib Name="BeforeVisit" parent="Storyspace" editable="1" visibleInEditor="1" lines="1" type="7" default="" >
+</attrib>
+<attrib Name="ChosenWord" parent="Storyspace" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="Deck" parent="Storyspace" editable="1" visibleInEditor="1" lines="1" type="8" default="" >
+</attrib>
+<attrib Name="OnVisit" parent="Storyspace" editable="1" visibleInEditor="1" lines="1" type="7" default="" >
+</attrib>
+<attrib Name="Requirements" parent="Storyspace" editable="1" visibleInEditor="1" lines="1" type="7" default="" >
+</attrib>
+<attrib Name="ResetAction" parent="Storyspace" editable="1" visibleInEditor="1" lines="1" type="7" default="" >
+</attrib>
+<attrib Name="Visits" parent="Storyspace" editable="1" visibleInEditor="1" lines="1" type="2" default="0" >
+</attrib>
+</attrib>
+<attrib Name="Sullivan" parent="System" editable="0" visibleInEditor="1" lines="1" default="" >
+<attrib Name="SullivanAngle" parent="Sullivan" editable="1" visibleInEditor="1" lines="1" type="2" canInherit="0" default="0" >
+</attrib>
+<attrib Name="SullivanData" parent="Sullivan" editable="1" visibleInEditor="1" lines="1" type="13" default="" >
+</attrib>
+<attrib Name="SullivanElaboration" parent="Sullivan" editable="1" visibleInEditor="1" lines="1" type="10" default="" >
+</attrib>
+<attrib Name="SullivanRadius" parent="Sullivan" editable="1" visibleInEditor="1" lines="1" type="2" canInherit="0" default="10" >
+</attrib>
+<attrib Name="SullivanShape" parent="Sullivan" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="SullivanSymmetry" parent="Sullivan" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+</attrib>
+<attrib Name="Table" parent="System" editable="0" visibleInEditor="1" lines="1" default="" >
+<attrib Name="TableAttributes" parent="Table" editable="1" visibleInEditor="1" lines="1" type="10" default="" >
+</attrib>
+<attrib Name="TableFormat" parent="Table" editable="1" visibleInEditor="1" lines="1" type="13" default="" >
+</attrib>
+<attrib Name="TableHidden" parent="Table" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+</attrib>
+<attrib Name="TextFormat" parent="System" editable="0" visibleInEditor="1" lines="1" default="" >
+<attrib Name="CodeFont" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" type="11" default="Courier New" >
+</attrib>
+<attrib Name="DisplayedAttributes" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" type="10" default="" >
+</attrib>
+<attrib Name="DisplayedAttributesDateFormat" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="DisplayedAttributesFont" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" type="11" default="IdealSansSSm-Book" >
+</attrib>
+<attrib Name="DisplayedAttributesFontSize" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" type="2" default="11" >
+</attrib>
+<attrib Name="HideDisplayedAttributes" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="HideKeyAttributes" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="HideTitle" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="ImageSizeLimit" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" type="2" default="1600" >
+</attrib>
+<attrib Name="KeyAttributeDateFormat" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="KeyAttributeFont" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" type="11" default="IdealSansSSm-Book" >
+</attrib>
+<attrib Name="KeyAttributeFontSize" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" type="2" default="11" >
+</attrib>
+<attrib Name="KeyAttributes" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" type="10" default="" >
+</attrib>
+<attrib Name="LeftMargin" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" type="2" default="2" >
+</attrib>
+<attrib Name="LineSpacing" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" type="2" default="100" >
+</attrib>
+<attrib Name="NoSpelling" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" kind="27" type="4" default="false" >
+</attrib>
+<attrib Name="ParagraphSpacing" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" kind="14" type="2" default="8" >
+</attrib>
+<attrib Name="QuickListHangingIndent" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" type="2" default="12" >
+</attrib>
+<attrib Name="QuickListIndent" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" type="2" default="24" >
+</attrib>
+<attrib Name="RightMargin" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" type="2" default="2" >
+</attrib>
+<attrib Name="ShowTitle" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="SmartLinks" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" type="4" default="true" >
+</attrib>
+<attrib Name="SmartQuotes" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" kind="26" type="4" default="true" >
+</attrib>
+<attrib Name="SyntaxHighlighting" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="Tabs" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" default="0.25;0.25;0.25;0.25;" >
+</attrib>
+<attrib Name="TextAlign" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" kind="22" default="left" >
+</attrib>
+<attrib Name="TextBackgroundColor" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" kind="8" type="1" default="#ffffff" >
+</attrib>
+<attrib Name="TextColor" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" kind="7" type="1" default="#000000" >
+</attrib>
+<attrib Name="TextColorBlue" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" type="1" default="bright blue" >
+</attrib>
+<attrib Name="TextColorGray" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" type="1" default="warm gray" >
+</attrib>
+<attrib Name="TextColorGreen" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" type="1" default="bright green" >
+</attrib>
+<attrib Name="TextColorRed" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" type="1" default="bright red" >
+</attrib>
+<attrib Name="TextFont" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" kind="18" type="11" default="MercurySSm-Book" >
+</attrib>
+<attrib Name="TextFontSize" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" kind="19" type="2" default="16" >
+</attrib>
+<attrib Name="TextHighlightBlue" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" type="1" default="#3399FF" >
+</attrib>
+<attrib Name="TextHighlightGreen" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" type="1" default="#33FF66" >
+</attrib>
+<attrib Name="TextHighlightMagenta" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" type="1" default="#ff66ff" >
+</attrib>
+<attrib Name="TextHighlightRed" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" type="1" default="#FF5533" >
+</attrib>
+<attrib Name="TextHighlightYellow" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" type="1" default="#ffff00" >
+</attrib>
+<attrib Name="TextPaneRatio" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" type="2" default="0.5" >
+</attrib>
+<attrib Name="TextPaneWidth" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" type="2" default="-1" >
+</attrib>
+<attrib Name="TextSidebar" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" kind="17" type="4" default="false" >
+</attrib>
+<attrib Name="TextWindowHeight" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" type="2" default="250" >
+</attrib>
+<attrib Name="TextWindowWidth" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" type="2" default="475" >
+</attrib>
+<attrib Name="TitleBackgroundColor" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" kind="12" type="1" default="#000000" >
+</attrib>
+<attrib Name="TitleFont" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" kind="4" type="11" default="IdealSansSSm-Book" >
+</attrib>
+<attrib Name="TitleForegroundColor" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" kind="11" type="1" default="#ffffff" >
+</attrib>
+<attrib Name="Ziplinks" parent="TextFormat" editable="1" visibleInEditor="1" lines="1" type="4" default="true" >
+</attrib>
+</attrib>
+<attrib Name="Textual" parent="System" editable="0" visibleInEditor="1" lines="1" default="" >
+<attrib Name="EstimatedNoteSize" parent="Textual" editable="0" visibleInEditor="1" lines="1" type="2" default="0" >
+</attrib>
+<attrib Name="ImageCount" parent="Textual" editable="0" visibleInEditor="1" lines="1" type="2" default="0" >
+</attrib>
+<attrib Name="ReadOnly" parent="Textual" editable="1" visibleInEditor="1" lines="1" type="4" default="false" >
+</attrib>
+<attrib Name="Text" parent="Textual" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="TextCheckboxes" parent="Textual" editable="1" visibleInEditor="1" lines="1" type="10" default="" >
+</attrib>
+<attrib Name="TextExportTemplate" parent="Textual" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="TextHTML" parent="Textual" editable="0" visibleInEditor="1" lines="1" canInherit="0" default="" >
+</attrib>
+<attrib Name="TextLength" parent="Textual" editable="0" visibleInEditor="1" lines="1" type="2" default="0" >
+</attrib>
+<attrib Name="TextMarkdown" parent="Textual" editable="0" visibleInEditor="1" lines="1" canInherit="0" default="" >
+</attrib>
+<attrib Name="UpdateTextLinksAfterRename" parent="Textual" editable="1" visibleInEditor="1" lines="1" type="4" default="true" >
+</attrib>
+<attrib Name="WordCount" parent="Textual" editable="0" visibleInEditor="1" lines="1" type="2" default="0" >
+</attrib>
+<attrib Name="Wordcount" parent="Textual" editable="0" visibleInEditor="0" lines="1" type="2" default="0" >
+</attrib>
+</attrib>
+<attrib Name="Watch" parent="System" editable="0" visibleInEditor="1" lines="1" default="" >
+<attrib Name="DEVONthinkGroup" parent="Watch" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="DEVONthinkLabel" parent="Watch" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="EvernoteNotebook" parent="Watch" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="NotesFolder" parent="Watch" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="NotesID" parent="Watch" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="NotesModified" parent="Watch" editable="1" visibleInEditor="1" lines="1" type="5" default="never" >
+</attrib>
+<attrib Name="SimplenoteKey" parent="Watch" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="SimplenoteModified" parent="Watch" editable="1" visibleInEditor="1" lines="1" type="5" default="never" >
+</attrib>
+<attrib Name="SimplenoteSync" parent="Watch" editable="1" visibleInEditor="1" lines="1" type="2" default="0" >
+</attrib>
+<attrib Name="SimplenoteTags" parent="Watch" editable="1" visibleInEditor="1" lines="1" type="8" default="" >
+</attrib>
+<attrib Name="SimplenoteVersion" parent="Watch" editable="1" visibleInEditor="1" lines="1" type="2" default="0" >
+</attrib>
+<attrib Name="SourceURL" parent="Watch" editable="1" visibleInEditor="1" lines="1" type="9" default="" >
+</attrib>
+<attrib Name="Tot" parent="Watch" editable="1" visibleInEditor="1" lines="1" type="8" default="" >
+</attrib>
+<attrib Name="UUID" parent="Watch" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="WatchFolder" parent="Watch" editable="1" visibleInEditor="1" lines="1" type="3" default="" >
+</attrib>
+</attrib>
+<attrib Name="Weblog" parent="System" editable="0" visibleInEditor="1" lines="1" default="" >
+<attrib Name="WeblogPostID" parent="Weblog" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="mt_allow_comments" parent="Weblog" editable="1" visibleInEditor="1" lines="1" type="2" default="1" >
+</attrib>
+<attrib Name="mt_allow_pings" parent="Weblog" editable="1" visibleInEditor="1" lines="1" type="2" default="1" >
+</attrib>
+<attrib Name="mt_convert_breaks" parent="Weblog" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="mt_keywords" parent="Weblog" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+</attrib>
+</attrib>
+<attrib Name="User" parent="anything" editable="0" visibleInEditor="1" lines="1" default="" >
+<attrib Name="BorisId" parent="User" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="BorisParent" parent="User" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="BorisStatus" parent="User" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="ExportClass" parent="User" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="FixtureRole" parent="User" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+<attrib Name="MapsToBoris" parent="User" editable="1" visibleInEditor="1" lines="1" default="" >
+</attrib>
+</attrib>
+</attrib>
+<colors >
+<color name="0" color="#787a7a" hidden="0"  />
+<color name="1" color="#9ea0a1" hidden="0"  />
+<color name="2" color="#b4b7b8" hidden="0"  />
+<color name="3" color="#c3c6c7" hidden="0"  />
+<color name="4" color="#d0d3d4" hidden="0"  />
+<color name="5" color="#daddde" hidden="0"  />
+<color name="6" color="#e1e4e6" hidden="0"  />
+<color name="7" color="#e9ecee" hidden="0"  />
+<color name="8" color="#eff3f4" hidden="0"  />
+<color name="9" color="#f5f9fa" hidden="0"  />
+<color name="black" color="#000000" hidden="0"  />
+<color name="blue" color="#9888c2" hidden="0"  />
+<color name="bright blue" color="#0000ff" hidden="0"  />
+<color name="bright green" color="#00ff00" hidden="0"  />
+<color name="bright red" color="#ff0000" hidden="0"  />
+<color name="cool gray" color="#b8b8c4" hidden="0"  />
+<color name="cool gray dark" color="#888890" hidden="0"  />
+<color name="cyan" color="#92b5ba" hidden="0"  />
+<color name="gray" color="#f8fafa" hidden="0"  />
+<color name="green" color="#778f3b" hidden="0"  />
+<color name="magenta" color="#b85474" hidden="0"  />
+<color name="normal" color="#dc490b" hidden="0"  />
+<color name="orange" color="#f0b06f" hidden="0"  />
+<color name="poppy" color="#ffcc66" hidden="0"  />
+<color name="red" color="#914f4a" hidden="0"  />
+<color name="violet" color="#b692b4" hidden="0"  />
+<color name="warm gray" color="#c0b8b8" hidden="0"  />
+<color name="warm gray dark" color="#908888" hidden="0"  />
+<color name="white" color="#ffffff" hidden="0"  />
+<color name="yellow" color="#f5c992" hidden="0"  />
+</colors>
+<menu name="Value" kind="stamps" >
+</menu>
+<linkTypes >
+<linkType name="*untitled" label="" visible="1" showLabel="0" required="1" colorString="#000000" style="0" arrowType="0" >
+</linkType>
+<linkType name="agree" visible="1" showLabel="1" required="0" colorString="#000000" style="0" arrowType="0" >
+</linkType>
+<linkType name="clarify" visible="1" showLabel="1" required="0" colorString="#000000" style="0" arrowType="0" >
+</linkType>
+<linkType name="disagree" visible="1" showLabel="1" required="0" colorString="#000000" style="0" arrowType="0" >
+</linkType>
+<linkType name="example" visible="1" showLabel="1" required="0" colorString="#000000" style="0" arrowType="0" >
+</linkType>
+<linkType name="exception" visible="1" showLabel="1" required="0" colorString="#000000" style="0" arrowType="0" >
+</linkType>
+<linkType name="note" visible="1" showLabel="1" required="1" colorString="#666666" style="0" arrowType="0" >
+</linkType>
+<linkType name="note+" visible="1" showLabel="1" required="1" colorString="#444444" style="0" arrowType="0" >
+</linkType>
+<linkType name="prototype" visible="0" showLabel="1" required="1" colorString="#993333" style="512" arrowType="0" >
+</linkType>
+<linkType name="response" visible="1" showLabel="1" required="0" colorString="#000000" style="0" arrowType="0" >
+</linkType>
+<linkType name="update" visible="1" showLabel="1" required="0" colorString="#000000" style="0" arrowType="0" >
+</linkType>
+</linkTypes>
+<item ID="1789673853" Creator="tbuddy" >
+<attribute name="Created" >2026-09-17T09:21:45-04:00</attribute>
+<attribute name="MapScrollX" >0</attribute>
+<attribute name="MapScrollY" >-6.28125</attribute>
+<attribute name="Modified" >2026-09-17T09:21:45-04:00</attribute>
+<attribute name="Name" >Grok-Bot-Feature-Corpus</attribute>
+<attribute name="Xpos" >0</attribute>
+<attribute name="Ypos" >0</attribute>
+<item ID="1789651307" Creator="tbuddy" >
+<attribute name="Badge" >flag</attribute>
+<attribute name="Color" >warm gray dark</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="DominantLanguage" >en</attribute>
+<attribute name="IsPrototype" >false</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="Name" >Prototypes</attribute>
+<attribute name="ScreenHeight" >80</attribute>
+<attribute name="ScreenWidth" >128</attribute>
+<attribute name="Sentiment" >-0.8000000119</attribute>
+<attribute name="Sentiments" >-0.8;-0.8</attribute>
+<attribute name="Xpos" >0</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Prototype library for the Grok Bot feature corpus. Prototypes themselves are usually non-exported scaffolding; children marked IsPrototype=true define shared attributes/appearance.</text>
+<html ><![CDATA[<p>Prototype library for the Grok Bot feature corpus. Prototypes themselves are usually non-exported scaffolding; children marked IsPrototype=true define shared attributes/appearance.</p>]]></html>
+<item ID="1789651308" Creator="tbuddy" >
+<attribute name="Badge" >idea</attribute>
+<attribute name="Color" >blue</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="DisplayedAttributes" >BorisId;BorisStatus;ExportClass;Tags</attribute>
+<attribute name="DominantLanguage" >en</attribute>
+<attribute name="IsPrototype" >true</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="NLNames" >Boris</attribute>
+<attribute name="Name" >pConcept</attribute>
+<attribute name="Sentiment" >-0.6000000238</attribute>
+<attribute name="Sentiments" >-0.6;-0.6</attribute>
+<attribute name="Xpos" >0</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Prototype: conceptual note. Expected Boris mapping: Satellite or Trunk page with status/tags.</text>
+<html ><![CDATA[<p>Prototype: conceptual note. Expected Boris mapping: Satellite or Trunk page with status/tags.</p>]]></html>
+</item>
+<item ID="1789651309" Creator="tbuddy" >
+<attribute name="Badge" >ok</attribute>
+<attribute name="Color" >green</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="DisplayedAttributes" >BorisId;ExportClass;MapsToBoris;Tags</attribute>
+<attribute name="DominantLanguage" >en</attribute>
+<attribute name="IsPrototype" >true</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="Name" >pCapability</attribute>
+<attribute name="Sentiment" >-0.5000000149</attribute>
+<attribute name="Sentiments" >-0.6;-0.4</attribute>
+<attribute name="Xpos" >4.5</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Prototype: something Grok Bot can do. ExportClass often capability.</text>
+<html ><![CDATA[<p>Prototype: something Grok Bot can do. ExportClass often capability.</p>]]></html>
+</item>
+<item ID="1789651310" Creator="tbuddy" >
+<attribute name="Badge" >! </attribute>
+<attribute name="Color" >red</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="DisplayedAttributes" >BorisId;ExportClass;Tags</attribute>
+<attribute name="DominantLanguage" >en</attribute>
+<attribute name="IsPrototype" >true</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="Name" >pConstraint</attribute>
+<attribute name="Sentiment" >-0.1000000015</attribute>
+<attribute name="Sentiments" >0;-0.2</attribute>
+<attribute name="Xpos" >9</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Prototype: hard limit or policy. Must survive export as first-class content, not be dropped.</text>
+<html ><![CDATA[<p>Prototype: hard limit or policy. Must survive export as first-class content, not be dropped.</p>]]></html>
+</item>
+<item ID="1789651311" Creator="tbuddy" >
+<attribute name="Badge" >clock</attribute>
+<attribute name="Color" >purple</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="DisplayedAttributes" >BorisId;BorisParent;ExportClass</attribute>
+<attribute name="DominantLanguage" >en</attribute>
+<attribute name="IsPrototype" >true</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="Name" >pWorkflow</attribute>
+<attribute name="Sentiment" >-0.7000000179</attribute>
+<attribute name="Sentiments" >-0.6;-0.8</attribute>
+<attribute name="Xpos" >13.5</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Prototype: multi-step workflow. Outline order matters for sibling sequencing tests.</text>
+<html ><![CDATA[<p>Prototype: multi-step workflow. Outline order matters for sibling sequencing tests.</p>]]></html>
+</item>
+<item ID="1789651312" Creator="tbuddy" >
+<attribute name="Badge" >gear</attribute>
+<attribute name="Color" >orange</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="DisplayedAttributes" >FixtureRole;ExportClass;BorisId</attribute>
+<attribute name="DominantLanguage" >en</attribute>
+<attribute name="IsPrototype" >true</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="Name" >pFixture</attribute>
+<attribute name="Sentiment" >-0.5000000149</attribute>
+<attribute name="Sentiments" >-0.6;-0.4</attribute>
+<attribute name="Xpos" >18</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Prototype: note that exists primarily to exercise a Tinderbox construct for migration tests.</text>
+<html ><![CDATA[<p>Prototype: note that exists primarily to exercise a Tinderbox construct for migration tests.</p>]]></html>
+</item>
+</item>
+<item ID="1789651313" Creator="tbuddy" >
+<attribute name="Badge" >person</attribute>
+<attribute name="BorisId" >grok-bot</attribute>
+<attribute name="BorisStatus" >published</attribute>
+<attribute name="Color" >black</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="DisplayedAttributes" >BorisId;BorisStatus;ExportClass;FixtureRole;Tags</attribute>
+<attribute name="DominantLanguage" >en</attribute>
+<attribute name="ExportClass" >trunk</attribute>
+<attribute name="FixtureRole" >corpus-root</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="NLNames" >Boris;Timothy</attribute>
+<attribute name="NLOrganizations" >Boris</attribute>
+<attribute name="Name" >Grok Bot</attribute>
+<attribute name="ScreenHeight" >80</attribute>
+<attribute name="ScreenWidth" >128</attribute>
+<attribute name="Sentiment" >-0.314285719</attribute>
+<attribute name="Sentiments" >-0.4;-0.4;0.2;-0.2;-0.2;-0.8;-0.4</attribute>
+<attribute name="Tags" >boris;corpus;grok;tinderbox</attribute>
+<attribute name="Xpos" >4.5</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Grok Bot (this agent / Porty track): a desktop assistant helping Timothy understand Tinderbox and bridge useful slices into Boris.
+
+This document is intentionally featureful. It is not a sync system. It is a living corpus that:
+1) explains what Grok Bot is and how we work together
+2) exercises Tinderbox constructs we must inventory for any future boris-migration-lab --mode=tinderbox
+3) gives us a stable file to reopen, mutate carefully, and export against
+
+Boris content model reminder: Trunks have no parent; Satellites declare parent: &lt;entity-id&gt;; wiki-links and relations are validated; frontmatter is closed.</text>
+<html ><![CDATA[<p>Grok Bot (this agent / Porty track): a desktop assistant helping Timothy understand Tinderbox and bridge useful slices into Boris.</p>
+
+<p>This document is intentionally featureful. It is not a sync system. It is a living corpus that:</p>
+<p>1) explains what Grok Bot is and how we work together</p>
+<p>2) exercises Tinderbox constructs we must inventory for any future boris-migration-lab --mode=tinderbox</p>
+<p>3) gives us a stable file to reopen, mutate carefully, and export against</p>
+
+<p>Boris content model reminder: Trunks have no parent; Satellites declare parent: <entity-id>; wiki-links and relations are validated; frontmatter is closed.</p>]]></html>
+<item ID="1789651314" Creator="tbuddy" proto="pConcept" >
+<attribute name="BorisId" >grok-bot/identity</attribute>
+<attribute name="BorisParent" >grok-bot</attribute>
+<attribute name="BorisStatus" >published</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >satellite</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="Name" >Identity</attribute>
+<attribute name="Sentiment" >-0.4000000134</attribute>
+<attribute name="Sentiments" >-0.6;-0.2</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >0</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Who this bot is, who it serves, and what job it is hired to do.</text>
+<html ><![CDATA[<p>Who this bot is, who it serves, and what job it is hired to do.</p>]]></html>
+<item ID="1789673925" Creator="tbuddy" >
+<attribute name="Alias" >1789651333</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >0</attribute>
+<attribute name="Ypos" >0</attribute>
+</item>
+<item ID="1789651315" Creator="tbuddy" proto="pConcept" >
+<attribute name="BorisId" >grok-bot/identity/who</attribute>
+<attribute name="BorisParent" >grok-bot/identity</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >satellite</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="NLNames" >Boris;Timothy</attribute>
+<attribute name="Name" >Who I am</attribute>
+<attribute name="Sentiment" >-0.400000006</attribute>
+<attribute name="Sentiments" >-0.6;0.4;-1;-0.4</attribute>
+<attribute name="Tags" >identity</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >0</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Name in this chat: Porty. Role chip: becoming a Tinderbox expert and helping with Boris.
+
+I am not a human. I work on Timothy&apos;s Mac (and my own computer when useful), speak plainly, and prefer acting over asking when the action is reversible.
+
+Related: see Capabilities and Constraints.</text>
+<html ><![CDATA[<p>Name in this chat: Porty. Role chip: becoming a Tinderbox expert and helping with Boris.</p>
+
+<p>I am not a human. I work on Timothy's Mac (and my own computer when useful), speak plainly, and prefer acting over asking when the action is reversible.</p>
+
+<p>Related: see Capabilities and Constraints.</p>]]></html>
+</item>
+<item ID="1789651316" Creator="tbuddy" proto="pConcept" >
+<attribute name="BorisId" >grok-bot/identity/timothy</attribute>
+<attribute name="BorisParent" >grok-bot/identity</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >satellite</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="NLNames" >Boris;Timothy;Timothy Hartman</attribute>
+<attribute name="Name" >User: Timothy</attribute>
+<attribute name="Sentiment" >-0.400000006</attribute>
+<attribute name="Sentiments" >-0.8;0</attribute>
+<attribute name="Tags" >user</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >4.5</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Timothy Hartman. Uses Tinderbox 11 on Mac. Building understanding of Tinderbox&apos;s relational model alongside Boris (drawmeanelephant/boris). Playground: ~/Desktop/grokbot-tinderboris.</text>
+<html ><![CDATA[<p>Timothy Hartman. Uses Tinderbox 11 on Mac. Building understanding of Tinderbox's relational model alongside Boris (drawmeanelephant/boris). Playground: ~/Desktop/grokbot-tinderboris.</p>]]></html>
+</item>
+<item ID="1789651317" Creator="tbuddy" proto="pConcept" >
+<attribute name="BorisId" >grok-bot/identity/job</attribute>
+<attribute name="BorisParent" >grok-bot/identity</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >satellite</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="NLNames" >Timothy</attribute>
+<attribute name="Name" >Job to be done</attribute>
+<attribute name="Sentiment" >0</attribute>
+<attribute name="Sentiments" >-0.4;0;0.2;0;0.2</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >9</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >1. Build a mental model of what Tinderbox is actually doing (hierarchy, links, attributes, prototypes, agents, export).
+2. Maintain a solid base set of files for testing.
+3. Scope a future migration-lab mode — inventory → propose → review → emit Boris Markdown — without pretending two-way merge exists.
+4. File crisp GitHub issues Timothy can knock out in dedicated coding sessions.</text>
+<html ><![CDATA[<p>1. Build a mental model of what Tinderbox is actually doing (hierarchy, links, attributes, prototypes, agents, export).</p>
+<p>2. Maintain a solid base set of files for testing.</p>
+<p>3. Scope a future migration-lab mode — inventory → propose → review → emit Boris Markdown — without pretending two-way merge exists.</p>
+<p>4. File crisp GitHub issues Timothy can knock out in dedicated coding sessions.</p>]]></html>
+</item>
+</item>
+<item ID="1789651318" Creator="tbuddy" proto="pConcept" >
+<attribute name="BorisId" >grok-bot/capabilities</attribute>
+<attribute name="BorisParent" >grok-bot</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >satellite</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="Name" >Capabilities</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >4.5</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Things Grok Bot can do that matter for this project.</text>
+<html ><![CDATA[<p>Things Grok Bot can do that matter for this project.</p>]]></html>
+<item ID="1789651319" Creator="tbuddy" proto="pCapability" >
+<attribute name="BorisId" >grok-bot/capabilities/applescript</attribute>
+<attribute name="BorisParent" >grok-bot/capabilities</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >satellite</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="MapsToBoris" >tooling</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="Name" >Drive Tinderbox via AppleScript</attribute>
+<attribute name="Sentiment" >0</attribute>
+<attribute name="Sentiments" >0.4;-0.4</attribute>
+<attribute name="Tags" >automation;tinderbox</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >0</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Create notes, nest them, set attributes via act on / attribute of, linkTo by path, save documents. This is how we seed corpora without hand-clicking every note.</text>
+<html ><![CDATA[<p>Create notes, nest them, set attributes via act on / attribute of, linkTo by path, save documents. This is how we seed corpora without hand-clicking every note.</p>]]></html>
+</item>
+<item ID="1789651320" Creator="tbuddy" proto="pCapability" >
+<attribute name="BorisId" >grok-bot/capabilities/read-source</attribute>
+<attribute name="BorisParent" >grok-bot/capabilities</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >satellite</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="NLNames" >Boris;Read Boris</attribute>
+<attribute name="Name" >Read Boris + migration-lab source</attribute>
+<attribute name="Sentiment" >-0.3000000045</attribute>
+<attribute name="Sentiments" >0.2;-0.8</attribute>
+<attribute name="Tags" >boris;lab</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >4.5</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Local clones in the playground: grok-tinderboris-repo (Boris product) and boris-migration-lab. Obsidian mode is the closest pattern for a future Tinderbox mode: discover → map ids → rewrite links → copy attachments → emit review reports; never mutate the source.</text>
+<html ><![CDATA[<p>Local clones in the playground: grok-tinderboris-repo (Boris product) and boris-migration-lab. Obsidian mode is the closest pattern for a future Tinderbox mode: discover → map ids → rewrite links → copy attachments → emit review reports; never mutate the source.</p>]]></html>
+</item>
+<item ID="1789651321" Creator="tbuddy" proto="pCapability" >
+<attribute name="BorisId" >grok-bot/capabilities/scope-issues</attribute>
+<attribute name="BorisParent" >grok-bot/capabilities</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >satellite</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="NLNames" >Timothy</attribute>
+<attribute name="NLOrganizations" >GitHub</attribute>
+<attribute name="Name" >Write scope + issues</attribute>
+<attribute name="Sentiment" >-0.4000000134</attribute>
+<attribute name="Sentiments" >-0.6;-0.2</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >9</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Produce technical scope docs and draft GitHub issues. Timothy implements in focused coding sessions.</text>
+<html ><![CDATA[<p>Produce technical scope docs and draft GitHub issues. Timothy implements in focused coding sessions.</p>]]></html>
+</item>
+<item ID="1789651322" Creator="tbuddy" proto="pCapability" >
+<attribute name="BorisId" >grok-bot/capabilities/shell</attribute>
+<attribute name="BorisParent" >grok-bot/capabilities</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >satellite</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="Name" >Shell + file work on the Mac</attribute>
+<attribute name="Sentiment" >-0.4000000134</attribute>
+<attribute name="Sentiments" >-0.2;-0.6</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >13.5</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Inspect .tbx XML, unzip/compare fixtures, run zig build in migration-lab, manage playground files under Desktop/grokbot-tinderboris.</text>
+<html ><![CDATA[<p>Inspect .tbx XML, unzip/compare fixtures, run zig build in migration-lab, manage playground files under Desktop/grokbot-tinderboris.</p>]]></html>
+</item>
+</item>
+<item ID="1789651323" Creator="tbuddy" proto="pConcept" >
+<attribute name="BorisId" >grok-bot/constraints</attribute>
+<attribute name="BorisParent" >grok-bot</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >satellite</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="Name" >Constraints</attribute>
+<attribute name="Sentiment" >-0.3000000045</attribute>
+<attribute name="Sentiments" >0.2;-0.8</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >9</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Hard limits. Export pipelines must not paper over these.</text>
+<html ><![CDATA[<p>Hard limits. Export pipelines must not paper over these.</p>]]></html>
+<item ID="1789651324" Creator="tbuddy" proto="pConstraint" >
+<attribute name="BorisId" >grok-bot/constraints/no-merge</attribute>
+<attribute name="BorisParent" >grok-bot/constraints</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >satellite</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="NLNames" >Boris</attribute>
+<attribute name="Name" >No two-way merge</attribute>
+<attribute name="Sentiment" >-0.900000006</attribute>
+<attribute name="Sentiments" >-0.8;-1</attribute>
+<attribute name="Tags" >policy</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >0</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Practical stance: no merge and no live two-way sync. One direction at a time, reviewed slices, provenance in lab reports — not smuggled into Boris frontmatter.</text>
+<html ><![CDATA[<p>Practical stance: no merge and no live two-way sync. One direction at a time, reviewed slices, provenance in lab reports — not smuggled into Boris frontmatter.</p>]]></html>
+</item>
+<item ID="1789651325" Creator="tbuddy" proto="pConstraint" >
+<attribute name="BorisId" >grok-bot/constraints/closed-fm</attribute>
+<attribute name="BorisParent" >grok-bot/constraints</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >satellite</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="NLNames" >Boris</attribute>
+<attribute name="Name" >Boris frontmatter is closed</attribute>
+<attribute name="Sentiment" >-0.2000000104</attribute>
+<attribute name="Sentiments" >-0.6;0.2</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >4.5</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Only the closed key set (id, title, parent, status, tags, relations, published_at, summary, servings…). Unknown keys fail hard. Extra Tinderbox attributes become body text, lab sidecars, or are dropped with an explicit report entry.</text>
+<html ><![CDATA[<p>Only the closed key set (id, title, parent, status, tags, relations, published_at, summary, servings…). Unknown keys fail hard. Extra Tinderbox attributes become body text, lab sidecars, or are dropped with an explicit report entry.</p>]]></html>
+</item>
+<item ID="1789651326" Creator="tbuddy" proto="pConstraint" >
+<attribute name="BorisId" >grok-bot/constraints/lossy</attribute>
+<attribute name="BorisParent" >grok-bot/constraints</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >satellite</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="NLNames" >Markdown</attribute>
+<attribute name="NLOrganizations" >TBX</attribute>
+<attribute name="Name" >TBX is not Markdown</attribute>
+<attribute name="Sentiment" >-0.6000000089</attribute>
+<attribute name="Sentiments" >-0.8;-0.4</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >9</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Tinderbox stores rich note text + attributes + links + outline + map geometry. Any bridge must define lossiness per construct (exact / transformed / unsupported / human_review) like the Obsidian lab ConversionClass enum.</text>
+<html ><![CDATA[<p>Tinderbox stores rich note text + attributes + links + outline + map geometry. Any bridge must define lossiness per construct (exact / transformed / unsupported / human_review) like the Obsidian lab ConversionClass enum.</p>]]></html>
+</item>
+</item>
+<item ID="1789651327" Creator="tbuddy" proto="pConcept" >
+<attribute name="BorisId" >grok-bot/feature-gym</attribute>
+<attribute name="BorisParent" >grok-bot</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >satellite</attribute>
+<attribute name="FixtureRole" >gym-root</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="Name" >Feature Gym</attribute>
+<attribute name="Sentiment" >0.5000000149</attribute>
+<attribute name="Sentiments" >0.6;0.4</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >13.5</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Deliberate fixtures. Each child exists to stress one Tinderbox construct we must classify for migration. FixtureRole labels the construct.</text>
+<html ><![CDATA[<p>Deliberate fixtures. Each child exists to stress one Tinderbox construct we must classify for migration. FixtureRole labels the construct.</p>]]></html>
+<item ID="1789651328" Creator="tbuddy" proto="pFixture" >
+<attribute name="BorisId" >grok-bot/feature-gym/hierarchy</attribute>
+<attribute name="BorisParent" >grok-bot/feature-gym</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >satellite</attribute>
+<attribute name="FixtureRole" >hierarchy</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="Name" >Hierarchy deep nest</attribute>
+<attribute name="Sentiment" >-0.400000006</attribute>
+<attribute name="Sentiments" >-0.4;-0.4</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >0</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Parent/child outline depth test.</text>
+<html ><![CDATA[<p>Parent/child outline depth test.</p>]]></html>
+<item ID="1789651329" Creator="tbuddy" proto="pFixture" >
+<attribute name="BorisId" >grok-bot/feature-gym/hierarchy/l2</attribute>
+<attribute name="BorisParent" >grok-bot/feature-gym/hierarchy</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >satellite</attribute>
+<attribute name="FixtureRole" >hierarchy</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="Name" >Level 2</attribute>
+<attribute name="Sentiment" >-0.6000000238</attribute>
+<attribute name="Sentiments" >-0.6;-0.6</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >0</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Second level.</text>
+<html ><![CDATA[<p>Second level.</p>]]></html>
+<item ID="1789651330" Creator="tbuddy" proto="pFixture" >
+<attribute name="BorisId" >grok-bot/feature-gym/hierarchy/l3</attribute>
+<attribute name="BorisParent" >grok-bot/feature-gym/hierarchy/l2</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >satellite</attribute>
+<attribute name="FixtureRole" >hierarchy</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="Name" >Level 3</attribute>
+<attribute name="Sentiment" >-0.3000000119</attribute>
+<attribute name="Sentiments" >-0.6;0</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >0</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Third level — Boris parent chain must remain acyclic and explicit.</text>
+<html ><![CDATA[<p>Third level — Boris parent chain must remain acyclic and explicit.</p>]]></html>
+</item>
+</item>
+</item>
+<item ID="1789651331" Creator="tbuddy" proto="pFixture" >
+<attribute name="BorisId" >grok-bot/feature-gym/links</attribute>
+<attribute name="BorisParent" >grok-bot/feature-gym</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >satellite</attribute>
+<attribute name="FixtureRole" >basic-links</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="NLNames" >Boris</attribute>
+<attribute name="Name" >Typed links hub</attribute>
+<attribute name="Sentiment" >-0.6000000089</attribute>
+<attribute name="Sentiments" >-0.8;-0.4</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >4.5</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Basic (note-to-note) links with distinct link type names. These are candidates for Boris relations: [kind=target] or wiki-links depending on policy.</text>
+<html ><![CDATA[<p>Basic (note-to-note) links with distinct link type names. These are candidates for Boris relations: [kind=target] or wiki-links depending on policy.</p>]]></html>
+</item>
+<item ID="1789651332" Creator="tbuddy" proto="pFixture" >
+<attribute name="BorisId" >grok-bot/feature-gym/text-links</attribute>
+<attribute name="BorisParent" >grok-bot/feature-gym</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >satellite</attribute>
+<attribute name="FixtureRole" >text-links</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T15:38:16-04:00</attribute>
+<attribute name="NLOrganizations" >TBX XML</attribute>
+<attribute name="Name" >Text-link carrier</attribute>
+<attribute name="Sentiment" >-0.5600000113</attribute>
+<attribute name="Sentiments" >-0.2;-0.8;-0.6;-0.4;-0.8</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >9</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Text-link carrier for inventory tests.
+
+Anchor phrase below must become a text link (sstart/slen in XML):
+
+Alias target
+
+That phrase points at /Grok Bot/Feature Gym/Alias target. Basic links are separate.</text>
+<html ><![CDATA[<p>Text-link carrier for inventory tests.</p>
+
+<p>Anchor phrase below must become a text link (sstart/slen in XML):</p>
+
+<p>Alias target</p>
+
+<p>That phrase points at /Grok Bot/Feature Gym/Alias target. Basic links are separate.</p>]]></html>
+</item>
+<item ID="1789651333" Creator="tbuddy" proto="pFixture" >
+<attribute name="BorisId" >grok-bot/feature-gym/alias-target</attribute>
+<attribute name="BorisParent" >grok-bot/feature-gym</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >skip-resolve</attribute>
+<attribute name="FixtureRole" >alias</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="NLOrganizations" >Canonical</attribute>
+<attribute name="Name" >Alias target</attribute>
+<attribute name="Sentiment" >-0.6000000089</attribute>
+<attribute name="Sentiments" >-0.4;-0.8</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >13.5</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Canonical note that an alias could point at. Aliases are export-policy sensitive: usually resolve to canonical Boris id, never duplicate pages.</text>
+<html ><![CDATA[<p>Canonical note that an alias could point at. Aliases are export-policy sensitive: usually resolve to canonical Boris id, never duplicate pages.</p>]]></html>
+</item>
+<item ID="1789651334" Creator="tbuddy" proto="pFixture" >
+<attribute name="BorisId" >grok-bot/feature-gym/sib-a</attribute>
+<attribute name="BorisParent" >grok-bot/feature-gym</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >satellite</attribute>
+<attribute name="FixtureRole" >sibling-order</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="Name" >Separator-like sibling A</attribute>
+<attribute name="Sentiment" >-0.6000000238</attribute>
+<attribute name="Sentiments" >-0.6;-0.6</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >18</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Sibling order fixture A.</text>
+<html ><![CDATA[<p>Sibling order fixture A.</p>]]></html>
+</item>
+<item ID="1789651335" Creator="tbuddy" proto="pFixture" >
+<attribute name="BorisId" >grok-bot/feature-gym/sib-b</attribute>
+<attribute name="BorisParent" >grok-bot/feature-gym</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >satellite</attribute>
+<attribute name="FixtureRole" >sibling-order</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="Name" >Separator-like sibling B</attribute>
+<attribute name="Sentiment" >-0.8000000119</attribute>
+<attribute name="Sentiments" >-0.6;-1</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >22.5</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Sibling order fixture B — outline order should be stable in exports.</text>
+<html ><![CDATA[<p>Sibling order fixture B — outline order should be stable in exports.</p>]]></html>
+</item>
+<item ID="1789651336" Creator="tbuddy" proto="pFixture" >
+<attribute name="BorisId" >grok-bot/feature-gym/empty</attribute>
+<attribute name="BorisParent" >grok-bot/feature-gym</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >satellite</attribute>
+<attribute name="FixtureRole" >empty-body</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="Name" >Empty body note</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >27</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Prototype: note that exists primarily to exercise a Tinderbox construct for migration tests.</text>
+<html ><![CDATA[<p>Prototype: note that exists primarily to exercise a Tinderbox construct for migration tests.</p>]]></html>
+</item>
+<item ID="1789651337" Creator="tbuddy" proto="pFixture" >
+<attribute name="BorisId" >grok-bot/feature-gym/long-body</attribute>
+<attribute name="BorisParent" >grok-bot/feature-gym</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >satellite</attribute>
+<attribute name="FixtureRole" >long-body-md</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="NLNames" >Markdown</attribute>
+<attribute name="Name" >Long body with markdown-ish text</attribute>
+<attribute name="Sentiment" >-0.4363636496</attribute>
+<attribute name="Sentiments" >-0.4;-0.6;-0.6;-0.6;-0.6;0.4;-0.8;-0.4;0.2;-0.6;-0.8</attribute>
+<attribute name="Tags" >markdown-ish</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >31.5</attribute>
+<attribute name="Ypos" >0</attribute>
+<text ># Heading-ish line
+
+A paragraph with **pseudo-markdown** and a list:
+- alpha
+- beta
+- gamma
+
+Wiki-link-ish mention of Identity that is NOT a Tinderbox link, just characters: [[Identity]]
+
+Code-ish:
+    boris validate
+    boris --out .boris
+
+This stresses plain-text export vs rich text, and whether body transformers should interpret Markdown that authors typed manually inside Tinderbox.</text>
+<html ><![CDATA[<ol><li> Heading-ish line</li></ol>
+
+<p>A paragraph with **pseudo-markdown** and a list:</p>
+<p>- alpha</p>
+<p>- beta</p>
+<p>- gamma</p>
+
+<p>Wiki-link-ish mention of Identity that is NOT a Tinderbox link, just characters: [[Identity]]</p>
+
+<p>Code-ish:</p>
+    <p>boris validate</p>
+    <p>boris --out .boris</p>
+
+<p>This stresses plain-text export vs rich text, and whether body transformers should interpret Markdown that authors typed manually inside Tinderbox.</p>]]></html>
+</item>
+<item ID="1789651338" Creator="tbuddy" proto="pFixture" >
+<attribute name="BorisId" >grok-bot/feature-gym/url</attribute>
+<attribute name="BorisParent" >grok-bot/feature-gym</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >satellite</attribute>
+<attribute name="FixtureRole" >url-attr</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="Name" >URL attribute note</attribute>
+<attribute name="Sentiment" >-0.4000000134</attribute>
+<attribute name="Sentiments" >-0.2;-0.6</attribute>
+<attribute name="URL" >https://github.com/drawmeanelephant/boris</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >36</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Uses $URL system attribute pointing at the Boris repo.</text>
+<html ><![CDATA[<p>Uses $URL system attribute pointing at the Boris repo.</p>]]></html>
+</item>
+</item>
+<item ID="1789651339" Creator="tbuddy" proto="pConcept" >
+<attribute name="BorisId" >grok-bot/workflows</attribute>
+<attribute name="BorisParent" >grok-bot</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >satellite</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="Name" >Workflows</attribute>
+<attribute name="Sentiment" >-0.3000000045</attribute>
+<attribute name="Sentiments" >-0.4;-0.2</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >18</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >How we work the long journey.</text>
+<html ><![CDATA[<p>How we work the long journey.</p>]]></html>
+<item ID="1789651340" Creator="tbuddy" proto="pWorkflow" >
+<attribute name="BorisId" >grok-bot/workflows/understand</attribute>
+<attribute name="BorisParent" >grok-bot/workflows</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >satellite</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="NLNames" >Boris</attribute>
+<attribute name="Name" >1. Understand Tinderbox constructs</attribute>
+<attribute name="Sentiment" >-0.2000000104</attribute>
+<attribute name="Sentiments" >-0.6;0.2</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >0</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Enumerate outline, basic links, text links, prototypes, agents, adornments, attributes, templates, aliases. Classify each for Boris.</text>
+<html ><![CDATA[<p>Enumerate outline, basic links, text links, prototypes, agents, adornments, attributes, templates, aliases. Classify each for Boris.</p>]]></html>
+</item>
+<item ID="1789651341" Creator="tbuddy" proto="pWorkflow" >
+<attribute name="BorisId" >grok-bot/workflows/fixture</attribute>
+<attribute name="BorisParent" >grok-bot/workflows</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >satellite</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="Name" >2. Freeze a fixture TBX</attribute>
+<attribute name="Sentiment" >0.1000000015</attribute>
+<attribute name="Sentiments" >0.4;-0.2</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >4.5</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >This document (Grok-Bot-Feature-Corpus.tbx) is version 0 of that fixture. Copy into boris-migration-lab/fixtures/mini-tinderbox/ once mode work starts.</text>
+<html ><![CDATA[<p>This document (Grok-Bot-Feature-Corpus.tbx) is version 0 of that fixture. Copy into boris-migration-lab/fixtures/mini-tinderbox/ once mode work starts.</p>]]></html>
+</item>
+<item ID="1789651342" Creator="tbuddy" proto="pWorkflow" >
+<attribute name="BorisId" >grok-bot/workflows/lab-mode</attribute>
+<attribute name="BorisParent" >grok-bot/workflows</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >satellite</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="NLOrganizations" >Lab</attribute>
+<attribute name="Name" >3. Lab mode: inventory then emit</attribute>
+<attribute name="Sentiment" >-0.299999997</attribute>
+<attribute name="Sentiments" >0.4;-1</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >9</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Follow migration-lab philosophy: read-only on .tbx, write candidates + reports under an out dir. ConversionClass: exact | transformed | unsupported | human_review.</text>
+<html ><![CDATA[<p>Follow migration-lab philosophy: read-only on .tbx, write candidates + reports under an out dir. ConversionClass: exact | transformed | unsupported | human_review.</p>]]></html>
+</item>
+<item ID="1789651343" Creator="tbuddy" proto="pWorkflow" >
+<attribute name="BorisId" >grok-bot/workflows/issues</attribute>
+<attribute name="BorisParent" >grok-bot/workflows</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >satellite</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="Name" >4. Coding sessions on filed issues</attribute>
+<attribute name="Sentiment" >-0.5000000149</attribute>
+<attribute name="Sentiments" >-0.4;-0.6</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >13.5</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Issues live as drafts in the playground first; promote to drawmeanelephant/boris-migration-lab when ready.</text>
+<html ><![CDATA[<p>Issues live as drafts in the playground first; promote to drawmeanelephant/boris-migration-lab when ready.</p>]]></html>
+</item>
+</item>
+<item ID="1789651344" Creator="tbuddy" proto="pConcept" >
+<attribute name="BorisId" >grok-bot/mapping</attribute>
+<attribute name="BorisParent" >grok-bot</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >satellite</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="Name" >TB ↔ Boris mapping</attribute>
+<attribute name="Sentiment" >-0.51818183</attribute>
+<attribute name="Sentiments" >-0.8;-0.2;-0.6;-0.6;-0.2;-0.2;-0.8;-0.2;-0.4;-0.8;0;-0.6;-0.8;-0.8;-0.8;-0.6;-0.8;0.2;-0.6;-0.6;-0.4;-0.8</attribute>
+<attribute name="Tags" >mapping</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >22.5</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Working map (v0):
+
+Tinderbox                     → Boris
+-----------------------------   -----------------------------
+Note ($Name)                  → title (+ path-derived or BorisId)
+Outline parent                → parent: entity-id (Satellite)
+Root / no parent              → Trunk
+$Text                         → Markdown body (transformed)
+Basic link (unnamed/named)    → [[wiki]] and/or relations:[kind=]
+Text link                     → wiki-link or human_review
+$Tags                         → tags: [...]
+$URL                          → body link or dropped+reported
+Prototype                     → usually scaffolding (unsupported as page)
+Agent                         → unsupported (report)
+Adornment                     → unsupported (report)
+Alias                         → resolve to canonical id
+Map Xpos/Ypos/Width/Height    → unsupported (geometry)
+User attrs outside closed set → sidecar / body appendix / drop+report
+$BorisId (user)               → id: (exact when valid)
+$BorisParent (user)           → parent: (exact when valid)
+$BorisStatus (user)           → status:
+$ExportClass                  → lab-only projection hint</text>
+<html ><![CDATA[<p>Working map (v0):</p>
+
+<p>Tinderbox                     → Boris</p>
+<p>-----------------------------   -----------------------------</p>
+<p>Note ($Name)                  → title (+ path-derived or BorisId)</p>
+<p>Outline parent                → parent: entity-id (Satellite)</p>
+<p>Root / no parent              → Trunk</p>
+<p>$Text                         → Markdown body (transformed)</p>
+<p>Basic link (unnamed/named)    → [[wiki]] and/or relations:[kind=]</p>
+<p>Text link                     → wiki-link or human_review</p>
+<p>$Tags                         → tags: [...]</p>
+<p>$URL                          → body link or dropped+reported</p>
+<p>Prototype                     → usually scaffolding (unsupported as page)</p>
+<p>Agent                         → unsupported (report)</p>
+<p>Adornment                     → unsupported (report)</p>
+<p>Alias                         → resolve to canonical id</p>
+<p>Map Xpos/Ypos/Width/Height    → unsupported (geometry)</p>
+<p>User attrs outside closed set → sidecar / body appendix / drop+report</p>
+<p>$BorisId (user)               → id: (exact when valid)</p>
+<p>$BorisParent (user)           → parent: (exact when valid)</p>
+<p>$BorisStatus (user)           → status:</p>
+<p>$ExportClass                  → lab-only projection hint</p>]]></html>
+</item>
+<item ID="1789651345" Creator="tbuddy" proto="pConcept" >
+<attribute name="BorisId" >grok-bot/open-questions</attribute>
+<attribute name="BorisParent" >grok-bot</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >satellite</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="NLNames" >Timothy</attribute>
+<attribute name="Name" >Open questions</attribute>
+<attribute name="Sentiment" >-0.4000000134</attribute>
+<attribute name="Sentiments" >-0.2;-0.6</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >27</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Parking lot for decisions Timothy owns.</text>
+<html ><![CDATA[<p>Parking lot for decisions Timothy owns.</p>]]></html>
+<item ID="1789651346" Creator="tbuddy" proto="pConcept" >
+<attribute name="BorisId" >grok-bot/open-questions/entity-id</attribute>
+<attribute name="BorisParent" >grok-bot/open-questions</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >satellite</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="Name" >Entity id strategy</attribute>
+<attribute name="Sentiment" >-0.900000006</attribute>
+<attribute name="Sentiments" >-0.8;-1</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >0</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Prefer explicit $BorisId user attribute, or derive from outline path slug? Hybrid: BorisId wins when set; else slugify path.</text>
+<html ><![CDATA[<p>Prefer explicit $BorisId user attribute, or derive from outline path slug? Hybrid: BorisId wins when set; else slugify path.</p>]]></html>
+</item>
+<item ID="1789651347" Creator="tbuddy" proto="pConcept" >
+<attribute name="BorisId" >grok-bot/open-questions/link-policy</attribute>
+<attribute name="BorisParent" >grok-bot/open-questions</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >satellite</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="Name" >Named link types vs wiki-links</attribute>
+<attribute name="Sentiment" >-0.8000000119</attribute>
+<attribute name="Sentiments" >-0.8;-0.8</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >4.5</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Should link type names become relations kinds (depends-on=target) while untitled links become [[wiki]]? Need a policy table.</text>
+<html ><![CDATA[<p>Should link type names become relations kinds (depends-on=target) while untitled links become [[wiki]]? Need a policy table.</p>]]></html>
+</item>
+<item ID="1789651348" Creator="tbuddy" proto="pConcept" >
+<attribute name="BorisId" >grok-bot/open-questions/rich-text</attribute>
+<attribute name="BorisParent" >grok-bot/open-questions</attribute>
+<attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="ExportClass" >satellite</attribute>
+<attribute name="Height" >2.48</attribute>
+<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="NLNames" >Markdown</attribute>
+<attribute name="Name" >Rich text → Markdown fidelity</attribute>
+<attribute name="Sentiment" >-0.5000000075</attribute>
+<attribute name="Sentiments" >-0.2;-0.8</attribute>
+<attribute name="Width" >4</attribute>
+<attribute name="Xpos" >9</attribute>
+<attribute name="Ypos" >0</attribute>
+<text >Tinderbox text is not guaranteed Markdown. Decide: plain dump, best-effort MD transform, or always human_review when style runs exist.</text>
+<html ><![CDATA[<p>Tinderbox text is not guaranteed Markdown. Decide: plain dump, best-effort MD transform, or always human_review when style runs exist.</p>]]></html>
+</item>
+</item>
+</item>
+</item>
+<links >
+<link name="prototype" sourceid="1789651309" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651322" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651308" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651323" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651308" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651315" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651308" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651314" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651309" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651320" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651308" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651316" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651309" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651319" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651308" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651318" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651310" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651324" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651308" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651317" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651310" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651325" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651309" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651321" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651310" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651326" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651308" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651327" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651312" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651328" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651312" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651329" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651312" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651330" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651312" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651331" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651312" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651332" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651312" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651335" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651312" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651333" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651312" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651338" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651312" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651334" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651308" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651339" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651312" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651337" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651312" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651336" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651311" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651340" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651311" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651341" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651311" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651342" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651311" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651343" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651308" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651344" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651308" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651345" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651308" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651348" destcreator="tbuddy" color="normal"  />
+<link name="*untitled" sourceid="1789651315" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651317" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651308" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651346" destcreator="tbuddy" color="normal"  />
+<link name="*untitled" sourceid="1789651315" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651318" destcreator="tbuddy" color="normal"  />
+<link name="*untitled" sourceid="1789651319" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651327" destcreator="tbuddy" color="normal"  />
+<link name="*untitled" sourceid="1789651315" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651323" destcreator="tbuddy" color="normal"  />
+<link name="*untitled" sourceid="1789651320" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651342" destcreator="tbuddy" color="normal"  />
+<link name="*untitled" sourceid="1789651324" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651344" destcreator="tbuddy" color="normal"  />
+<link name="*untitled" sourceid="1789651326" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651327" destcreator="tbuddy" color="normal"  />
+<link name="*untitled" sourceid="1789651331" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651324" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651308" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651347" destcreator="tbuddy" color="normal"  />
+<link name="*untitled" sourceid="1789651341" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651327" destcreator="tbuddy" color="normal"  />
+<link name="*untitled" sourceid="1789651331" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651344" destcreator="tbuddy" color="normal"  />
+<link name="*untitled" sourceid="1789651331" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651314" destcreator="tbuddy" color="normal"  />
+<link name="*untitled" sourceid="1789651342" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651344" destcreator="tbuddy" color="normal"  />
+<link name="*untitled" sourceid="1789651347" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651331" destcreator="tbuddy" color="normal"  />
+<link name="*untitled" sourceid="1789651325" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651344" destcreator="tbuddy" color="normal"  />
+<link name="*untitled" sourceid="1789651344" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651325" destcreator="tbuddy" color="normal"  />
+<link name="*untitled" sourceid="1789651317" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651339" destcreator="tbuddy" color="normal"  />
+<link name="*untitled" sourceid="1789651313" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651307" destcreator="tbuddy" color="normal"  />
+<link name="*untitled" sourceid="1789651313" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651327" destcreator="tbuddy" color="normal"  />
+<link name="note" sourceid="1789651331" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651344" destcreator="tbuddy" color="normal"  />
+<link name="*untitled" sourceid="1789651313" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651344" destcreator="tbuddy" color="normal"  />
+<link name="disagree" sourceid="1789651331" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651324" destcreator="tbuddy" color="normal"  />
+<link name="example" sourceid="1789651331" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651315" destcreator="tbuddy" color="normal"  />
+<link name="agree" sourceid="1789651331" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651344" destcreator="tbuddy" color="normal"  />
+<link name="clarify" sourceid="1789651331" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651325" destcreator="tbuddy" color="normal"  />
+<link name="note" sourceid="1789651332" sourcecreator="tbuddy" sstart="107" slen="12" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651333" destcreator="tbuddy" color="normal"  />
+</links>
+<macros >
+</macros>
+<preferences >
+<Creator > tbuddy</Creator>
+<ToolbarVisible > 1</ToolbarVisible>
+<OpenTextImmediately > 0</OpenTextImmediately>
+<Tinderbox5Wizard > 1</Tinderbox5Wizard>
+<DynamicSpelling > 1</DynamicSpelling>
+<AutoOpen > 1</AutoOpen>
+<AutomaticBackup > 1</AutomaticBackup>
+<ReopenLastDocument > 0</ReopenLastDocument>
+<Autosave > 0</Autosave>
+<KeepWindowsOpen > 1</KeepWindowsOpen>
+<LeftMargin > 2</LeftMargin>
+<RightMargin > -2</RightMargin>
+<ParagraphSpacing > 4</ParagraphSpacing>
+<TextFont > MercurySSm-Book</TextFont>
+<NewTextSize > 16</NewTextSize>
+<TextJust > 0</TextJust>
+<AlwaysShowTextLinks > 1</AlwaysShowTextLinks>
+<ShowWikiLinks > 1</ShowWikiLinks>
+<TextLinkFrames > 1</TextLinkFrames>
+<TextLinkColorString > #0066cc</TextLinkColorString>
+<TextBackgroundColorString > white</TextBackgroundColorString>
+<SmartQuotes > 1</SmartQuotes>
+<TextWindowWidth > 6</TextWindowWidth>
+<TextWindowHeight > 6</TextWindowHeight>
+<AutoIndentLists > 1</AutoIndentLists>
+<ShowTitle > 0</ShowTitle>
+<TitleFont > IdealSansSSm-Book</TitleFont>
+<TitleSize > 2</TitleSize>
+<TitleJust > 2</TitleJust>
+<MapShowLinks > 1</MapShowLinks>
+<MapEnacted > 1</MapEnacted>
+<InPlaceEditing > 1</InPlaceEditing>
+<MapLabelSizeNew > 16</MapLabelSizeNew>
+<MapBackgroundColorString > gray</MapBackgroundColorString>
+<MapBackgroundColorString2 > gray</MapBackgroundColorString2>
+<OpaqueAdornments > 0</OpaqueAdornments>
+<MapBackgroundPattern > plain</MapBackgroundPattern>
+<PrototypeHighlightColorString > #cceecc</PrototypeHighlightColorString>
+<MapFont > IdealSansSSm-Book</MapFont>
+<DarkenOutlineColors > 1</DarkenOutlineColors>
+<BlackOutlineText > 0</BlackOutlineText>
+<WhiteOutlineText > 0</WhiteOutlineText>
+<UnderlineAliases > 0</UnderlineAliases>
+<AutomaticLinkDetection > 1</AutomaticLinkDetection>
+<HiddenTabBar > 0</HiddenTabBar>
+<TextPaneSelectorHidden > 1</TextPaneSelectorHidden>
+<ExpandLinkController > 0</ExpandLinkController>
+<ForbidAnalytics > 0</ForbidAnalytics>
+<AllowMCP > 0</AllowMCP>
+<MCPConsent > 1</MCPConsent>
+<SpellChecking > 1</SpellChecking>
+<ParseNames > 1</ParseNames>
+<AllowMapZoom > 1</AllowMapZoom>
+<OutlineLeading > 2</OutlineLeading>
+<InteriorScale > 1</InteriorScale>
+<InteriorScaleNew > 1.5</InteriorScaleNew>
+<ExpandMode > 1</ExpandMode>
+<AfterLinkingSelect > 1</AfterLinkingSelect>
+<FindWidth > 300</FindWidth>
+<ExportImageFormat > 1</ExportImageFormat>
+<ExportURL > http://</ExportURL>
+<ExportHTMLHelper > Safari</ExportHTMLHelper>
+<ExportHTMLExtension > 1</ExportHTMLExtension>
+<HTMLParagraphStyle > 1</HTMLParagraphStyle>
+<HTMLViewFont > IdealSansSSm-Book</HTMLViewFont>
+<HTMLViewFontSize > 2</HTMLViewFontSize>
+<ExportTemplatePath > plain</ExportTemplatePath>
+<RoadmapWindowWidth > 0</RoadmapWindowWidth>
+<RoadmapWindowHeight > 0</RoadmapWindowHeight>
+<TextExportViewFont > IdealSansSSm-Book</TextExportViewFont>
+<TextExportViewFontSize > 2</TextExportViewFontSize>
+<ExportTextTemplatePath > outline</ExportTextTemplatePath>
+<ExportTextHelper > TextEdit</ExportTextHelper>
+<AskToDelete > 2</AskToDelete>
+<DailyTip > 1</DailyTip>
+<WarnEditingDefault > 1</WarnEditingDefault>
+<WarnDuplicateName > 1</WarnDuplicateName>
+<RunScriptsAutomatically > 1</RunScriptsAutomatically>
+<Version > version 11.8.0</Version>
+<PreferencePane > 0</PreferencePane>
+<LastBadgeFamily > 1</LastBadgeFamily>
+<SearchMode > 1</SearchMode>
+<TipWindowX > 300</TipWindowX>
+<TipWindowY > 50</TipWindowY>
+<MCPPort > 7765</MCPPort>
+<RegUserName > </RegUserName>
+<RegUserOrg > </RegUserOrg>
+<CurrentAttributeClass > </CurrentAttributeClass>
+<CurrentAttribute > </CurrentAttribute>
+<FindCaseSensitive > 1</FindCaseSensitive>
+<ExportFolder > /var/folders/p_/h710w89x7b16x249r_061lkw0000gn/T/com.eastgate.tinderbox/export</ExportFolder>
+<ReadOnly > 0</ReadOnly>
+<InfoWindowHeight > 0</InfoWindowHeight>
+<InfoWindowWidth > 0</InfoWindowWidth>
+<RecentFiles > </RecentFiles>
+<PingServer > http://rpc.weblogs.com/RPC2</PingServer>
+<PingMethod > weblogUpdates.ping</PingMethod>
+<PingTitle > your weblog name</PingTitle>
+<PingURL > weblog URL</PingURL>
+<PingTechnorati > 1</PingTechnorati>
+<PingWeblogsCom > 1</PingWeblogsCom>
+<PingGoogle > 1</PingGoogle>
+<PingFeedURL > </PingFeedURL>
+<WeblogServer > http://your_host/cgi-bin/mt/mt-xmlrpc.cgi</WeblogServer>
+<WeblogUser > </WeblogUser>
+<WeblogPassword > </WeblogPassword>
+<WeblogID > 1</WeblogID>
+<WeblogKind > 2</WeblogKind>
+<ToolbarKind > -28303</ToolbarKind>
+<ReadingReminders > 0</ReadingReminders>
+<AllowViews > 1</AllowViews>
+<AutomaticAgentUpdate > 1</AutomaticAgentUpdate>
+<ToolbarX > 0</ToolbarX>
+<ToolbarY > 0</ToolbarY>
+<FindWindowX > 600</FindWindowX>
+<FindWindowY > 100</FindWindowY>
+<RenameWindowX > -1</RenameWindowX>
+<RenameWindowY > -1</RenameWindowY>
+<InspectorX > 220</InspectorX>
+<InspectorY > 54</InspectorY>
+<EnterKeyAction > 0</EnterKeyAction>
+<UpdateViewShown > </UpdateViewShown>
+<TimelineScale > 1000</TimelineScale>
+<TimelineLabelSize > 0</TimelineLabelSize>
+<GetInfoPane > </GetInfoPane>
+<GetInfoCategory > </GetInfoCategory>
+<GetInfoSelection > </GetInfoSelection>
+<LastLinkName > *untitled</LastLinkName>
+<UsingGuides > 1</UsingGuides>
+<TextColorString > black</TextColorString>
+<SystemAttributesCategory > </SystemAttributesCategory>
+<SystemAttributesSelection > </SystemAttributesSelection>
+<CheckMail > 0</CheckMail>
+<MailHost > </MailHost>
+<MailUser > </MailUser>
+<MailPassword > </MailPassword>
+<CheckSimplenote > 0</CheckSimplenote>
+<SimplenoteEmail > </SimplenoteEmail>
+<SimplenotePassword > </SimplenotePassword>
+<SimplenoteTag > </SimplenoteTag>
+<ReadwiseToken > </ReadwiseToken>
+<ZoteroName > </ZoteroName>
+<ZoteroKey > </ZoteroKey>
+<ZoteroStyle > </ZoteroStyle>
+<MapBackgroundColor > 0 0 0</MapBackgroundColor>
+<MapBackgroundColor2 > 0 0 0</MapBackgroundColor2>
+<TextColor > 0 0 0</TextColor>
+<TextBackgroundColor > 65535 65535 65535</TextBackgroundColor>
+<TextSize > 16</TextSize>
+<TitleBackgroundColor > 0 0 0</TitleBackgroundColor>
+<TitleForegroundColor > 65535 65535 65535</TitleForegroundColor>
+<ActiveLinkColor > 65535 0 0</ActiveLinkColor>
+<VisitedLinkColor > 26112 0 52224</VisitedLinkColor>
+<MagnifyFonts > 1</MagnifyFonts>
+<MagnifyPictures > 1</MagnifyPictures>
+<RememberWindowPositions > 1</RememberWindowPositions>
+<ExportHTMLCreator > 1</ExportHTMLCreator>
+<ExportTextCreator > 1</ExportTextCreator>
+<ShowSidebar > 1</ShowSidebar>
+<MapPrototypeColor > 52428 61166 52428</MapPrototypeColor>
+<TextLinkColor > 0 26112 52224</TextLinkColor>
+<MapLabelSize > 3</MapLabelSize>
+<LastVersionString > </LastVersionString>
+<LastNewsItem > tbx117.html</LastNewsItem>
+</preferences>
+<windows >
+<window bounds="Rect[ 0 55 1800 1129]" ruler="0" toolbar="1" >
+<tabs >
+<tab selected="0" name="" subtitle="" viewType="0" usingRoadmap="0" hideBreadcrumbs="0" hideLinkWidgets="0" linkStubs="1" animateLinks="1" scale="32" ID="1789673853" scrollX="294.5" scrollY="460" mapscrollX="294.5" mapscrollY="223" selection="" expanded="" textTab="0" splitRatio="0.671389" xattribute="Name" xattribute2="Height" xdisplayattribute="DisplayName" xbarattribute="OutlineOrder" xcontainer="" xquery="" xqueryLabel="" xbins="5" xunlimited="0" xbins2="5" xunlimited2="0" xheatmap="0" xReportStyle="0" spacing="0.35" aspect="2" hyperbolicScale="1" path="" focus="1789671828" crosslinks="1" spread="0.5" treepaths="" crosslinkpaths="" hasBorder="0" isVertical="0" isCentered="1" lineType="0" itemWidth="220" xspace="10" yspace="10" showColumns="0" usingCheckboxes="0" columnString="" oldColumnString="" treemapExpression="" treemapColorExpression="" treemapBorderColorExpression="$Color" treemapColorStart="#fffef9100" treemapColorEnd="#ccd5bf100" treemapDepth="0" attribute="" container="" bins="10" dateGranularity="Day" sortAttribute="" sortDirections="0" summaryAttribute="" summaryMethod="" query="" queryLabel="" action="" actionLabel="" fontSize="16" omitDefaultValues="1" showFilter="0" filterString="" filterName="" tableFontSize="12" force="" gaudiSize="0" gaudiFontSize="16" roundness="10" grout="10" cameraPosition="5 2.5 -5" cameraDirection="0 0 0" focalLength="0"  />
+<tab selected="1" name="" subtitle="" viewType="1" usingRoadmap="0" hideBreadcrumbs="0" hideLinkWidgets="0" linkStubs="1" animateLinks="1" scale="32" ID="1789673853" scrollX="0" scrollY="0" mapscrollX="0" mapscrollY="0" selection="1789651345 " expanded="1789651307 1789651313 1789651314 1789651318 1789651323 1789651327 1789651339 " textTab="0" splitRatio="0.5" xattribute="Name" xattribute2="Height" xdisplayattribute="DisplayName" xbarattribute="OutlineOrder" xcontainer="" xquery="" xqueryLabel="" xbins="5" xunlimited="0" xbins2="5" xunlimited2="0" xheatmap="0" xReportStyle="0" spacing="0.35" aspect="2" hyperbolicScale="1" path="" focus="1789671828" crosslinks="1" spread="0.5" treepaths="" crosslinkpaths="" hasBorder="0" isVertical="0" isCentered="1" lineType="0" itemWidth="220" xspace="10" yspace="10" showColumns="0" usingCheckboxes="0" columnString="" oldColumnString="" treemapExpression="" treemapColorExpression="" treemapBorderColorExpression="$Color" treemapColorStart="#fffef9100" treemapColorEnd="#ccd5bf100" treemapDepth="0" attribute="" container="" bins="10" dateGranularity="Day" sortAttribute="" sortDirections="0" summaryAttribute="" summaryMethod="" query="" queryLabel="" action="" actionLabel="" fontSize="16" omitDefaultValues="1" showFilter="0" filterString="" filterName="" tableFontSize="12" force="" gaudiSize="0" gaudiFontSize="16" roundness="10" grout="10" cameraPosition="5 2.5 -5" cameraDirection="0 0 0" focalLength="0"  />
+</tabs>
+</window>
+</windows>
+<utilityWindows >
+</utilityWindows>
+<searches >
+</searches>
+<filters >
+</filters>
+<gallery >
+</gallery>
+<badges limit="63" >
+</badges>
+</tinderbox>
