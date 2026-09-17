@@ -10,6 +10,8 @@ Standalone **migration laboratory** for bringing existing sites into Boris.
 | **wordpress** | WordPress WXR/XML + optional local media | Boris-ready Markdown under `content/` + review reports |
 | **instagram** | Unpacked Instagram data-download (Takeout) | Boris Markdown + generated theme assets + reports |
 | **obsidian** | Local Obsidian vault directory | Boris Markdown + attachments inventory + review reports |
+| **tinderbox-inventory** | Tinderbox `.tbx` XML document | Read-only `inventory.json` + `INVENTORY.md` |
+| **tinderbox** | Tinderbox `.tbx` XML document | Candidate Boris Markdown + conversion reports |
 | **notion** | Official Notion “Markdown & CSV” export (unpacked) | Boris Markdown + media inventory + review reports |
 | **filed** | Filed.fyi Astro source root | Bounded changelog/releases Boris tree + provenance/review reports |
 | **starlight** | Starlight/Astro docs root (locale-dir or root-locale) | Boris candidate `content/` + route/link/relation/nav/asset/selection/boundary manifests + compile report |
@@ -36,12 +38,13 @@ repository.
 | WordPress format id | `boris-wordpress-migration-lab` |
 | Instagram format id | `boris-instagram-migration-lab` |
 | Obsidian format id | `boris-obsidian-migration-lab` |
+| Tinderbox format id | `boris-tinderbox-migration-lab` |
 | Notion format id | `boris-notion-migration-lab` |
 | Filed format id | `boris-filed-fyi-migration-lab` |
 | Starlight format id | `boris-starlight-migration-lab` |
 | Asset-filename format id | `boris-asset-filename-lab` |
 | Theme-archaeology format id | `boris-theme-archaeology-lab` |
-| Schema | Instagram **`2`**; Astro/Obsidian/Notion/Filed/Starlight/Asset-filename/Theme-archaeology/Theme-materialize `1`; WordPress **`3`** |
+| Schema | Instagram **`2`**; Astro/Obsidian/Notion/Filed/Starlight/Asset-filename/Theme-archaeology/Theme-materialize/Tinderbox `1`; WordPress **`3`** |
 
 Companion author guide: [`docs/MIGRATION.md`](docs/MIGRATION.md).
 
@@ -137,6 +140,16 @@ zig build run -- --mode=obsidian \
   --vault=./fixtures/mini-obsidian \
   --out=./.obs-report
 
+# Tinderbox .tbx → inventory (no Markdown yet)
+zig build run -- --mode=tinderbox-inventory \
+  --tbx=./fixtures/mini-tinderbox/Grok-Bot-Feature-Corpus.tbx \
+  --out=./.tbx-inventory
+
+# Tinderbox .tbx → candidate Boris Markdown + reports
+zig build run -- --mode=tinderbox \
+  --tbx=./fixtures/mini-tinderbox/Grok-Bot-Feature-Corpus.tbx \
+  --out=./.tbx-emit
+
 # Notion Markdown & CSV export → Boris Markdown + media + reports
 zig build run -- --mode=notion \
   --export=./fixtures/mini-notion \
@@ -201,7 +214,7 @@ zig build test   # with BORIS_BIN exported or `boris` on PATH (see Boris pins)
 |------|---------|---------|
 | `-h`, `--help` | | Print usage; exit 0 |
 | `-q`, `--quiet` | off | Suppress progress lines |
-| `--mode=MODE` | `astro` | `astro`, `astro-import-plan`, `astro-import-apply`, `wordpress` (`wp` / `wxr`), `wordpress-theme` (`wp-theme` / `kubrick-theme`), `instagram` (`ig` / `takeout`), `obsidian` (`obs` / `vault`), `notion` (`md-csv` / `notion-export`), `filed` (`filed-fyi`), `starlight` (`sl` / `evcc`), `asset-filename` (`assets` / `asset-compat` / `filename-compat`), `theme-archaeology` (`theme` / `theme-arch` / `theme-inventory`), or `theme-materialize` (`materialize` / `theme-materialise`) |
+| `--mode=MODE` | `astro` | `astro`, `astro-import-plan`, `astro-import-apply`, `wordpress` (`wp` / `wxr`), `wordpress-theme` (`wp-theme` / `kubrick-theme`), `instagram` (`ig` / `takeout`), `obsidian` (`obs` / `vault`), `tinderbox-inventory` (`tbx-inventory` / `tinderbox-inv`), `tinderbox` (`tinderbox-emit` / `tbx`), `notion` (`md-csv` / `notion-export`), `filed` (`filed-fyi`), `starlight` (`sl` / `evcc`), `asset-filename` (`assets` / `asset-compat` / `filename-compat`), `theme-archaeology` (`theme` / `theme-arch` / `theme-inventory`), or `theme-materialize` (`materialize` / `theme-materialise`) |
 | `--out=DIR` | `migration-report` | Output directory (**must differ from inputs**); must be explicit for `astro-import-plan` |
 | `--root=DIR` | `.` | Astro archaeology root, Starlight project root, asset-filename content tree, theme scan root, or generated HTML tree for `link-audit`; must be explicit for `astro-import-plan` |
 | `--content-root=RELATIVE_DIR` | | Required by `astro-import-plan` and `astro-import-apply`; approved plain-Markdown root relative to `--root` |
@@ -214,6 +227,9 @@ zig build test   # with BORIS_BIN exported or `boris` on PATH (see Boris pins)
 | `--media=DIR` | | Optional offline local media/uploads tree (WordPress); never modified; no network |
 | `--dump=DIR` | | Unpacked Instagram data-download root (implies `--mode=instagram`) |
 | `--vault=DIR` | | Obsidian vault root (implies `--mode=obsidian`) |
+| `--tbx=FILE` | | Tinderbox `.tbx` XML path (implies `--mode=tinderbox-inventory` unless `--mode=tinderbox`) |
+| `--gate` | off | Tinderbox emit: run the pinned Boris parser on generated Markdown |
+| `--relation-kinds=a,b` | | Tinderbox emit: allowlisted link type names → `relations:` |
 | `--export=DIR` | | Unpacked Notion Markdown & CSV export root (implies `--mode=notion`) |
 | `--filed-root=DIR` | | Filed.fyi Astro source root (implies `--mode=filed`) |
 | `--locale=en` | `en` | Starlight discovery key (**en only**). Uses `src/content/docs/en/` when present; else root-locale files under `src/content/docs/` |
@@ -232,7 +248,8 @@ Exit codes: **0** success, **2** usage, **3** I/O error.
 2. **No network** — no fetches, no package installs, no oEmbed expansion.
 3. **No destructive source ops** — no delete/rename of WXR, media, vault, or scan-root files.
 4. **No product coupling** — imports no product compiler modules except the
-   pinned `parser` package used as the astro-import-apply final gate; the
+   pinned `parser` package used as the astro-import-apply final gate and the
+   optional Tinderbox `--gate`; the
    product binary is an explicit pinned prerequisite, never a build step.
 5. **Deterministic** — sorted ids/paths; fixed field order; no host timestamps in report bodies.
 6. **Never silently discard** — unsupported items are preserved under `content/_preserved/` (WordPress) or left raw in-place (Obsidian links) and listed in the report.
@@ -240,33 +257,36 @@ Exit codes: **0** success, **2** usage, **3** I/O error.
    followers, and ads trees are not read.
 8. **Obsidian** — never ingest or commit a private vault; use a local path only.
    `.obsidian/`, `.git/`, `node_modules/`, and generated/output dirs are skipped.
-9. **Notion** — official **Markdown & CSV** export only (already unpacked). No
+9. **Tinderbox** — never mutate the source `.tbx`. Inventory and emit are
+   one-way XML reads. Lab provenance never becomes Boris frontmatter keys.
+   See [`docs/contracts/tinderbox-disposition.md`](docs/contracts/tinderbox-disposition.md).
+10. **Notion** — official **Markdown & CSV** export only (already unpacked). No
    Notion API, OAuth, remote fetch, or private workspace data in the repo.
    Hidden/tooling dirs (`.git/`, `node_modules/`, `dist/`, …) are skipped.
-10. **Asset-filename** — never relaxes Boris core path grammar; only rewrites
+11. **Asset-filename** — never relaxes Boris core path grammar; only rewrites
     under `--out`. Symlinks and destination collisions are rejected (no silent
     overwrite). No remote asset fetch and no source-site JavaScript execution.
-11. **Theme-archaeology** — inventory only (writes under `--out`). Never
+12. **Theme-archaeology** — inventory only (writes under `--out`). Never
     executes JS/MDX, never fetches remotes, never follows embedded directives,
     never mutates the source theme. Ambiguous mappings are **review**, never
     guesses.
-12. **WordPress-theme** — source-line inventory only (writes under `--out`).
+13. **WordPress-theme** — source-line inventory only (writes under `--out`).
     Never executes PHP/JS, loads WordPress, resolves plugin/database state,
     fetches remote assets, or claims universal WordPress compatibility. Every
     dynamic finding is retained in `manual_review.json`.
-13. **WordPress and theme publication** — `wordpress`, `wordpress-theme`,
+14. **WordPress and theme publication** — `wordpress`, `wordpress-theme`,
     `theme-archaeology`, and `theme-materialize` write a complete sibling stage
     and replace only an output carrying their exact
     `.boris-migration-lab-output` ownership marker. A non-empty unmarked
     `--out`, source/output symlink, or stale unowned stage is refused without
     mutation. Successful reruns replace the complete owned tree, so stale
     generated files cannot survive.
-14. **Astro import plan** — never applies a plan, writes content, copies an
+15. **Astro import plan** — never applies a plan, writes content, copies an
    asset, executes project code, or treats an inferred route as observed. Its
    exact supported profile and digest algorithm are in
    [`astro-import-plan.md`](docs/contracts/astro-import-plan.md). Every
    selected content-root component is opened without following symlinks.
-15. **Astro import schemas** — Ajv is a test-only locked dependency under
+16. **Astro import schemas** — Ajv is a test-only locked dependency under
    `schema-validation/`; it is not linked into Boris, shipped in product
    artifacts, or required by ordinary compiler execution.
 
@@ -879,7 +899,63 @@ Dataview, Canvas, ignored `.obsidian` / `node_modules`). Coverage notes:
 ```
 
 Parent graph and wiki targets may still need author follow-up (one-level Trunk /
-Satellite rules). See [`docs/MIGRATION.md`](../../docs/MIGRATION.md).
+Satellite rules). See [`docs/MIGRATION.md`](docs/MIGRATION.md).
+
+---
+
+## Tinderbox modes
+
+Read-only `.tbx` XML archaeology, then optional one-way Markdown emit. The
+source document is never mutated. Lab provenance never becomes Boris
+frontmatter keys. Contracts:
+
+- [`docs/contracts/tinderbox-disposition.md`](docs/contracts/tinderbox-disposition.md)
+- [`docs/contracts/tinderbox-named-links.md`](docs/contracts/tinderbox-named-links.md)
+- [`docs/contracts/tinderbox-rich-text.md`](docs/contracts/tinderbox-rich-text.md)
+
+### Inventory (`--mode=tinderbox-inventory`)
+
+Parses outline notes, attribute bags (system vs user), links (including text-link
+offsets), aliases, and prototypes. Writes:
+
+```text
+inventory.json
+INVENTORY.md
+```
+
+`--tbx=FILE` selects the document and implies this mode unless `--mode=tinderbox`.
+
+### Emit (`--mode=tinderbox`)
+
+Writes candidate `content/` plus `report.json` / `REPORT.md`.
+
+| Source | Landing |
+|--------|---------|
+| `$BorisId` if wiki-safe, else name slug | `id:` |
+| `$BorisParent` else outline parent | `parent:` |
+| `$Tags` | `tags: []` |
+| `$BorisStatus` when `draft`/`published`/`archived` | `status:` |
+| Untitled basic links (`*untitled` / `note` / `related`) | `[[entity-id]]` |
+| Allowlisted named types (`--relation-kinds`) | `relations: [kind:target]` |
+| Prototypes, agents, adornments, aliases | skipped as pages; listed in the report |
+| Unknown user attrs | dropped + listed |
+
+Optional `--gate` runs the pinned Boris parser on generated pages.
+
+### Fixture
+
+[`fixtures/mini-tinderbox/`](fixtures/mini-tinderbox/) — Tinderbox 11 Feature
+Corpus (hierarchy, named links, one text link, one alias, prototypes, `$URL`).
+
+```bash
+zig build run -- --mode=tinderbox-inventory \
+  --tbx=./fixtures/mini-tinderbox/Grok-Bot-Feature-Corpus.tbx \
+  --out=./.tbx-inventory
+
+zig build run -- --mode=tinderbox \
+  --tbx=./fixtures/mini-tinderbox/Grok-Bot-Feature-Corpus.tbx \
+  --out=./.tbx-emit
+```
 
 ---
 

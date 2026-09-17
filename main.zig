@@ -5,6 +5,8 @@
 //!   wordpress  — WordPress WXR → Boris Markdown + reports
 //!   instagram  — Instagram Takeout dump → Boris Markdown + theme assets + reports
 //!   obsidian   — Obsidian vault → Boris Markdown + attachments + reports
+//!   tinderbox-inventory — Tinderbox .tbx XML → inventory.json + INVENTORY.md
+//!   tinderbox  — Tinderbox .tbx XML → candidate Boris Markdown + reports
 //!   notion     — Notion Markdown & CSV export → Boris Markdown + media + reports
 //!   filed      — Filed.fyi changelog + releases slice → Boris Markdown + reports
 //!   starlight  — Starlight/Astro docs dogfood (locale-dir or root-locale) → Boris candidate + boundary manifests
@@ -23,6 +25,8 @@
 //!       --media=./fixtures/mini-wxr/media --out=./.out-wp
 //!   zig build run -- --mode=instagram --dump=./fixtures/mini-instagram --out=./.out-ig
 //!   zig build run -- --mode=obsidian --vault=./fixtures/mini-obsidian --out=./.out-obs
+//!   zig build run -- --mode=tinderbox-inventory --tbx=./fixtures/mini-tinderbox/Grok-Bot-Feature-Corpus.tbx --out=./.out-tbx-inv
+//!   zig build run -- --mode=tinderbox --tbx=./fixtures/mini-tinderbox/Grok-Bot-Feature-Corpus.tbx --out=./.out-tbx
 //!   zig build run -- --mode=notion --export=./fixtures/mini-notion --out=./.out-notion
 //!   zig build run -- --mode=starlight --root=./fixtures/mini-starlight --out=./.out-sl
 //!   zig build run -- --mode=frontmatter-review --content=./content --out=./.out-fmreview
@@ -38,6 +42,7 @@ const archaeology = @import("archaeology.zig");
 const wordpress = @import("wordpress.zig");
 const instagram = @import("instagram.zig");
 const obsidian = @import("obsidian.zig");
+const tinderbox = @import("tinderbox.zig");
 const notion = @import("notion.zig");
 const filed = @import("filed.zig");
 const filed_scan = @import("filed_scan.zig");
@@ -69,6 +74,8 @@ pub const Mode = enum {
     wordpress,
     instagram,
     obsidian,
+    tinderbox_inventory,
+    tinderbox,
     notion,
     filed,
     filed_scan,
@@ -87,6 +94,11 @@ pub const Mode = enum {
         if (std.mem.eql(u8, s, "wordpress") or std.mem.eql(u8, s, "wp") or std.mem.eql(u8, s, "wxr")) return .wordpress;
         if (std.mem.eql(u8, s, "instagram") or std.mem.eql(u8, s, "ig") or std.mem.eql(u8, s, "takeout")) return .instagram;
         if (std.mem.eql(u8, s, "obsidian") or std.mem.eql(u8, s, "obs") or std.mem.eql(u8, s, "vault")) return .obsidian;
+        if (std.mem.eql(u8, s, "tinderbox-inventory") or std.mem.eql(u8, s, "tbx-inventory") or
+            std.mem.eql(u8, s, "tinderbox-inv"))
+            return .tinderbox_inventory;
+        if (std.mem.eql(u8, s, "tinderbox") or std.mem.eql(u8, s, "tinderbox-emit") or std.mem.eql(u8, s, "tbx"))
+            return .tinderbox;
         if (std.mem.eql(u8, s, "notion") or std.mem.eql(u8, s, "md-csv") or std.mem.eql(u8, s, "notion-export")) return .notion;
         if (std.mem.eql(u8, s, "filed") or std.mem.eql(u8, s, "filed-fyi")) return .filed;
         if (std.mem.eql(u8, s, "filed-scan")) return .filed_scan;
@@ -121,6 +133,7 @@ pub const Options = struct {
     version: bool = false,
     quiet: bool = false,
     mode: Mode = .astro,
+    mode_explicit: bool = false,
     /// Astro project/export root to scan (relative to cwd unless absolute).
     root_dir: []const u8 = ".",
     root_explicit: bool = false,
@@ -146,6 +159,12 @@ pub const Options = struct {
     dump_dir: ?[]const u8 = null,
     /// Obsidian vault root.
     vault_dir: ?[]const u8 = null,
+    /// Tinderbox `.tbx` XML path (never modified).
+    tbx_path: ?[]const u8 = null,
+    /// Optional Boris parser gate for tinderbox emit.
+    gate: bool = false,
+    /// Comma-separated Tinderbox link type names allowed as Boris relation kinds.
+    relation_kinds: []const u8 = "",
     /// Unpacked Notion Markdown & CSV export root.
     export_dir: ?[]const u8 = null,
     /// Filed.fyi Astro source root (read-only; implies filed mode).
@@ -186,10 +205,12 @@ pub fn parseOptions(args: []const []const u8) ParseError!Options {
             const value = arg["--mode=".len..];
             if (value.len == 0) return error.MissingValue;
             options.mode = Mode.parse(value) orelse return error.InvalidValue;
+            options.mode_explicit = true;
         } else if (std.mem.eql(u8, arg, "--mode")) {
             index += 1;
             if (index >= args.len or args[index].len == 0) return error.MissingValue;
             options.mode = Mode.parse(args[index]) orelse return error.InvalidValue;
+            options.mode_explicit = true;
         } else if (std.mem.startsWith(u8, arg, "--root=")) {
             const value = arg["--root=".len..];
             if (value.len == 0) return error.MissingValue;
@@ -298,6 +319,26 @@ pub fn parseOptions(args: []const []const u8) ParseError!Options {
             if (index >= args.len or args[index].len == 0) return error.MissingValue;
             options.vault_dir = args[index];
             options.mode = .obsidian;
+        } else if (std.mem.startsWith(u8, arg, "--tbx=")) {
+            const value = arg["--tbx=".len..];
+            if (value.len == 0) return error.MissingValue;
+            options.tbx_path = value;
+            if (!options.mode_explicit) options.mode = .tinderbox_inventory;
+        } else if (std.mem.eql(u8, arg, "--tbx")) {
+            index += 1;
+            if (index >= args.len or args[index].len == 0) return error.MissingValue;
+            options.tbx_path = args[index];
+            if (!options.mode_explicit) options.mode = .tinderbox_inventory;
+        } else if (std.mem.eql(u8, arg, "--gate")) {
+            options.gate = true;
+        } else if (std.mem.startsWith(u8, arg, "--relation-kinds=")) {
+            const value = arg["--relation-kinds=".len..];
+            if (value.len == 0) return error.MissingValue;
+            options.relation_kinds = value;
+        } else if (std.mem.eql(u8, arg, "--relation-kinds")) {
+            index += 1;
+            if (index >= args.len or args[index].len == 0) return error.MissingValue;
+            options.relation_kinds = args[index];
         } else if (std.mem.startsWith(u8, arg, "--export=")) {
             const value = arg["--export=".len..];
             if (value.len == 0) return error.MissingValue;
@@ -389,7 +430,7 @@ fn printUsage() void {
         \\  -h, --help         Show this help and exit
         \\  -V, --version      Print the tool id and exit
         \\  -q, --quiet        Suppress progress lines
-        \\  --mode=MODE        astro (default) | astro-import-plan | astro-import-apply | wordpress | wordpress-theme | instagram | obsidian | notion | filed | filed-scan | starlight | asset-filename | theme-archaeology | theme-materialize | link-audit | frontmatter-review
+        \\  --mode=MODE        astro (default) | astro-import-plan | astro-import-apply | wordpress | wordpress-theme | instagram | obsidian | tinderbox-inventory | tinderbox | notion | filed | filed-scan | starlight | asset-filename | theme-archaeology | theme-materialize | link-audit | frontmatter-review
         \\  --out=DIR          Output directory (default: migration-report)
         \\
         \\Frontmatter review (read-only unsupported-key audit):
@@ -478,6 +519,22 @@ fn printUsage() void {
         \\  Writes: content/**/*.md, assets/**, report.json, REPORT.md, attachments_manifest.json
         \\  (--vault implies --mode=obsidian)
         \\  No Dataview/Canvas/plugin evaluation; unresolved links retained raw.
+        \\
+        \\Tinderbox inventory (read-only XML archaeology):
+        \\  --mode=tinderbox-inventory  Parse a .tbx file; never emit Markdown
+        \\  --tbx=FILE         Tinderbox XML document (required; never modified)
+        \\  Writes: inventory.json, INVENTORY.md
+        \\  Aliases: tbx-inventory | tinderbox-inv
+        \\  (--tbx implies --mode=tinderbox-inventory unless --mode=tinderbox)
+        \\
+        \\Tinderbox emit (candidate Boris Markdown):
+        \\  --mode=tinderbox   Inventory + content/ tree + conversion report
+        \\  --tbx=FILE         Tinderbox XML document (required; never modified)
+        \\  --gate             Run the pinned Boris parser on generated pages
+        \\  --relation-kinds=a,b  Allowlisted Tinderbox link types → relations
+        \\  Writes: content/**, report.json, REPORT.md
+        \\  Aliases: tinderbox-emit | tbx
+        \\  Prototypes, agents, adornments, and aliases are not emitted as pages.
         \\
         \\Notion mode:
         \\  --export=DIR       Unpacked Notion Markdown & CSV export root (required; never modified)
@@ -689,6 +746,28 @@ pub fn main(init: std.process.Init) u8 {
                 .quiet = opts.quiet,
             }) catch |err| {
                 std.log.err("migration-lab (obsidian) failed: {s}", .{@errorName(err)});
+                return ExitCode.io_error.int();
+            };
+        },
+        .tinderbox_inventory, .tinderbox => {
+            const tbx = opts.tbx_path orelse {
+                std.log.err("tinderbox modes require --tbx=FILE", .{});
+                printUsage();
+                return ExitCode.usage.int();
+            };
+            if (std.mem.eql(u8, tbx, opts.out_dir)) {
+                std.log.err("--out must differ from --tbx", .{});
+                return ExitCode.usage.int();
+            }
+            tinderbox.run(io, gpa, .{
+                .tbx_path = tbx,
+                .out_dir = opts.out_dir,
+                .quiet = opts.quiet,
+                .lab_mode = if (opts.mode == .tinderbox) .emit else .inventory,
+                .gate = opts.gate,
+                .relation_kinds_csv = opts.relation_kinds,
+            }) catch |err| {
+                std.log.err("migration-lab (tinderbox) failed: {s}", .{@errorName(err)});
                 return ExitCode.io_error.int();
             };
         },
@@ -1045,6 +1124,7 @@ test "astro import apply public CLI publishes and independently verifies the fix
 // here — its in-module tests currently leak under the testing allocator.)
 test {
     _ = obsidian;
+    _ = tinderbox;
     _ = notion;
     _ = filed;
     _ = starlight;
@@ -1168,6 +1248,32 @@ test "parseOptions: obsidian flags" {
 
     const o3 = try parseOptions(&.{ "boris-migration-lab", "--mode=vault", "--vault=./v" });
     try std.testing.expect(o3.mode == .obsidian);
+}
+
+test "parseOptions: tinderbox flags" {
+    const o = try parseOptions(&.{
+        "boris-migration-lab",
+        "--tbx=fixtures/mini-tinderbox/Grok-Bot-Feature-Corpus.tbx",
+        "--out=./.tbx",
+    });
+    try std.testing.expect(o.mode == .tinderbox_inventory);
+    try std.testing.expectEqualStrings("fixtures/mini-tinderbox/Grok-Bot-Feature-Corpus.tbx", o.tbx_path.?);
+
+    const o2 = try parseOptions(&.{
+        "boris-migration-lab",
+        "--mode=tinderbox",
+        "--tbx",
+        "a.tbx",
+        "--gate",
+        "--relation-kinds=agree,disagree",
+    });
+    try std.testing.expect(o2.mode == .tinderbox);
+    try std.testing.expectEqualStrings("a.tbx", o2.tbx_path.?);
+    try std.testing.expect(o2.gate);
+    try std.testing.expectEqualStrings("agree,disagree", o2.relation_kinds);
+
+    const o3 = try parseOptions(&.{ "boris-migration-lab", "--mode=tbx-inventory", "--tbx=./x.tbx" });
+    try std.testing.expect(o3.mode == .tinderbox_inventory);
 }
 
 test "parseOptions: notion flags" {

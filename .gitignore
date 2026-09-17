@@ -19,6 +19,7 @@ fixtures/.test-wptt*/
 fixtures/.test-adversarial*/
 fixtures/.ig-test-out*/
 fixtures/.test-obsidian-out*/
+fixtures/.test-tinderbox-*/
 fixtures/.test-notion-out*/
 fixtures/.test-starlight-*/
 .dogfood-sl-out/

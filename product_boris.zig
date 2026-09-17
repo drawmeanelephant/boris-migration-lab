@@ -23,9 +23,9 @@ const configured_path: []const u8 = options.path;
 pub fn resolve(io: Io, gpa: std.mem.Allocator) !?[]const u8 {
     if (configured_boris_bin.len > 0) return configured_boris_bin;
 
-    if (findOnPath(io, gpa)) |p| {
+    if (findOnPath(io, gpa) catch null) |p| {
         if (p.len > 0) return p;
-    } else |_| {}
+    }
 
     return null;
 }
@@ -47,7 +47,7 @@ fn findOnPath(io: Io, gpa: std.mem.Allocator) !?[]const u8 {
         defer gpa.free(candidate);
         var f = Io.Dir.cwd().openFile(io, candidate, .{}) catch continue;
         f.close(io);
-        return try gpa.dupe(u8, candidate);
+        return "boris";
     }
     return null;
 }

@@ -116,7 +116,9 @@ projection boundaries, and verification vocabulary.
 9. **UTF-8 without BOM** — BOM rejects the file.
 
 Normative detail for the migration-owned contracts shipped here:
-[`docs/contracts/`](contracts/). The closed product-grammar contracts remain
+[`docs/contracts/`](contracts/), including the Tinderbox disposition table
+[`tinderbox-disposition.md`](contracts/tinderbox-disposition.md). The closed
+product-grammar contracts remain
 in Boris and are linked (pinned) from Related reading below.
 
 ---
@@ -177,7 +179,7 @@ zig build run -- \
   --out=test-output/lab-astro-inspect
 ```
 
-Other lab modes (WordPress WXR, Instagram Takeout, Obsidian, Notion, Filed)
+Other lab modes (WordPress WXR, Instagram Takeout, Obsidian, Tinderbox, Notion, Filed)
 and flags: [`README.md`](../README.md).
 
 Filed.fyi and theme-materialization dogfood happened (v0.5–v0.7). The long
