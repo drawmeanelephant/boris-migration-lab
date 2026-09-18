@@ -40,6 +40,7 @@ published_at, summary}`.
 | `$ExportClass` / `$FixtureRole` / `$MapsToBoris` | unsupported | Lab hints only; dropped from FM |
 | Other user attrs | unsupported | Dropped + listed; never stuffed into FM |
 | Prototype note (`$IsPrototype`) | unsupported | Not emitted as a page; listed in report |
+| Prototypes container (`$Name` exactly `Prototypes` with ≥1 direct `$IsPrototype` child) | unsupported | Scaffolding: not emitted as a page unless stamped (wiki-safe `$BorisId` or non-empty `$ExportClass`); listed in report as `prototypes_container`. A docs page titled Prototypes with no prototype children still emits. Inventory still records the container. |
 | Agent | unsupported | Not emitted; listed if present |
 | Adornment | unsupported | Not emitted; listed if present |
 | Alias (`Alias` / `$IsAlias`) | transformed | No duplicate page; resolve to canonical id |

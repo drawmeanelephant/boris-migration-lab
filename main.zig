@@ -545,7 +545,7 @@ fn printUsage() void {
         \\  --relation-map=a=relates_to  Map Tinderbox type names onto closed Boris kinds
         \\  Writes: content/**, report.json, REPORT.md
         \\  Aliases: tinderbox-emit | tbx
-        \\  Prototypes, agents, adornments, and aliases are not emitted as pages.
+        \\  Prototypes, the Prototypes container (unless stamped), agents, adornments, and aliases are not emitted as pages.
         \\
         \\Notion mode:
         \\  --export=DIR       Unpacked Notion Markdown & CSV export root (required; never modified)

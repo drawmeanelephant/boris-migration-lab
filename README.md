@@ -941,6 +941,7 @@ Writes candidate `content/` plus `report.json` / `REPORT.md`.
 | Allowlisted named types (`--relation-kinds`) | `relations: [kind=target]` using the Tinderbox type name |
 | HTML `<p>` / `<b>` / `<i>` companions | Markdown body (`**` / `*`); other tags stay `$Text` |
 | Prototypes, agents, adornments, aliases | skipped as pages; listed in the report |
+| Prototypes container (`Prototypes` + prototype children) | skipped as a page unless stamped (`$BorisId` / `$ExportClass`); listed in the report |
 | Unknown user attrs | dropped + listed |
 
 Optional `--gate` runs the pinned Boris parser on generated pages.
