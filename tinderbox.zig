@@ -781,10 +781,43 @@ fn canonicalId(notes: []const Note, id: []const u8) []const u8 {
     return id;
 }
 
-fn emitsPage(n: Note) bool {
+fn hasPrototypeChild(notes: []const Note, parent_id: []const u8) bool {
+    for (notes) |c| {
+        const pid = c.parent_id orelse continue;
+        if (std.mem.eql(u8, pid, parent_id) and c.is_prototype) return true;
+    }
+    return false;
+}
+
+/// Tinderbox's default Prototypes library: `$Name` is exactly `Prototypes`,
+/// the note is not itself a prototype, and at least one direct child has
+/// `$IsPrototype=true`. A docs page that happens to be titled Prototypes
+/// still emits when it has no prototype children.
+fn isPrototypesContainer(notes: []const Note, n: Note) bool {
+    if (n.kind != .note) return false;
+    if (n.is_prototype or n.is_alias) return false;
+    if (!std.mem.eql(u8, n.name, "Prototypes")) return false;
+    if (n.id.len == 0) return false;
+    return hasPrototypeChild(notes, n.id);
+}
+
+/// Explicit export stamp: wiki-safe `$BorisId` or non-empty `$ExportClass`.
+fn isStampedForExport(n: Note) bool {
+    if (lookupNoteAttr(n, "BorisId")) |bid| {
+        if (entityIdIsWikiSafe(bid)) return true;
+    }
+    if (lookupNoteAttr(n, "ExportClass")) |ec| {
+        const t = std.mem.trim(u8, ec, " \t");
+        if (t.len > 0) return true;
+    }
+    return false;
+}
+
+fn emitsPage(notes: []const Note, n: Note) bool {
     if (n.is_alias or n.is_prototype) return false;
     if (n.kind != .note) return false;
     if (n.name.len == 0) return false;
+    if (isPrototypesContainer(notes, n) and !isStampedForExport(n)) return false;
     return true;
 }
 
@@ -933,7 +966,7 @@ fn assignEntityIds(retain: std.mem.Allocator, notes: []const Note) ![]?[]const u
     const map = try retain.alloc(?[]const u8, notes.len);
     var assigned: std.ArrayList([]const u8) = .empty;
     for (notes, 0..) |n, i| {
-        if (!emitsPage(n)) {
+        if (!emitsPage(notes, n)) {
             map[i] = null;
             continue;
         }
@@ -1551,12 +1584,13 @@ fn emitReportMd(a: std.mem.Allocator, source_path: []const u8, pages: []const Em
 fn skippedLabels(retain: std.mem.Allocator, notes: []const Note) ![][]const u8 {
     var list: std.ArrayList([]const u8) = .empty;
     for (notes) |n| {
-        if (emitsPage(n)) continue;
+        if (emitsPage(notes, n)) continue;
         var reason: []const u8 = "skipped";
         if (n.is_alias) reason = "alias";
         if (n.is_prototype) reason = "prototype";
         if (n.kind == .agent) reason = "agent";
         if (n.kind == .adornment) reason = "adornment";
+        if (isPrototypesContainer(notes, n)) reason = "prototypes_container";
         const label = try std.fmt.allocPrint(retain, "{s}: {s} ({s})", .{ reason, n.id, n.name });
         try list.append(retain, label);
     }
@@ -1745,6 +1779,8 @@ test "fixture: tinderbox inventory determinism + immutability + golden counts" {
     try std.testing.expect(std.mem.indexOf(u8, ja, "\"is_text_link\": true") != null);
     try std.testing.expect(std.mem.indexOf(u8, ja, "\"is_alias\": true") != null);
     try std.testing.expect(std.mem.indexOf(u8, ja, "BorisId") != null);
+    try std.testing.expect(std.mem.indexOf(u8, ja, "\"name\": \"Prototypes\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, ja, "\"id\": \"1789651307\"") != null);
 }
 
 test "fixture: tinderbox emit determinism + skips prototypes/aliases" {
@@ -1779,8 +1815,11 @@ test "fixture: tinderbox emit determinism + skips prototypes/aliases" {
 
     try std.testing.expect(std.mem.indexOf(u8, ja, "\"mode\": \"emit\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, ja, "prototype:") != null);
+    try std.testing.expect(std.mem.indexOf(u8, ja, "prototypes_container: 1789651307 (Prototypes)") != null);
     try std.testing.expect(std.mem.indexOf(u8, ja, "named_link_not_allowlisted") != null);
     try std.testing.expect(std.mem.indexOf(u8, ja, "text_link") != null);
+
+    try std.testing.expectError(error.FileNotFound, a.statFile(io, "content/Prototypes.md", .{}));
 
     const page = try readFileAlloc(io, a, "content/grok-bot/feature-gym/links.md", gpa);
     defer gpa.free(page);
@@ -1886,4 +1925,143 @@ test "synthetic emit: mapped agree + HTML bold in body" {
     defer gpa.free(child);
     try std.testing.expect(std.mem.indexOf(u8, child, "Hello & **world**") != null);
     try std.testing.expect(std.mem.indexOf(u8, child, "relations: [relates_to=") != null);
+}
+
+const proto_container_xml =
+    \\<?xml version="1.0" encoding="UTF-8" ?>
+    \\<tinderbox version="2" revision="16" savedBy="test" uuid="proto-container-uuid" >
+    \\<attrib Name="anything" >
+    \\<attrib Name="System" parent="anything" ></attrib>
+    \\<attrib Name="User" parent="anything" >
+    \\<attrib Name="BorisId" parent="User" ></attrib>
+    \\<attrib Name="ExportClass" parent="User" ></attrib>
+    \\</attrib>
+    \\</attrib>
+    \\<item ID="1" Creator="lab" >
+    \\<attribute name="Name" >Root</attribute>
+    \\<item ID="10" Creator="lab" >
+    \\<attribute name="Name" >Prototypes</attribute>
+    \\<attribute name="IsPrototype" >false</attribute>
+    \\<item ID="11" Creator="lab" >
+    \\<attribute name="Name" >pThing</attribute>
+    \\<attribute name="IsPrototype" >true</attribute>
+    \\</item>
+    \\</item>
+    \\<item ID="20" Creator="lab" >
+    \\<attribute name="Name" >Prototypes</attribute>
+    \\<attribute name="BorisId" >keep-prototypes</attribute>
+    \\<attribute name="IsPrototype" >false</attribute>
+    \\<item ID="21" Creator="lab" >
+    \\<attribute name="Name" >pKept</attribute>
+    \\<attribute name="IsPrototype" >true</attribute>
+    \\</item>
+    \\</item>
+    \\<item ID="30" Creator="lab" >
+    \\<attribute name="Name" >Prototypes</attribute>
+    \\<attribute name="ExportClass" >satellite</attribute>
+    \\<attribute name="IsPrototype" >false</attribute>
+    \\<item ID="31" Creator="lab" >
+    \\<attribute name="Name" >pExport</attribute>
+    \\<attribute name="IsPrototype" >true</attribute>
+    \\</item>
+    \\</item>
+    \\<item ID="40" Creator="lab" >
+    \\<attribute name="Name" >Prototypes</attribute>
+    \\<attribute name="IsPrototype" >false</attribute>
+    \\<text >Docs page named Prototypes with no prototype children</text>
+    \\</item>
+    \\<item ID="50" Creator="lab" >
+    \\<attribute name="Name" >Library</attribute>
+    \\<attribute name="IsPrototype" >false</attribute>
+    \\<item ID="51" Creator="lab" >
+    \\<attribute name="Name" >pOther</attribute>
+    \\<attribute name="IsPrototype" >true</attribute>
+    \\</item>
+    \\</item>
+    \\</item>
+    \\<links >
+    \\</links>
+    \\</tinderbox>
+;
+
+test "tinderbox: prototypes container name+child skipped unless stamped" {
+    const gpa = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const retain = arena.allocator();
+    const doc = try parseDocument(proto_container_xml, retain);
+
+    const unstamped = findNote(doc.notes, "10") orelse return error.TestUnexpectedResult;
+    const stamped_id = findNote(doc.notes, "20") orelse return error.TestUnexpectedResult;
+    const stamped_class = findNote(doc.notes, "30") orelse return error.TestUnexpectedResult;
+    const docs_named = findNote(doc.notes, "40") orelse return error.TestUnexpectedResult;
+    const renamed = findNote(doc.notes, "50") orelse return error.TestUnexpectedResult;
+    const proto_kid = findNote(doc.notes, "11") orelse return error.TestUnexpectedResult;
+
+    try std.testing.expect(isPrototypesContainer(doc.notes, unstamped.*));
+    try std.testing.expect(!isStampedForExport(unstamped.*));
+    try std.testing.expect(!emitsPage(doc.notes, unstamped.*));
+
+    try std.testing.expect(isPrototypesContainer(doc.notes, stamped_id.*));
+    try std.testing.expect(isStampedForExport(stamped_id.*));
+    try std.testing.expect(emitsPage(doc.notes, stamped_id.*));
+
+    try std.testing.expect(isPrototypesContainer(doc.notes, stamped_class.*));
+    try std.testing.expect(isStampedForExport(stamped_class.*));
+    try std.testing.expect(emitsPage(doc.notes, stamped_class.*));
+
+    try std.testing.expect(!isPrototypesContainer(doc.notes, docs_named.*));
+    try std.testing.expect(emitsPage(doc.notes, docs_named.*));
+
+    try std.testing.expect(!isPrototypesContainer(doc.notes, renamed.*));
+    try std.testing.expect(emitsPage(doc.notes, renamed.*));
+
+    try std.testing.expect(proto_kid.is_prototype);
+    try std.testing.expect(!emitsPage(doc.notes, proto_kid.*));
+}
+
+test "tinderbox: synthetic emit skips unstamped Prototypes container; stamps emit" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    const src_dir = "fixtures/.test-tinderbox-proto-container";
+    const out = "fixtures/.test-tinderbox-proto-container-out";
+    Io.Dir.cwd().deleteTree(io, src_dir) catch {};
+    Io.Dir.cwd().deleteTree(io, out) catch {};
+    try Io.Dir.cwd().createDirPath(io, src_dir);
+    var dir = try Io.Dir.cwd().openDir(io, src_dir, .{});
+    defer dir.close(io);
+    try dir.writeFile(io, .{ .sub_path = "proto.tbx", .data = proto_container_xml });
+
+    try run(io, gpa, .{
+        .tbx_path = "fixtures/.test-tinderbox-proto-container/proto.tbx",
+        .out_dir = out,
+        .quiet = true,
+        .lab_mode = .emit,
+    });
+
+    var out_dir = try Io.Dir.cwd().openDir(io, out, .{});
+    defer out_dir.close(io);
+    const report = try readFileAlloc(io, out_dir, "report.json", gpa);
+    defer gpa.free(report);
+    try std.testing.expect(std.mem.indexOf(u8, report, "prototypes_container: 10 (Prototypes)") != null);
+    try std.testing.expect(std.mem.indexOf(u8, report, "prototype: 11 (pThing)") != null);
+
+    try std.testing.expectError(error.FileNotFound, out_dir.statFile(io, "content/pThing.md", .{}));
+
+    const stamped = try readFileAlloc(io, out_dir, "content/keep-prototypes.md", gpa);
+    defer gpa.free(stamped);
+    try std.testing.expect(std.mem.indexOf(u8, stamped, "id: keep-prototypes") != null);
+
+    const export_stamped = try readFileAlloc(io, out_dir, "content/Prototypes.md", gpa);
+    defer gpa.free(export_stamped);
+    try std.testing.expect(std.mem.indexOf(u8, export_stamped, "id: Prototypes") != null);
+    try std.testing.expect(std.mem.indexOf(u8, export_stamped, "ExportClass") == null);
+
+    const docs_named = try readFileAlloc(io, out_dir, "content/Prototypes-2.md", gpa);
+    defer gpa.free(docs_named);
+    try std.testing.expect(std.mem.indexOf(u8, docs_named, "Docs page named Prototypes") != null);
+
+    const library = try readFileAlloc(io, out_dir, "content/Library.md", gpa);
+    defer gpa.free(library);
+    try std.testing.expect(std.mem.indexOf(u8, library, "id: Library") != null);
 }

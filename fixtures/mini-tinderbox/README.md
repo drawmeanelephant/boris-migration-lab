@@ -12,7 +12,7 @@ Source: `Grok-Bot-Feature-Corpus.tbx`
 | Note / region | Stresses |
 |---------------|----------|
 | Document root `Grok-Bot-Feature-Corpus` | Empty `$Text`, outline root |
-| `Prototypes/` + `pConcept`…`pFixture` | `$IsPrototype`, `proto=` on instances |
+| `Prototypes/` + `pConcept`…`pFixture` | `$IsPrototype`, `proto=` on instances. The `Prototypes` container is inventoried but not emitted as a page unless stamped. |
 | `Grok Bot` → `Identity` → children | Depth ≥ 3, `$BorisId` / `$BorisParent` |
 | Alias under `Identity` (`Alias` attr → `Alias target`) | Alias flag / canonical id |
 | `Feature Gym/Hierarchy deep nest/Level 2/Level 3` | Depth 5 outline |
