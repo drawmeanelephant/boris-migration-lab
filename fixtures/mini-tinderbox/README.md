@@ -1,3 +1,4 @@
+<!-- synced from Desktop playground 2026-09-18 by Porty; AutomaticBackup=0; validate-green prose -->
 # mini-tinderbox — Tinderbox 11 feature fixture
 
 Public, deterministic `.tbx` for `boris-migration-lab --mode=tinderbox-inventory`

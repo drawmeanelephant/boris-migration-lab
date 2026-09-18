@@ -1064,10 +1064,10 @@
 <linkType name="update" visible="1" showLabel="1" required="0" colorString="#000000" style="0" arrowType="0" >
 </linkType>
 </linkTypes>
-<item ID="1789673853" Creator="tbuddy" >
+<item ID="1789686192" Creator="tbuddy" >
 <attribute name="Created" >2026-09-17T09:21:45-04:00</attribute>
 <attribute name="MapScrollX" >0</attribute>
-<attribute name="MapScrollY" >-6.28125</attribute>
+<attribute name="MapScrollY" >0</attribute>
 <attribute name="Modified" >2026-09-17T09:21:45-04:00</attribute>
 <attribute name="Name" >Grok-Bot-Feature-Corpus</attribute>
 <attribute name="Xpos" >0</attribute>
@@ -1228,6 +1228,7 @@ Boris content model reminder: Trunks have no parent; Satellites declare parent: 
 <attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
 <attribute name="Height" >2.48</attribute>
 <attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="Name" ></attribute>
 <attribute name="Width" >4</attribute>
 <attribute name="Xpos" >0</attribute>
 <attribute name="Ypos" >0</attribute>
@@ -1642,7 +1643,7 @@ That phrase points at /Grok Bot/Feature Gym/Alias target. Basic links are separa
 <attribute name="ExportClass" >satellite</attribute>
 <attribute name="FixtureRole" >long-body-md</attribute>
 <attribute name="Height" >2.48</attribute>
-<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="Modified" >2026-09-17T18:49:11-04:00</attribute>
 <attribute name="NLNames" >Markdown</attribute>
 <attribute name="Name" >Long body with markdown-ish text</attribute>
 <attribute name="Sentiment" >-0.4363636496</attribute>
@@ -1658,7 +1659,7 @@ A paragraph with **pseudo-markdown** and a list:
 - beta
 - gamma
 
-Wiki-link-ish mention of Identity that is NOT a Tinderbox link, just characters: [[Identity]]
+Wiki-link-ish mention of Identity that is NOT a Tinderbox link, just characters: [Identity] as plain brackets — not a Boris wiki-link
 
 Code-ish:
     boris validate
@@ -1672,7 +1673,7 @@ This stresses plain-text export vs rich text, and whether body transformers shou
 <p>- beta</p>
 <p>- gamma</p>
 
-<p>Wiki-link-ish mention of Identity that is NOT a Tinderbox link, just characters: [[Identity]]</p>
+<p>Wiki-link-ish mention of Identity that is NOT a Tinderbox link, just characters: [Identity] as plain brackets — not a Boris wiki-link</p>
 
 <p>Code-ish:</p>
     <p>boris validate</p>
@@ -1787,7 +1788,7 @@ This stresses plain-text export vs rich text, and whether body transformers shou
 <attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
 <attribute name="ExportClass" >satellite</attribute>
 <attribute name="Height" >2.48</attribute>
-<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="Modified" >2026-09-17T18:49:11-04:00</attribute>
 <attribute name="Name" >TB ↔ Boris mapping</attribute>
 <attribute name="Sentiment" >-0.51818183</attribute>
 <attribute name="Sentiments" >-0.8;-0.2;-0.6;-0.6;-0.2;-0.2;-0.8;-0.2;-0.4;-0.8;0;-0.6;-0.8;-0.8;-0.8;-0.6;-0.8;0.2;-0.6;-0.6;-0.4;-0.8</attribute>
@@ -1803,7 +1804,7 @@ Note ($Name)                  → title (+ path-derived or BorisId)
 Outline parent                → parent: entity-id (Satellite)
 Root / no parent              → Trunk
 $Text                         → Markdown body (transformed)
-Basic link (unnamed/named)    → [[wiki]] and/or relations:[kind=]
+Basic link (unnamed/named)    → [wiki-link] (notation only) and/or relations:[kind=]
 Text link                     → wiki-link or human_review
 $Tags                         → tags: [...]
 $URL                          → body link or dropped+reported
@@ -1825,7 +1826,7 @@ $ExportClass                  → lab-only projection hint</text>
 <p>Outline parent                → parent: entity-id (Satellite)</p>
 <p>Root / no parent              → Trunk</p>
 <p>$Text                         → Markdown body (transformed)</p>
-<p>Basic link (unnamed/named)    → [[wiki]] and/or relations:[kind=]</p>
+<p>Basic link (unnamed/named)    → [wiki-link] (notation only) and/or relations:[kind=]</p>
 <p>Text link                     → wiki-link or human_review</p>
 <p>$Tags                         → tags: [...]</p>
 <p>$URL                          → body link or dropped+reported</p>
@@ -1878,15 +1879,15 @@ $ExportClass                  → lab-only projection hint</text>
 <attribute name="Created" >2026-09-17T09:21:46-04:00</attribute>
 <attribute name="ExportClass" >satellite</attribute>
 <attribute name="Height" >2.48</attribute>
-<attribute name="Modified" >2026-09-17T09:21:46-04:00</attribute>
+<attribute name="Modified" >2026-09-17T18:49:11-04:00</attribute>
 <attribute name="Name" >Named link types vs wiki-links</attribute>
 <attribute name="Sentiment" >-0.8000000119</attribute>
 <attribute name="Sentiments" >-0.8;-0.8</attribute>
 <attribute name="Width" >4</attribute>
 <attribute name="Xpos" >4.5</attribute>
 <attribute name="Ypos" >0</attribute>
-<text >Should link type names become relations kinds (depends-on=target) while untitled links become [[wiki]]? Need a policy table.</text>
-<html ><![CDATA[<p>Should link type names become relations kinds (depends-on=target) while untitled links become [[wiki]]? Need a policy table.</p>]]></html>
+<text >Should link type names become relations kinds (depends-on=target) while untitled links become [wiki-link] notation? Need a policy table.</text>
+<html ><![CDATA[<p>Should link type names become relations kinds (depends-on=target) while untitled links become [wiki-link] notation? Need a policy table.</p>]]></html>
 </item>
 <item ID="1789651348" Creator="tbuddy" proto="pConcept" >
 <attribute name="BorisId" >grok-bot/open-questions/rich-text</attribute>
@@ -1912,49 +1913,49 @@ $ExportClass                  → lab-only projection hint</text>
 <link name="prototype" sourceid="1789651309" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651322" destcreator="tbuddy" color="normal"  />
 <link name="prototype" sourceid="1789651308" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651323" destcreator="tbuddy" color="normal"  />
 <link name="prototype" sourceid="1789651308" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651315" destcreator="tbuddy" color="normal"  />
-<link name="prototype" sourceid="1789651308" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651314" destcreator="tbuddy" color="normal"  />
 <link name="prototype" sourceid="1789651309" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651320" destcreator="tbuddy" color="normal"  />
 <link name="prototype" sourceid="1789651308" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651316" destcreator="tbuddy" color="normal"  />
-<link name="prototype" sourceid="1789651309" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651319" destcreator="tbuddy" color="normal"  />
 <link name="prototype" sourceid="1789651308" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651318" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651309" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651319" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651308" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651314" destcreator="tbuddy" color="normal"  />
 <link name="prototype" sourceid="1789651310" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651324" destcreator="tbuddy" color="normal"  />
-<link name="prototype" sourceid="1789651308" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651317" destcreator="tbuddy" color="normal"  />
-<link name="prototype" sourceid="1789651310" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651325" destcreator="tbuddy" color="normal"  />
 <link name="prototype" sourceid="1789651309" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651321" destcreator="tbuddy" color="normal"  />
 <link name="prototype" sourceid="1789651310" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651326" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651308" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651317" destcreator="tbuddy" color="normal"  />
 <link name="prototype" sourceid="1789651308" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651327" destcreator="tbuddy" color="normal"  />
-<link name="prototype" sourceid="1789651312" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651328" destcreator="tbuddy" color="normal"  />
-<link name="prototype" sourceid="1789651312" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651329" destcreator="tbuddy" color="normal"  />
-<link name="prototype" sourceid="1789651312" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651330" destcreator="tbuddy" color="normal"  />
 <link name="prototype" sourceid="1789651312" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651331" destcreator="tbuddy" color="normal"  />
-<link name="prototype" sourceid="1789651312" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651332" destcreator="tbuddy" color="normal"  />
-<link name="prototype" sourceid="1789651312" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651335" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651310" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651325" destcreator="tbuddy" color="normal"  />
 <link name="prototype" sourceid="1789651312" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651333" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651312" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651328" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651312" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651335" destcreator="tbuddy" color="normal"  />
 <link name="prototype" sourceid="1789651312" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651338" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651312" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651330" destcreator="tbuddy" color="normal"  />
 <link name="prototype" sourceid="1789651312" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651334" destcreator="tbuddy" color="normal"  />
-<link name="prototype" sourceid="1789651308" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651339" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651312" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651332" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651312" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651329" destcreator="tbuddy" color="normal"  />
 <link name="prototype" sourceid="1789651312" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651337" destcreator="tbuddy" color="normal"  />
-<link name="prototype" sourceid="1789651312" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651336" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651308" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651339" destcreator="tbuddy" color="normal"  />
 <link name="prototype" sourceid="1789651311" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651340" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651312" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651336" destcreator="tbuddy" color="normal"  />
 <link name="prototype" sourceid="1789651311" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651341" destcreator="tbuddy" color="normal"  />
-<link name="prototype" sourceid="1789651311" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651342" destcreator="tbuddy" color="normal"  />
 <link name="prototype" sourceid="1789651311" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651343" destcreator="tbuddy" color="normal"  />
 <link name="prototype" sourceid="1789651308" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651344" destcreator="tbuddy" color="normal"  />
 <link name="prototype" sourceid="1789651308" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651345" destcreator="tbuddy" color="normal"  />
-<link name="prototype" sourceid="1789651308" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651348" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651311" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651342" destcreator="tbuddy" color="normal"  />
 <link name="*untitled" sourceid="1789651315" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651317" destcreator="tbuddy" color="normal"  />
 <link name="prototype" sourceid="1789651308" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651346" destcreator="tbuddy" color="normal"  />
+<link name="prototype" sourceid="1789651308" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651348" destcreator="tbuddy" color="normal"  />
 <link name="*untitled" sourceid="1789651315" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651318" destcreator="tbuddy" color="normal"  />
-<link name="*untitled" sourceid="1789651319" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651327" destcreator="tbuddy" color="normal"  />
 <link name="*untitled" sourceid="1789651315" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651323" destcreator="tbuddy" color="normal"  />
-<link name="*untitled" sourceid="1789651320" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651342" destcreator="tbuddy" color="normal"  />
-<link name="*untitled" sourceid="1789651324" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651344" destcreator="tbuddy" color="normal"  />
 <link name="*untitled" sourceid="1789651326" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651327" destcreator="tbuddy" color="normal"  />
 <link name="*untitled" sourceid="1789651331" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651324" destcreator="tbuddy" color="normal"  />
+<link name="*untitled" sourceid="1789651320" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651342" destcreator="tbuddy" color="normal"  />
+<link name="*untitled" sourceid="1789651319" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651327" destcreator="tbuddy" color="normal"  />
 <link name="prototype" sourceid="1789651308" sourcecreator="tbuddy" sstart="-1" slen="0" style="512" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651347" destcreator="tbuddy" color="normal"  />
+<link name="*untitled" sourceid="1789651324" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651344" destcreator="tbuddy" color="normal"  />
 <link name="*untitled" sourceid="1789651341" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651327" destcreator="tbuddy" color="normal"  />
-<link name="*untitled" sourceid="1789651331" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651344" destcreator="tbuddy" color="normal"  />
 <link name="*untitled" sourceid="1789651331" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651314" destcreator="tbuddy" color="normal"  />
+<link name="*untitled" sourceid="1789651331" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651344" destcreator="tbuddy" color="normal"  />
 <link name="*untitled" sourceid="1789651342" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651344" destcreator="tbuddy" color="normal"  />
 <link name="*untitled" sourceid="1789651347" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651331" destcreator="tbuddy" color="normal"  />
 <link name="*untitled" sourceid="1789651325" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651344" destcreator="tbuddy" color="normal"  />
@@ -1964,8 +1965,8 @@ $ExportClass                  → lab-only projection hint</text>
 <link name="*untitled" sourceid="1789651313" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651327" destcreator="tbuddy" color="normal"  />
 <link name="note" sourceid="1789651331" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651344" destcreator="tbuddy" color="normal"  />
 <link name="*untitled" sourceid="1789651313" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651344" destcreator="tbuddy" color="normal"  />
-<link name="disagree" sourceid="1789651331" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651324" destcreator="tbuddy" color="normal"  />
 <link name="example" sourceid="1789651331" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651315" destcreator="tbuddy" color="normal"  />
+<link name="disagree" sourceid="1789651331" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651324" destcreator="tbuddy" color="normal"  />
 <link name="agree" sourceid="1789651331" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651344" destcreator="tbuddy" color="normal"  />
 <link name="clarify" sourceid="1789651331" sourcecreator="tbuddy" sstart="-1" slen="0" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651325" destcreator="tbuddy" color="normal"  />
 <link name="note" sourceid="1789651332" sourcecreator="tbuddy" sstart="107" slen="12" style="0" arrowtype="-1" labelx="0" labely="0" linkWidth="1" destid="1789651333" destcreator="tbuddy" color="normal"  />
@@ -1979,7 +1980,7 @@ $ExportClass                  → lab-only projection hint</text>
 <Tinderbox5Wizard > 1</Tinderbox5Wizard>
 <DynamicSpelling > 1</DynamicSpelling>
 <AutoOpen > 1</AutoOpen>
-<AutomaticBackup > 1</AutomaticBackup>
+<AutomaticBackup > 0</AutomaticBackup>
 <ReopenLastDocument > 0</ReopenLastDocument>
 <Autosave > 0</Autosave>
 <KeepWindowsOpen > 1</KeepWindowsOpen>
@@ -2141,8 +2142,8 @@ $ExportClass                  → lab-only projection hint</text>
 <windows >
 <window bounds="Rect[ 0 55 1800 1129]" ruler="0" toolbar="1" >
 <tabs >
-<tab selected="0" name="" subtitle="" viewType="0" usingRoadmap="0" hideBreadcrumbs="0" hideLinkWidgets="0" linkStubs="1" animateLinks="1" scale="32" ID="1789673853" scrollX="294.5" scrollY="460" mapscrollX="294.5" mapscrollY="223" selection="" expanded="" textTab="0" splitRatio="0.671389" xattribute="Name" xattribute2="Height" xdisplayattribute="DisplayName" xbarattribute="OutlineOrder" xcontainer="" xquery="" xqueryLabel="" xbins="5" xunlimited="0" xbins2="5" xunlimited2="0" xheatmap="0" xReportStyle="0" spacing="0.35" aspect="2" hyperbolicScale="1" path="" focus="1789671828" crosslinks="1" spread="0.5" treepaths="" crosslinkpaths="" hasBorder="0" isVertical="0" isCentered="1" lineType="0" itemWidth="220" xspace="10" yspace="10" showColumns="0" usingCheckboxes="0" columnString="" oldColumnString="" treemapExpression="" treemapColorExpression="" treemapBorderColorExpression="$Color" treemapColorStart="#fffef9100" treemapColorEnd="#ccd5bf100" treemapDepth="0" attribute="" container="" bins="10" dateGranularity="Day" sortAttribute="" sortDirections="0" summaryAttribute="" summaryMethod="" query="" queryLabel="" action="" actionLabel="" fontSize="16" omitDefaultValues="1" showFilter="0" filterString="" filterName="" tableFontSize="12" force="" gaudiSize="0" gaudiFontSize="16" roundness="10" grout="10" cameraPosition="5 2.5 -5" cameraDirection="0 0 0" focalLength="0"  />
-<tab selected="1" name="" subtitle="" viewType="1" usingRoadmap="0" hideBreadcrumbs="0" hideLinkWidgets="0" linkStubs="1" animateLinks="1" scale="32" ID="1789673853" scrollX="0" scrollY="0" mapscrollX="0" mapscrollY="0" selection="1789651345 " expanded="1789651307 1789651313 1789651314 1789651318 1789651323 1789651327 1789651339 " textTab="0" splitRatio="0.5" xattribute="Name" xattribute2="Height" xdisplayattribute="DisplayName" xbarattribute="OutlineOrder" xcontainer="" xquery="" xqueryLabel="" xbins="5" xunlimited="0" xbins2="5" xunlimited2="0" xheatmap="0" xReportStyle="0" spacing="0.35" aspect="2" hyperbolicScale="1" path="" focus="1789671828" crosslinks="1" spread="0.5" treepaths="" crosslinkpaths="" hasBorder="0" isVertical="0" isCentered="1" lineType="0" itemWidth="220" xspace="10" yspace="10" showColumns="0" usingCheckboxes="0" columnString="" oldColumnString="" treemapExpression="" treemapColorExpression="" treemapBorderColorExpression="$Color" treemapColorStart="#fffef9100" treemapColorEnd="#ccd5bf100" treemapDepth="0" attribute="" container="" bins="10" dateGranularity="Day" sortAttribute="" sortDirections="0" summaryAttribute="" summaryMethod="" query="" queryLabel="" action="" actionLabel="" fontSize="16" omitDefaultValues="1" showFilter="0" filterString="" filterName="" tableFontSize="12" force="" gaudiSize="0" gaudiFontSize="16" roundness="10" grout="10" cameraPosition="5 2.5 -5" cameraDirection="0 0 0" focalLength="0"  />
+<tab selected="0" name="" subtitle="" viewType="0" usingRoadmap="0" hideBreadcrumbs="0" hideLinkWidgets="0" linkStubs="1" animateLinks="1" scale="32" ID="1789686192" scrollX="294.5" scrollY="460" mapscrollX="294.5" mapscrollY="460" selection="" expanded="" textTab="0" splitRatio="0.671389" xattribute="Name" xattribute2="Height" xdisplayattribute="DisplayName" xbarattribute="OutlineOrder" xcontainer="" xquery="" xqueryLabel="" xbins="5" xunlimited="0" xbins2="5" xunlimited2="0" xheatmap="0" xReportStyle="0" spacing="0.35" aspect="2" hyperbolicScale="1" path="" focus="1789685430" crosslinks="1" spread="0.5" treepaths="" crosslinkpaths="" hasBorder="0" isVertical="0" isCentered="1" lineType="0" itemWidth="220" xspace="10" yspace="10" showColumns="0" usingCheckboxes="0" columnString="" oldColumnString="" treemapExpression="" treemapColorExpression="" treemapBorderColorExpression="$Color" treemapColorStart="#fffef9100" treemapColorEnd="#ccd5bf100" treemapDepth="0" attribute="" container="" bins="10" dateGranularity="Day" sortAttribute="" sortDirections="0" summaryAttribute="" summaryMethod="" query="" queryLabel="" action="" actionLabel="" fontSize="16" omitDefaultValues="1" showFilter="0" filterString="" filterName="" tableFontSize="12" force="" gaudiSize="0" gaudiFontSize="16" roundness="10" grout="10" cameraPosition="5 2.5 -5" cameraDirection="0 0 0" focalLength="0"  />
+<tab selected="1" name="" subtitle="" viewType="1" usingRoadmap="0" hideBreadcrumbs="0" hideLinkWidgets="0" linkStubs="1" animateLinks="1" scale="32" ID="1789686192" scrollX="0" scrollY="0" mapscrollX="0" mapscrollY="0" selection="1789651316 " expanded="1789651307 1789651313 1789651314 1789651318 1789651323 1789651327 1789651339 " textTab="0" splitRatio="0.5" xattribute="Name" xattribute2="Height" xdisplayattribute="DisplayName" xbarattribute="OutlineOrder" xcontainer="" xquery="" xqueryLabel="" xbins="5" xunlimited="0" xbins2="5" xunlimited2="0" xheatmap="0" xReportStyle="0" spacing="0.35" aspect="2" hyperbolicScale="1" path="" focus="1789685430" crosslinks="1" spread="0.5" treepaths="" crosslinkpaths="" hasBorder="0" isVertical="0" isCentered="1" lineType="0" itemWidth="220" xspace="10" yspace="10" showColumns="0" usingCheckboxes="0" columnString="" oldColumnString="" treemapExpression="" treemapColorExpression="" treemapBorderColorExpression="$Color" treemapColorStart="#fffef9100" treemapColorEnd="#ccd5bf100" treemapDepth="0" attribute="" container="" bins="10" dateGranularity="Day" sortAttribute="" sortDirections="0" summaryAttribute="" summaryMethod="" query="" queryLabel="" action="" actionLabel="" fontSize="16" omitDefaultValues="1" showFilter="0" filterString="" filterName="" tableFontSize="12" force="" gaudiSize="0" gaudiFontSize="16" roundness="10" grout="10" cameraPosition="5 2.5 -5" cameraDirection="0 0 0" focalLength="0"  />
 </tabs>
 </window>
 </windows>
