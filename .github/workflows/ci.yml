@@ -18,6 +18,7 @@ jobs:
         uses: drawmeanelephant/zig-zouave@2d8510d62b517fa786279562cf8b1bdcf0c47b9f
         with:
           version: 0.16.0
+          mirror: https://pkg.machengine.org/zig
 
       - name: Format check
         run: |
@@ -50,6 +51,7 @@ jobs:
         uses: drawmeanelephant/zig-zouave@2d8510d62b517fa786279562cf8b1bdcf0c47b9f
         with:
           version: 0.16.0
+          mirror: https://pkg.machengine.org/zig
 
       - name: Install locked npm deps
         run: npm --prefix schema-validation ci --ignore-scripts
