@@ -1140,7 +1140,9 @@ page-local ownership).
 
 This is **developer migration tooling**, not Boris runtime functionality. The
 product compiler only publishes sibling `{stem}.assets/` trees that already
-satisfy [`docs/contracts/content-local-assets.md`](../../docs/contracts/content-local-assets.md).
+satisfy the Boris
+[`content-local-assets.md`](https://github.com/drawmeanelephant/boris/blob/v0.8.2/docs/contracts/content-local-assets.md)
+contract.
 
 Every generated Markdown file includes:
 
@@ -1337,11 +1339,13 @@ zig build run -- --mode=astro --root=./fixtures/absolute-links-astro --out=./.mi
 ## Relationship to Boris product rules
 
 - Implemented in **Zig only** (no Node/Python migration stage).
-- Lives under `tools/` so it cannot be mistaken for the content compiler.
-- Does not modify `src/`, `docs/contracts/`, root `build.zig`, or default CI gates.
+- This standalone repository's root `build.zig` builds the migration lab;
+  Boris's product compiler is separate.
 - Generated frontmatter targets the closed author grammar (`id`, `title`,
-  `parent`, `status`, `tags`) from [`docs/contracts/frontmatter.md`](../../docs/contracts/frontmatter.md).
-- Conversion still follows [`docs/MIGRATION.md`](../../docs/MIGRATION.md) for
+  `parent`, `status`, `tags`) from Boris's
+  [`frontmatter.md`](https://github.com/drawmeanelephant/boris/blob/v0.8.2/docs/contracts/frontmatter.md)
+  contract.
+- Conversion still follows this repository's [`docs/MIGRATION.md`](docs/MIGRATION.md) for
   author follow-up (wiki links, includes, theme).
 
 ## Schema note
