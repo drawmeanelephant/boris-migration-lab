@@ -18,7 +18,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    // Zig 0.16 exposes the process environment only through `main`'s `Init`,
+    // Zig 0.17 exposes the process environment only through `main`'s `Init`,
     // not to library code at runtime, so the black-box binary resolver reads
     // `BORIS_BIN` / `PATH` as configure-time snapshots from the build graph.
     const options = b.addOptions();
@@ -47,9 +47,7 @@ pub fn build(b: *std.Build) void {
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
+    run_cmd.addPassthruArgs();
     const run_step = b.step("run", "Run boris-migration-lab");
     run_step.dependOn(&run_cmd.step);
 

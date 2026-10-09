@@ -132,8 +132,8 @@ fn requireNoDestination(io: Io, path: []const u8) !void {
 /// move directories there.
 fn publishNoReplace(io: Io, a: std.mem.Allocator, stage_path: []const u8, destination: []const u8) !void {
     if (comptime builtin.os.tag == .macos) {
-        const stage_z = try a.dupeZ(u8, stage_path);
-        const destination_z = try a.dupeZ(u8, destination);
+        const stage_z = try a.dupeSentinel(u8, stage_path, 0);
+        const destination_z = try a.dupeSentinel(u8, destination, 0);
         if (darwin.renamex_np(stage_z.ptr, destination_z.ptr, darwin.rename_excl) != 0) return error.DestinationRace;
         return;
     }
