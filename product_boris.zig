@@ -6,7 +6,7 @@
 // exports `BORIS_BIN`; local runs may rely on `boris` on PATH. This resolver
 // never reaches outside the laboratory tree (no `../..` probes).
 //
-// Zig 0.16 exposes the process environment only through `main`'s `Init`, so
+// Zig 0.17 exposes the process environment only through `main`'s `Init`, so
 // `build.zig` snapshots `BORIS_BIN` and `PATH` from the build graph into the
 // `options` module at configure time and this module reads those snapshots.
 const std = @import("std");

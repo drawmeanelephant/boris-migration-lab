@@ -1529,7 +1529,7 @@ pub fn analyze(
     }.less);
 
     var entity_kind_counts: [5]usize = .{ 0, 0, 0, 0, 0 };
-    for (proposed.items) |p| entity_kind_counts[@intFromEnum(p.kind)] += 1;
+    for (proposed.items) |p| entity_kind_counts[@backingInt(p.kind)] += 1;
     var explained_entities: usize = 0;
     for (entity_kind_counts) |count| explained_entities += count;
     if (explained_entities != proposed.items.len) return error.EntityAccountingMismatch;

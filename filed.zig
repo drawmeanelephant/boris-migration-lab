@@ -644,9 +644,9 @@ pub fn run(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
     }
     for (records.items) |r| try writeFile(io, out, r.output_path, try emitPage(a, r));
 
-    var parent_counts = [_]usize{0} ** 5; // missing, identity, normalized, conflict, invalid
+    var parent_counts: [5]usize = @splat(0); // missing, identity, normalized, conflict, invalid
     for (records.items) |r| {
-        parent_counts[@intFromEnum(r.parent_norm.status)] += 1;
+        parent_counts[@backingInt(r.parent_norm.status)] += 1;
     }
 
     var manifest: std.ArrayList(u8) = .empty;
@@ -657,15 +657,15 @@ pub fn run(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
     try report.appendSlice(a, ",\n  \"source_root\": ");
     try appendJson(&report, a, opts.source_root_dir);
     try report.appendSlice(a, ",\n  \"converted_records\": 4,\n  \"parent_normalization\": {\n    \"missing\": ");
-    try appendUsize(&report, a, parent_counts[@intFromEnum(ParentNormStatus.missing)]);
+    try appendUsize(&report, a, parent_counts[@backingInt(ParentNormStatus.missing)]);
     try report.appendSlice(a, ",\n    \"identity\": ");
-    try appendUsize(&report, a, parent_counts[@intFromEnum(ParentNormStatus.identity)]);
+    try appendUsize(&report, a, parent_counts[@backingInt(ParentNormStatus.identity)]);
     try report.appendSlice(a, ",\n    \"normalized\": ");
-    try appendUsize(&report, a, parent_counts[@intFromEnum(ParentNormStatus.normalized)]);
+    try appendUsize(&report, a, parent_counts[@backingInt(ParentNormStatus.normalized)]);
     try report.appendSlice(a, ",\n    \"conflict\": ");
-    try appendUsize(&report, a, parent_counts[@intFromEnum(ParentNormStatus.conflict)]);
+    try appendUsize(&report, a, parent_counts[@backingInt(ParentNormStatus.conflict)]);
     try report.appendSlice(a, ",\n    \"invalid\": ");
-    try appendUsize(&report, a, parent_counts[@intFromEnum(ParentNormStatus.invalid)]);
+    try appendUsize(&report, a, parent_counts[@backingInt(ParentNormStatus.invalid)]);
     try report.appendSlice(a, "\n  },\n  \"unmapped_frontmatter\": [\n");
 
     var unmapped_count: usize = 0;
@@ -759,15 +759,15 @@ pub fn run(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
         \\
     );
     try md.appendSlice(a, "| `missing` | ");
-    try appendUsize(&md, a, parent_counts[@intFromEnum(ParentNormStatus.missing)]);
+    try appendUsize(&md, a, parent_counts[@backingInt(ParentNormStatus.missing)]);
     try md.appendSlice(a, " |\n| `identity` | ");
-    try appendUsize(&md, a, parent_counts[@intFromEnum(ParentNormStatus.identity)]);
+    try appendUsize(&md, a, parent_counts[@backingInt(ParentNormStatus.identity)]);
     try md.appendSlice(a, " |\n| `normalized` | ");
-    try appendUsize(&md, a, parent_counts[@intFromEnum(ParentNormStatus.normalized)]);
+    try appendUsize(&md, a, parent_counts[@backingInt(ParentNormStatus.normalized)]);
     try md.appendSlice(a, " |\n| `conflict` | ");
-    try appendUsize(&md, a, parent_counts[@intFromEnum(ParentNormStatus.conflict)]);
+    try appendUsize(&md, a, parent_counts[@backingInt(ParentNormStatus.conflict)]);
     try md.appendSlice(a, " |\n| `invalid` | ");
-    try appendUsize(&md, a, parent_counts[@intFromEnum(ParentNormStatus.invalid)]);
+    try appendUsize(&md, a, parent_counts[@backingInt(ParentNormStatus.invalid)]);
     try md.appendSlice(a, " |\n\n### Parent review\n\n");
     if (parent_review_count == 0) {
         try md.appendSlice(a, "None.\n");

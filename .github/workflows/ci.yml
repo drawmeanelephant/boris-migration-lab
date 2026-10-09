@@ -17,7 +17,7 @@ jobs:
       - name: Install Zig
         uses: drawmeanelephant/zig-zouave@2d8510d62b517fa786279562cf8b1bdcf0c47b9f
         with:
-          version: 0.16.0
+          version: 0.17.0
           mirror: https://pkg.machengine.org/zig
 
       - name: Format check
@@ -27,13 +27,13 @@ jobs:
 
       # The black-box compile tests consume the product `boris` binary as a
       # pinned external prerequisite (see README "Boris pins"): build it from
-      # the exact released tag the parser-package pin references, so a missing
-      # binary is a failure, never a skip. Keep the tag in sync with
+      # the exact commit the parser-package pin references, so a missing
+      # binary is a failure, never a skip. Keep the commit in sync with
       # build.zig.zon.
       - name: Build pinned product Boris (black-box prerequisite)
         run: |
           git clone --quiet https://github.com/drawmeanelephant/boris.git boris-src
-          git -C boris-src checkout --quiet v0.8.2
+          git -C boris-src checkout --quiet 2eb2c915b37ff0eecd7ea0778d6e481a8aea60c7
           zig build --build-file boris-src/build.zig
 
       - name: Migration-lab aggregate tests
@@ -50,7 +50,7 @@ jobs:
       - name: Install Zig
         uses: drawmeanelephant/zig-zouave@2d8510d62b517fa786279562cf8b1bdcf0c47b9f
         with:
-          version: 0.16.0
+          version: 0.17.0
           mirror: https://pkg.machengine.org/zig
 
       - name: Install locked npm deps

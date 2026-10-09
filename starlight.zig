@@ -3312,8 +3312,8 @@ fn tryCompileWithBoris(
 
     const code: i32 = switch (result.term) {
         .exited => |c| @intCast(c),
-        .signal => |s| -@as(i32, @intCast(@intFromEnum(s))),
-        .stopped => |s| -@as(i32, @intCast(@intFromEnum(s))),
+        .signal => |s| -@as(i32, @intCast(@backingInt(s))),
+        .stopped => |s| -@as(i32, @intCast(@backingInt(s))),
         .unknown => -999,
     };
     const excerpt = if (result.stderr.len > 0)

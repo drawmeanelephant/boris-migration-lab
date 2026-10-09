@@ -1075,7 +1075,7 @@ test "fixture: parse statuses and LF/CRLF fences are explicit and lossless" {
     };
     const source_rows = try readFile(io, std.testing.allocator, first_output, "source-disposition.jsonl");
     defer std.testing.allocator.free(source_rows);
-    var found = [_]bool{false} ** expected.len;
+    var found: [expected.len]bool = @splat(false);
     var source_lines = std.mem.splitScalar(u8, source_rows, '\n');
     while (source_lines.next()) |line| {
         if (line.len == 0) continue;

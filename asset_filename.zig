@@ -393,7 +393,7 @@ pub fn refuseOutputInsideSource(source: []const u8, out: []const u8) !void {
 
 fn isSymlink(io: Io, dir: Io.Dir, rel: []const u8) bool {
     // Prefer lstat-style check: open without following when available.
-    // Zig 0.16 Dir.statFile may follow; try readLink as positive signal.
+    // Zig 0.17 Dir.statFile may follow; try readLink as positive signal.
     var buf: [std.fs.max_path_bytes]u8 = undefined;
     _ = dir.readLink(io, rel, &buf) catch return false;
     return true;
