@@ -1,0 +1,17 @@
+title: Mini Jekyll Fixture
+description: Synthetic Jekyll site for boris-migration-lab
+baseurl: ""
+url: "https://example.com"
+permalink: pretty
+
+collections:
+  docs:
+    output: true
+  internal:
+    output: false
+
+defaults:
+  - scope:
+      path: "_posts"
+    values:
+      layout: post
