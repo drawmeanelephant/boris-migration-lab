@@ -31,3 +31,6 @@ zig-out/
 zig-pkg/
 test-output/
 node_modules/
+
+# Real provider exports (never commit; see docs/contracts/takeout-lab-intake.md)
+raw-local/
