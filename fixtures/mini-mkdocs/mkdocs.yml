@@ -1,0 +1,33 @@
+site_name: Mini MkDocs Fixture
+site_url: https://example.com/mini-mkdocs/
+site_description: Synthetic fixture for boris-migration-lab
+
+theme:
+  name: material
+  palette:
+    primary: indigo
+  icon:
+    admonition:
+      note: !!python/name:material.extensions.emoji.twemoji ''
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.tabbed
+  - pymdownx.snippets
+
+nav:
+  - Home: index.md
+  - about.md
+  - Guide:
+      - guide/index.md
+      - Setup: guide/setup.md
+      - Advanced:
+          - Deep Dive: guide/advanced/deep.md
+  - Reference:
+      - reference/README.md
+      - API: reference/api.md
+  - Example: https://example.com/
