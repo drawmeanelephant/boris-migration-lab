@@ -1,0 +1,10 @@
+{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://example.com/users/testuser/likes",
+  "type": "OrderedCollection",
+  "totalItems": 2,
+  "orderedItems": [
+    "https://example.com/users/friend/statuses/9001",
+    "https://example.com/users/stranger/statuses/9007"
+  ]
+}

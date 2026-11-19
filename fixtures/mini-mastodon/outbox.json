@@ -1,0 +1,279 @@
+{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://example.com/users/testuser/outbox",
+  "type": "OrderedCollection",
+  "totalItems": 13,
+  "orderedItems": [
+    {
+      "id": "https://example.com/users/testuser/statuses/1013/announce",
+      "type": "Announce",
+      "actor": "https://example.com/users/testuser",
+      "published": "2024-03-13T12:00:00Z",
+      "to": ["https://www.w3.org/ns/activitystreams#Public"],
+      "cc": ["https://example.com/users/testuser/followers"],
+      "object": "https://example.com/users/friend/statuses/9002"
+    },
+    {
+      "id": "https://example.com/users/testuser/statuses/1012/activity",
+      "type": "Create",
+      "actor": "https://example.com/users/testuser",
+      "published": "2024-03-12T12:00:00Z",
+      "to": ["https://example.com/users/friend"],
+      "cc": [],
+      "object": {
+        "id": "https://example.com/users/testuser/statuses/1012",
+        "type": "Note",
+        "attributedTo": "https://example.com/users/testuser",
+        "inReplyTo": "https://example.com/users/friend/statuses/9001",
+        "content": "<p><span class=\"h-card\"><a href=\"https://example.com/@friend\">@friend</a></span> Replying to your question with an example.</p>",
+        "published": "2024-03-12T12:00:00Z",
+        "to": ["https://example.com/users/friend"],
+        "cc": [],
+        "tag": [
+          {
+            "type": "Mention",
+            "href": "https://example.com/users/friend",
+            "name": "@friend@example.com"
+          }
+        ]
+      }
+    },
+    {
+      "id": "https://example.com/users/testuser/statuses/1011/activity",
+      "type": "Create",
+      "actor": "https://example.com/users/testuser",
+      "published": "2024-03-11T12:00:00Z",
+      "to": ["https://example.com/users/testuser/followers"],
+      "cc": [],
+      "object": {
+        "id": "https://example.com/users/testuser/statuses/1011",
+        "type": "Note",
+        "attributedTo": "https://example.com/users/testuser",
+        "inReplyTo": "https://example.com/users/testuser/statuses/1010",
+        "content": "<p>Third self-reply, completing a three-deep thread.</p>",
+        "published": "2024-03-11T12:00:00Z",
+        "to": ["https://example.com/users/testuser/followers"],
+        "cc": []
+      }
+    },
+    {
+      "id": "https://example.com/users/testuser/statuses/1010/activity",
+      "type": "Create",
+      "actor": "https://example.com/users/testuser",
+      "published": "2024-03-10T12:00:00Z",
+      "to": ["https://example.com/users/testuser/followers"],
+      "cc": [],
+      "object": {
+        "id": "https://example.com/users/testuser/statuses/1010",
+        "type": "Note",
+        "attributedTo": "https://example.com/users/testuser",
+        "inReplyTo": "https://example.com/users/testuser/statuses/1009",
+        "content": "<p>Second self-reply in the thread.</p>",
+        "published": "2024-03-10T12:00:00Z",
+        "to": ["https://example.com/users/testuser/followers"],
+        "cc": []
+      }
+    },
+    {
+      "id": "https://example.com/users/testuser/statuses/1009/activity",
+      "type": "Create",
+      "actor": "https://example.com/users/testuser",
+      "published": "2024-03-09T12:00:00Z",
+      "to": ["https://example.com/users/testuser/followers"],
+      "cc": [],
+      "object": {
+        "id": "https://example.com/users/testuser/statuses/1009",
+        "type": "Note",
+        "attributedTo": "https://example.com/users/testuser",
+        "inReplyTo": "https://example.com/users/testuser/statuses/1008",
+        "content": "<p>First self-reply in the thread.</p>",
+        "published": "2024-03-09T12:00:00Z",
+        "to": ["https://example.com/users/testuser/followers"],
+        "cc": []
+      }
+    },
+    {
+      "id": "https://example.com/users/testuser/statuses/1008/activity",
+      "type": "Create",
+      "actor": "https://example.com/users/testuser",
+      "published": "2024-03-08T12:00:00Z",
+      "to": ["https://www.w3.org/ns/activitystreams#Public"],
+      "cc": ["https://example.com/users/testuser/followers"],
+      "object": {
+        "id": "https://example.com/users/testuser/statuses/1008",
+        "type": "Note",
+        "attributedTo": "https://example.com/users/testuser",
+        "content": "<p>Thread root post.</p>",
+        "published": "2024-03-08T12:00:00Z",
+        "to": ["https://www.w3.org/ns/activitystreams#Public"],
+        "cc": ["https://example.com/users/testuser/followers"]
+      }
+    },
+    {
+      "id": "https://example.com/users/testuser/statuses/1007/activity",
+      "type": "Create",
+      "actor": "https://example.com/users/testuser",
+      "published": "2024-03-07T12:00:00Z",
+      "to": ["https://www.w3.org/ns/activitystreams#Public"],
+      "cc": ["https://example.com/users/testuser/followers"],
+      "object": {
+        "id": "https://example.com/users/testuser/statuses/1007",
+        "type": "Note",
+        "attributedTo": "https://example.com/users/testuser",
+        "content": "<p>This post was edited once.</p>",
+        "published": "2024-03-07T12:00:00Z",
+        "updated": "2024-03-07T15:30:00Z",
+        "to": ["https://www.w3.org/ns/activitystreams#Public"],
+        "cc": ["https://example.com/users/testuser/followers"]
+      }
+    },
+    {
+      "id": "https://example.com/users/testuser/statuses/1006/activity",
+      "type": "Create",
+      "actor": "https://example.com/users/testuser",
+      "published": "2024-03-06T12:00:00Z",
+      "to": [],
+      "cc": ["https://www.w3.org/ns/activitystreams#Public"],
+      "object": {
+        "id": "https://example.com/users/testuser/statuses/1006",
+        "type": "Note",
+        "attributedTo": "https://example.com/users/testuser",
+        "summary": "Example spoiler topic",
+        "sensitive": true,
+        "content": "<p>Body behind a content warning.</p>",
+        "published": "2024-03-06T12:00:00Z",
+        "to": [],
+        "cc": ["https://www.w3.org/ns/activitystreams#Public"]
+      }
+    },
+    {
+      "id": "https://example.com/users/testuser/statuses/1005/activity",
+      "type": "Create",
+      "actor": "https://example.com/users/testuser",
+      "published": "2024-03-05T12:00:00Z",
+      "to": ["https://www.w3.org/ns/activitystreams#Public"],
+      "cc": ["https://example.com/users/testuser/followers"],
+      "object": {
+        "id": "https://example.com/users/testuser/statuses/1005",
+        "type": "Question",
+        "attributedTo": "https://example.com/users/testuser",
+        "content": "<p>Which example fruit wins?</p>",
+        "name": "Which example fruit wins?",
+        "published": "2024-03-05T12:00:00Z",
+        "endTime": "2024-03-08T12:00:00Z",
+        "closed": "2024-03-08T12:00:00Z",
+        "votersCount": 3,
+        "oneOf": [
+          { "name": "Apple", "replies": { "type": "Collection", "totalItems": 2 } },
+          { "name": "Pear", "replies": { "type": "Collection", "totalItems": 1 } }
+        ],
+        "to": ["https://www.w3.org/ns/activitystreams#Public"],
+        "cc": ["https://example.com/users/testuser/followers"]
+      }
+    },
+    {
+      "id": "https://example.com/users/testuser/statuses/1004/activity",
+      "type": "Create",
+      "actor": "https://example.com/users/testuser",
+      "published": "2024-03-04T12:00:00Z",
+      "to": ["https://www.w3.org/ns/activitystreams#Public"],
+      "cc": ["https://example.com/users/testuser/followers"],
+      "object": {
+        "id": "https://example.com/users/testuser/statuses/1004",
+        "type": "Note",
+        "attributedTo": "https://example.com/users/testuser",
+        "content": "<p>A post with one attached image.</p>",
+        "published": "2024-03-04T12:00:00Z",
+        "to": ["https://www.w3.org/ns/activitystreams#Public"],
+        "cc": ["https://example.com/users/testuser/followers"],
+        "attachment": [
+          {
+            "type": "Document",
+            "mediaType": "image/png",
+            "url": "media_attachments/files/photo1.png",
+            "name": "A small placeholder image for tests"
+          }
+        ]
+      }
+    },
+    {
+      "id": "https://example.com/users/testuser/statuses/1003/activity",
+      "type": "Create",
+      "actor": "https://example.com/users/testuser",
+      "published": "2024-03-03T12:00:00Z",
+      "to": ["https://example.com/users/friend"],
+      "cc": [],
+      "object": {
+        "id": "https://example.com/users/testuser/statuses/1003",
+        "type": "Note",
+        "attributedTo": "https://example.com/users/testuser",
+        "content": "<p><span class=\"h-card\"><a href=\"https://example.com/@friend\">@friend</a></span> Direct message example.</p>",
+        "published": "2024-03-03T12:00:00Z",
+        "to": ["https://example.com/users/friend"],
+        "cc": [],
+        "tag": [
+          {
+            "type": "Mention",
+            "href": "https://example.com/users/friend",
+            "name": "@friend@example.com"
+          }
+        ]
+      }
+    },
+    {
+      "id": "https://example.com/users/testuser/statuses/1002/activity",
+      "type": "Create",
+      "actor": "https://example.com/users/testuser",
+      "published": "2024-03-02T12:00:00Z",
+      "to": ["https://example.com/users/testuser/followers"],
+      "cc": [],
+      "object": {
+        "id": "https://example.com/users/testuser/statuses/1002",
+        "type": "Note",
+        "attributedTo": "https://example.com/users/testuser",
+        "content": "<p>Followers-only update.</p>",
+        "published": "2024-03-02T12:00:00Z",
+        "to": ["https://example.com/users/testuser/followers"],
+        "cc": []
+      }
+    },
+    {
+      "id": "https://example.com/users/testuser/statuses/1001/activity",
+      "type": "Create",
+      "actor": "https://example.com/users/testuser",
+      "published": "2024-03-01T12:00:00Z",
+      "to": ["https://www.w3.org/ns/activitystreams#Public"],
+      "cc": ["https://example.com/users/testuser/followers"],
+      "object": {
+        "id": "https://example.com/users/testuser/statuses/1001",
+        "type": "Note",
+        "attributedTo": "https://example.com/users/testuser",
+        "content": "<p>Hello with a <a href=\"https://example.com/tags/ExampleTag\">#ExampleTag</a> and a custom emojo :star:.</p>",
+        "published": "2024-03-01T12:00:00Z",
+        "to": ["https://www.w3.org/ns/activitystreams#Public"],
+        "cc": ["https://example.com/users/testuser/followers"],
+        "tag": [
+          {
+            "type": "Hashtag",
+            "href": "https://example.com/tags/ExampleTag",
+            "name": "#ExampleTag"
+          },
+          {
+            "type": "Mention",
+            "href": "https://example.com/users/friend",
+            "name": "@friend@example.com"
+          },
+          {
+            "type": "Emoji",
+            "name": ":star:",
+            "icon": {
+              "type": "Image",
+              "mediaType": "image/png",
+              "url": "media_attachments/files/emoji_star.png"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
