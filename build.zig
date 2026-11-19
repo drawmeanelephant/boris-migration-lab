@@ -51,8 +51,10 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run boris-migration-lab");
     run_step.dependOn(&run_cmd.step);
 
+    const test_filters = b.option([]const []const u8, "test-filter", "Run only tests whose names contain this substring") orelse &.{};
     const unit_tests = b.addTest(.{
         .root_module = root_mod,
+        .filters = test_filters,
     });
     const run_unit_tests = b.addRunArtifact(unit_tests);
     // Tests open fixtures/ relative to this package directory.
