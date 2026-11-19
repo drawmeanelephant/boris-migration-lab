@@ -1,0 +1,25 @@
+# Synthetic Hugo site config for boris-migration-lab.
+# Hugo 0.110+ prefers hugo.toml, but config.toml is still accepted.
+# TOML is kept to simple key = value, arrays, and [table] headers so a
+# bounded scanner (no real TOML parser in the repo) can read it.
+
+baseURL = "https://example.com/"
+title = "Mini Hugo Lab Site"
+defaultContentLanguage = "en"
+defaultContentLanguageInSubdir = true
+enableRobotsTXT = true
+ignoreLogs = ["warning-remote-shortcode"]
+
+[languages.en]
+languageName = "English"
+contentDir = "content/en"
+weight = 1
+
+[languages.fr]
+languageName = "Français"
+contentDir = "content/fr"
+weight = 2
+
+[params]
+author = "Lab Author"
+description = "Synthetic fixture site"
