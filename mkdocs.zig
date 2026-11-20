@@ -424,7 +424,7 @@ fn parseConfigYaml(a: std.mem.Allocator, yaml: []const u8) !Config {
                     .line = line_no,
                 });
                 try section_stack.append(a, indent);
-            } else if (std.mem.indexOf(u8, body, ": ")) |kv| {
+            } else if (findEntryColon(body)) |kv| {
                 // `- Title: target`
                 const title = trim(body[0..kv]);
                 const target = trim(body[kv + 2 ..]);
@@ -1372,7 +1372,11 @@ pub fn run(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
     const json = try emitInventoryJson(a, opts, cfg_sha, inv, dispositions);
     const md = try emitInventoryMd(a, opts, cfg_sha, inv, dispositions);
 
-    var pub_ = try publication.Publication.begin(io, a, opts.out_dir, &.{opts.root_dir}, format_id);
+    var out_dir = stripTrailingSlashes(opts.out_dir);
+    if (out_dir.len == 0) out_dir = opts.out_dir;
+    const docs_dir_path = try std.fmt.allocPrint(a, "{s}/{s}", .{ opts.root_dir, inv.config.docs_dir });
+    const inputs = [_][]const u8{ opts.root_dir, docs_dir_path };
+    var pub_ = try publication.Publication.begin(io, a, out_dir, &inputs, format_id);
     defer {
         pub_.abandon(io, a);
         pub_.deinit(a);
@@ -1386,7 +1390,7 @@ pub fn run(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
     try pub_.commit(io, a);
 
     if (!opts.quiet) {
-        std.debug.print("mkdocs-inventory: wrote {s}/inventory.json, {s}/INVENTORY.md\n", .{ opts.out_dir, opts.out_dir });
+        std.debug.print("mkdocs-inventory: wrote {s}/inventory.json, {s}/INVENTORY.md\n", .{ out_dir, out_dir });
     }
 }
 
