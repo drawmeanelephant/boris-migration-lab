@@ -299,7 +299,7 @@ fn scanYamlFields(a: std.mem.Allocator, block: []const u8, unclassified: *std.Ar
             continue;
         };
         const key = trimSpace(t[0..colon]);
-        const value = trimSpace(t[colon + 1 ..]);
+        const value = trimSpace(stripYamlComment(t[colon + 1 ..]));
         if (key.len == 0) continue;
         if (value.len == 0) {
             // Possibly a `- item` block sequence on following lines.
@@ -310,7 +310,7 @@ fn scanYamlFields(a: std.mem.Allocator, block: []const u8, unclassified: *std.Ar
                 const t2 = trimSpace(l2);
                 if (t2.len == 0) continue;
                 if (std.mem.startsWith(u8, t2, "- ")) {
-                    try items.append(a, stripQuotes(trimSpace(t2[2..])));
+                    try items.append(a, stripQuotes(trimSpace(stripYamlComment(t2[2..]))));
                     continue;
                 }
                 break;
@@ -329,6 +329,25 @@ fn scanYamlFields(a: std.mem.Allocator, block: []const u8, unclassified: *std.Ar
         try fields.append(a, .{ .key = key, .value = .{ .scalar = stripQuotes(value) } });
     }
     return try fields.toOwnedSlice(a);
+}
+
+/// Cut a trailing ` # comment` from an unquoted YAML value portion. A `#`
+/// starts a comment only when preceded by whitespace; quoted values keep
+/// their `#` characters.
+fn stripYamlComment(s: []const u8) []const u8 {
+    var quote: u8 = 0;
+    for (s, 0..) |c, i| {
+        if (quote != 0) {
+            if (c == quote) quote = 0;
+            continue;
+        }
+        if (c == '"' or c == '\'') {
+            quote = c;
+            continue;
+        }
+        if (c == '#' and (i == 0 or s[i - 1] == ' ' or s[i - 1] == '\t')) return s[0..i];
+    }
+    return s;
 }
 
 fn parseFrontMatter(a: std.mem.Allocator, source: []const u8, unclassified: *std.ArrayList([]const u8), context: []const u8) !FrontMatter {
@@ -444,9 +463,9 @@ fn jsonTopLevelKeys(a: std.mem.Allocator, obj: []const u8, keys: *std.ArrayList(
                     const arr_close = std.mem.indexOfScalarPos(u8, obj, j, ']') orelse continue;
                     var inner: std.ArrayList([]const u8) = .empty;
                     try splitTomlArray(a, obj[j + 1 .. arr_close], &inner, unclassified, context);
+                    if (std.mem.eql(u8, token, "aliases")) aliases.* = inner;
                     const items = try inner.toOwnedSlice(a);
                     try fields.append(a, .{ .key = token, .value = .{ .list = items } });
-                    if (std.mem.eql(u8, token, "aliases")) aliases.* = inner;
                 } else {
                     // Number, boolean, or null: take the bare token.
                     var vend = j;
@@ -478,18 +497,18 @@ fn yamlAliases(a: std.mem.Allocator, source: []const u8, fm_end: usize, unclassi
         if (line.len == 0 or std.mem.eql(u8, line, "---")) continue;
         if (line[0] == ' ' or line[0] == '\t') {
             if (in_aliases and std.mem.startsWith(u8, t, "- ")) {
-                try out.append(a, stripQuotes(trimSpace(t[2..])));
+                try out.append(a, stripQuotes(trimSpace(stripYamlComment(t[2..]))));
             }
             continue;
         }
         if (std.mem.startsWith(u8, t, "- ")) {
-            if (in_aliases) try out.append(a, stripQuotes(trimSpace(t[2..])));
+            if (in_aliases) try out.append(a, stripQuotes(trimSpace(stripYamlComment(t[2..]))));
             continue;
         }
         in_aliases = false;
         const colon = std.mem.indexOfScalar(u8, t, ':') orelse continue;
         if (!std.mem.eql(u8, trimSpace(t[0..colon]), "aliases")) continue;
-        const value = trimSpace(t[colon + 1 ..]);
+        const value = trimSpace(stripYamlComment(t[colon + 1 ..]));
         in_aliases = value.len == 0;
         if (value.len > 0) {
             if (value.len >= 2 and value[0] == '[' and value[value.len - 1] == ']') {
@@ -1557,6 +1576,10 @@ const EmitPage = struct {
     /// Content-dir-relative lookup key (`posts/hello-bundle`; "" for a root
     /// `_index.md`).
     key: []const u8,
+    /// Directory of the source file relative to its content root — the base
+    /// for resolving relative Markdown links (`guides` for a `guides/_index.md`;
+    /// unlike keyDir(key) this does not climb for index pages).
+    file_dir: []const u8,
     /// Boris entity id: `<lang>/<key>` (`<lang>` alone for a language root).
     id: []const u8,
     /// Emitted file under --out: `content/<id>.md`.
@@ -1749,9 +1772,15 @@ fn keyDir(key: []const u8) []const u8 {
 }
 
 /// Page file name minus `.md`, or the directory for `index`/`_index`.
-fn pageKey(a: std.mem.Allocator, rel: []const u8) ![]const u8 {
+/// Hugo's suffix-style translations (`page.fr.md`, `_index.fr.md`) drop
+/// the `.<lang>` infix so translated pages land on the same keys.
+fn pageKey(a: std.mem.Allocator, rel: []const u8, lang: []const u8) ![]const u8 {
     var stem = rel;
     if (std.mem.endsWith(u8, stem, ".md")) stem = stem[0 .. stem.len - 3];
+    if (lang.len > 0) {
+        const suffix = try std.fmt.allocPrint(a, ".{s}", .{lang});
+        if (std.mem.endsWith(u8, stem, suffix)) stem = stem[0 .. stem.len - suffix.len];
+    }
     const base = std.fs.path.basename(stem);
     if (std.mem.eql(u8, base, "index") or std.mem.eql(u8, base, "_index")) {
         const dir = std.fs.path.dirname(stem) orelse "";
@@ -1770,7 +1799,7 @@ fn pageContentDir(inv: Inventory, page: Page) []const u8 {
     return "content";
 }
 
-fn contentRelKey(a: std.mem.Allocator, inv: Inventory, page: Page) ![]const u8 {
+fn contentRelPath(a: std.mem.Allocator, inv: Inventory, page: Page) ![]const u8 {
     const cdir_raw = pageContentDir(inv, page);
     const cdir = try normalizeRelPath(a, cdir_raw);
     var rel = page.path;
@@ -1778,7 +1807,12 @@ fn contentRelKey(a: std.mem.Allocator, inv: Inventory, page: Page) ![]const u8 {
         rel = rel[cdir.len..];
         if (rel.len > 0 and rel[0] == '/') rel = rel[1..];
     }
-    return try pageKey(a, rel);
+    return rel;
+}
+
+fn contentRelKey(a: std.mem.Allocator, inv: Inventory, page: Page) ![]const u8 {
+    const rel = try contentRelPath(a, inv, page);
+    return try pageKey(a, rel, page.language);
 }
 
 const mapped_keys = [_][]const u8{ "title", "date", "publishdate", "publishDate", "draft", "tags", "categories", "description", "summary" };
@@ -2048,8 +2082,9 @@ fn rewriteDest(ctx: *const EmitCtx, page: EmitPage, dest: []const u8) !DestResul
         return .{ .rewrite = mapped };
     }
     if (std.mem.endsWith(u8, dest, ".md")) {
-        // Relative page link: resolve against the page's own directory first.
-        const dir = keyDir(page.key);
+        // Relative page link: resolve against the source file's directory
+        // first (the file's real location, not the collapsed key).
+        const dir = page.file_dir;
         const joined = if (dir.len == 0) dest else try std.fmt.allocPrint(ctx.a, "{s}/{s}", .{ dir, dest });
         if (try resolveEntity(ctx, page, joined)) |id| return .{ .entity = id };
         if (try resolveEntity(ctx, page, dest)) |id| return .{ .entity = id };
@@ -2178,9 +2213,48 @@ fn rewriteLine(ctx: *const EmitCtx, page: EmitPage, line: []const u8, out: *std.
                 };
                 const text = line[text_start..bracket_close];
                 var dest = trimSpace(line[bracket_close + 2 .. paren_close]);
+                if (dest.len >= 2 and dest[0] == '<' and dest[dest.len - 1] == '>') dest = dest[1 .. dest.len - 1];
+                if (dest.len > 0 and dest[0] == '{') {
+                    // A shortcode used as the link destination, e.g.
+                    // `[text]({{< ref "x.md" >}})`. Resolve ref/relref to a
+                    // wiki link; anything else stays verbatim + review.
+                    const span = line[i .. paren_close + 1];
+                    var handled = false;
+                    if (std.mem.startsWith(u8, dest, "{{<") and std.mem.endsWith(u8, dest, ">}}")) {
+                        const inner = trimSpace(dest[3 .. dest.len - 3]);
+                        var e: usize = 0;
+                        while (e < inner.len and (std.ascii.isAlphanumeric(inner[e]) or inner[e] == '_' or inner[e] == '-')) e += 1;
+                        const name = inner[0..e];
+                        if (std.mem.eql(u8, name, "ref") or std.mem.eql(u8, name, "relref")) {
+                            const attrs = try parseShortcodeArgs(a, trimSpace(inner[e..]));
+                            const target = if (attrs.len > 0) attrs[0].value else "";
+                            if (try resolveEntity(ctx, page, target)) |id| {
+                                try ctx.links.append(a, .{ .source_path = page.src.path, .target = span, .result = id });
+                                try bufAppendWikiLink(out, a, id, if (is_img) null else text);
+                            } else {
+                                try ctx.review.append(a, .{
+                                    .source_path = page.src.path,
+                                    .kind = "unresolved_ref",
+                                    .detail = try std.fmt.allocPrint(a, "{s} kept verbatim", .{span}),
+                                });
+                                try out.appendSlice(a, span);
+                            }
+                            handled = true;
+                        }
+                    }
+                    if (!handled) {
+                        try ctx.review.append(a, .{
+                            .source_path = page.src.path,
+                            .kind = "shortcode_in_link",
+                            .detail = try std.fmt.allocPrint(a, "{s} kept verbatim", .{span}),
+                        });
+                        try out.appendSlice(a, span);
+                    }
+                    i = paren_close + 1;
+                    continue;
+                }
                 // Optional `"title"` after the destination.
                 if (std.mem.indexOfScalar(u8, dest, ' ')) |sp| dest = trimSpace(dest[0..sp]);
-                if (dest.len >= 2 and dest[0] == '<' and dest[dest.len - 1] == '>') dest = dest[1 .. dest.len - 1];
                 const res = try rewriteDest(ctx, page, dest);
                 switch (res) {
                     .keep => try out.appendSlice(a, line[i .. paren_close + 1]),
@@ -2553,18 +2627,21 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
         const text = try readFileAlloc(io, root, p.path, a);
         var unclassified2: std.ArrayList([]const u8) = .empty;
         const fm = try parseFrontMatter(a, text, &unclassified2, p.path);
-        const key = try contentRelKey(a, inv, p);
+        const rel_path = try contentRelPath(a, inv, p);
+        const key = try pageKey(a, rel_path, p.language);
+        const file_dir = std.fs.path.dirname(rel_path) orelse "";
         const raw_id = if (p.language.len == 0)
             (if (key.len == 0) try a.dupe(u8, "index") else key)
         else if (key.len == 0)
             p.language
         else
             try std.fmt.allocPrint(a, "{s}/{s}", .{ p.language, key });
-        var id = try sanitizeEntityId(a, raw_id);
+        const base_id = try sanitizeEntityId(a, raw_id);
         // Collision → suffix until free (recorded as review item below).
+        var id = base_id;
         var n: usize = 2;
         while (id_used.contains(id)) : (n += 1) {
-            id = try std.fmt.allocPrint(a, "{s}-{d}", .{ raw_id, n });
+            id = try std.fmt.allocPrint(a, "{s}-{d}", .{ base_id, n });
         }
         try id_used.put(id, {});
 
@@ -2618,6 +2695,7 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
         try epages.append(a, .{
             .src = p,
             .key = key,
+            .file_dir = file_dir,
             .id = id,
             .out_path = out_path,
             .assets_dir = assets_dir,
@@ -2762,6 +2840,7 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
     }
 
     // static/ → assets/ (manifested; page references absolutize via baseURL).
+    var used_static = std.StringHashMap(void).init(a);
     for (inv.static_assets) |s| {
         const rel = s["static/".len..];
         var parts: std.ArrayList(u8) = .empty;
@@ -2774,7 +2853,27 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
             try parts.appendSlice(a, sani);
             first = false;
         }
-        const dest = try std.fmt.allocPrint(a, "assets/{s}", .{parts.items});
+        var dest = try std.fmt.allocPrint(a, "assets/{s}", .{parts.items});
+        if (used_static.contains(dest)) {
+            // Sanitized-name collision: suffix the basename, never overwrite.
+            const dir = std.fs.path.dirname(dest);
+            const base = std.fs.path.basename(dest);
+            const dot = std.mem.lastIndexOfScalar(u8, base, '.');
+            const stem = if (dot) |d| base[0..d] else base;
+            const ext = if (dot) |d| base[d..] else "";
+            var n: usize = 2;
+            while (n < 10_000) : (n += 1) {
+                const uniq_base = try std.fmt.allocPrint(a, "{s}-{d}{s}", .{ stem, n, ext });
+                dest = if (dir) |d| try std.fmt.allocPrint(a, "{s}/{s}", .{ d, uniq_base }) else uniq_base;
+                if (!used_static.contains(dest)) break;
+            }
+            try review.append(a, .{
+                .source_path = s,
+                .kind = "static_name_collision",
+                .detail = try std.fmt.allocPrint(a, "sanitized dest collided; renamed to {s}", .{dest}),
+            });
+        }
+        try used_static.put(dest, {});
         try static_copies.append(a, .{ .source_path = s, .dest = dest });
         try copyFileRel(io, root, s, stage, dest, a);
     }
