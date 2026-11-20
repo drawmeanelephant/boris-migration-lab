@@ -1112,6 +1112,12 @@ const AssetCopy = struct {
     dest: []const u8,
 };
 
+const PendingMemberCopy = struct {
+    src: []const u8,
+    dest: []const u8,
+    data: []const u8,
+};
+
 fn emitIsEntityChar(c: u8) bool {
     return (c >= 'A' and c <= 'Z') or (c >= 'a' and c <= 'z') or (c >= '0' and c <= '9') or c == '_' or c == '.' or c == '-';
 }
@@ -1360,10 +1366,20 @@ fn emitNormalizeDate(a: std.mem.Allocator, raw0: []const u8) !?[]const u8 {
             rest = "";
         } else if (rest[0] == '+' or rest[0] == '-') {
             off_sign = if (rest[0] == '-') @as(i64, -1) else 1;
-            var zn = std.mem.splitScalar(u8, trimSpace(rest[1..]), ':');
-            const zh = std.fmt.parseInt(i64, zn.next() orelse return null, 10) catch return null;
-            const zm = if (zn.next()) |m| std.fmt.parseInt(i64, m, 10) catch 0 else 0;
-            off_min = off_sign * (zh * 60 + zm);
+            const zraw = trimSpace(rest[1..]);
+            if (std.mem.indexOfScalar(u8, zraw, ':')) |zc| {
+                const zh = std.fmt.parseInt(i64, zraw[0..zc], 10) catch return null;
+                const zm = std.fmt.parseInt(i64, zraw[zc + 1 ..], 10) catch return null;
+                off_min = off_sign * (zh * 60 + zm);
+            } else if (zraw.len == 4) {
+                // ±HHMM compact form
+                const zh = std.fmt.parseInt(i64, zraw[0..2], 10) catch return null;
+                const zm = std.fmt.parseInt(i64, zraw[2..4], 10) catch return null;
+                off_min = off_sign * (zh * 60 + zm);
+            } else if (zraw.len == 2) {
+                const zh = std.fmt.parseInt(i64, zraw, 10) catch return null;
+                off_min = off_sign * zh * 60;
+            } else return null;
         } else return null;
     }
     const days = daysFromCivil(year, month, day);
@@ -1463,10 +1479,24 @@ fn emitResolveTagTarget(ctx: *EmitCtx, tag_name: []const u8, arg: []const u8) ?[
     return null;
 }
 
-/// Register a copied static file; returns the page-relative dest.
+/// Jekyll only publishes files whose every path component avoids a leading
+/// `.`, `_`, `#`, or `~` — dotfiles and private dirs are never copied out.
+fn emitIsPublicAssetPath(path: []const u8) bool {
+    var it = std.mem.splitScalar(u8, path, '/');
+    while (it.next()) |seg| {
+        if (seg.len == 0) continue;
+        if (seg[0] == '.' or seg[0] == '_' or seg[0] == '#' or seg[0] == '~') return false;
+    }
+    return true;
+}
+
+/// Register a copied static file; returns the page-relative dest. Copies are
+/// per page — two pages sharing one static file each get a sibling copy.
 fn emitCopyAsset(ctx: *EmitCtx, io: Io, src_root: Io.Dir, stage: Io.Dir, rel_src: []const u8) !?[]const u8 {
     const a = ctx.a;
-    if (ctx.copied.get(rel_src)) |dest| return dest;
+    if (!emitIsPublicAssetPath(rel_src)) return null;
+    const key = try std.fmt.allocPrint(a, "{s}|{s}", .{ ctx.page.id, rel_src });
+    if (ctx.copied.get(key)) |dest| return dest;
     const base = std.fs.path.basename(rel_src);
     var dest_name = try emitSanitizeSegment(a, base);
     var dest = try std.fmt.allocPrint(a, "content/{s}.assets/{s}", .{ ctx.page.id, dest_name });
@@ -1478,7 +1508,7 @@ fn emitCopyAsset(ctx: *EmitCtx, io: Io, src_root: Io.Dir, stage: Io.Dir, rel_src
     const data = try readFileAlloc(io, src_root, rel_src, a);
     try writeBytes(io, stage, dest, data);
     const page_dest = try std.fmt.allocPrint(a, "{s}.assets/{s}", .{ std.fs.path.basename(ctx.page.id), dest_name });
-    try ctx.copied.put(rel_src, page_dest);
+    try ctx.copied.put(key, page_dest);
     try ctx.copied.put(dest, rel_src);
     return page_dest;
 }
@@ -1661,6 +1691,9 @@ fn emitTransformBody(ctx: *EmitCtx, io: Io, src_root: Io.Dir, stage: Io.Dir, bod
                     continue;
                 }
                 var rel = dest;
+                // A non-empty baseurl is a prefix of every site path — strip
+                // it before resolving against the source tree.
+                if (ctx.baseurl.len > 0 and std.mem.startsWith(u8, rel, ctx.baseurl)) rel = rel[ctx.baseurl.len..];
                 while (rel.len > 0 and rel[0] == '/') rel = rel[1..];
                 if (std.mem.indexOfAny(u8, rel, "#?")) |cut| {
                     rel = rel[0..cut];
@@ -1778,10 +1811,14 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
     var post_index = std.StringHashMap([]const u8).init(a);
     var path_index = std.StringHashMap([]const u8).init(a);
     var static_set = std.StringHashMap(void).init(a);
-    for (inv.static_files.items) |f| try static_set.put(f, {});
+    for (inv.static_files.items) |f| {
+        if (!emitIsPublicAssetPath(f)) continue;
+        try static_set.put(f, {});
+    }
 
     var epages: std.ArrayList(EmitPage) = .empty;
     var id_used = std.StringHashMap(void).init(a);
+    var pending_member_copies: std.ArrayList(PendingMemberCopy) = .empty;
 
     // posts → satellites of a generated `posts` trunk.
     const have_posts = inv.posts.items.len > 0;
@@ -1792,11 +1829,16 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
             const lite = try archaeology.parseFrontmatterLite(a, text);
             const body = if (lite.body_offset < text.len) text[lite.body_offset..] else "";
             const slug = try emitSanitizeSegment(a, p.slug);
-            const id = try std.fmt.allocPrint(a, "posts/{s}", .{slug});
+            const base_id = try std.fmt.allocPrint(a, "posts/{s}", .{slug});
+            var id = base_id;
+            var pn: usize = 2;
+            while (id_used.contains(id)) : (pn += 1) {
+                id = try std.fmt.allocPrint(a, "{s}-{d}", .{ base_id, pn });
+            }
             try id_used.put(id, {});
             const stem = std.fs.path.basename(p.path);
             const name_stem = stem[0 .. stem.len - std.fs.path.extension(stem).len];
-            try post_index.put(name_stem, id);
+            if (!post_index.contains(name_stem)) try post_index.put(name_stem, id);
             const title = if (lite.title) |t| t else p.title orelse p.slug;
             var status: []const u8 = "published";
             if (frontmatterScalar(text, "published")) |v| {
@@ -1908,6 +1950,19 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
         }
         if (col.members.items.len == 0) continue;
         for (col.members.items) |m| {
+            if (!isMd(m)) {
+                // Non-Markdown member (image, etc.): Jekyll copies it out; the
+                // lab copies it beside the collection trunk and reports.
+                const base = try emitSanitizeSegment(a, std.fs.path.basename(m));
+                const dest = try std.fmt.allocPrint(a, "content/{s}.assets/{s}", .{ try emitSanitizeSegment(a, col.name), base });
+                const data = readFileAlloc(io, root, m, a) catch |err| {
+                    try review.append(a, .{ .source_path = m, .kind = "member_copy_failed", .detail = try std.fmt.allocPrint(a, "static collection member could not be read: {s}", .{@errorName(err)}) });
+                    continue;
+                };
+                try pending_member_copies.append(a, .{ .src = m, .dest = dest, .data = data });
+                try asset_copies.append(a, .{ .source_path = m, .dest = dest });
+                continue;
+            }
             const text = try readFileAlloc(io, root, m, a);
             const lite = try archaeology.parseFrontmatterLite(a, text);
             const body = if (lite.body_offset < text.len) text[lite.body_offset..] else "";
@@ -1920,7 +1975,10 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
             }
             if (isMd(rel)) rel = rel[0 .. rel.len - 3];
             var id_raw = try std.fmt.allocPrint(a, "{s}/{s}", .{ col.name, rel });
-            if (std.mem.endsWith(u8, id_raw, "/index")) id_raw = id_raw[0 .. id_raw.len - 6];
+            // Strip a trailing /index unless it collapses onto the collection
+            // name itself (`_docs/index.md` → `docs/index`, never `docs` — the
+            // generated trunk owns `docs`).
+            if (std.mem.endsWith(u8, id_raw, "/index") and !std.mem.eql(u8, rel, "index")) id_raw = id_raw[0 .. id_raw.len - 6];
             const id = try emitEntityId(a, id_raw);
             if (id_used.contains(id)) {
                 try review.append(a, .{ .source_path = m, .kind = "id_collision", .detail = try std.fmt.allocPrint(a, "{s} already used; not emitted", .{id}) });
@@ -2095,6 +2153,9 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
             try routes.append(a, .{ .source_path = ep.source_path, .route = pl, .entity_id = ep.id });
         }
     }
+    // Static collection members copied next to their collection trunk.
+    for (pending_member_copies.items) |c| try writeBytes(io, stage, c.dest, c.data);
+
     // Manifest copied assets (copied map holds dest→src for dest keys).
     var cit = copied.iterator();
     while (cit.next()) |e| {
@@ -2142,13 +2203,13 @@ fn emitReportJson(
     inv: Inventory,
 ) ![]u8 {
     var buf: std.ArrayList(u8) = .empty;
-    try buf.appendSlice(a, "{\n  \"tool\": \"");
+    try buf.appendSlice(a, "{\n  \"tool\": ");
     try jsonEscapeAppend(&buf, a, format_id);
-    try buf.appendSlice(a, "\",\n  \"version\": \"");
+    try buf.appendSlice(a, ",\n  \"version\": ");
     try jsonEscapeAppend(&buf, a, tool_version);
-    try buf.appendSlice(a, "\",\n  \"source_root\": \"");
+    try buf.appendSlice(a, ",\n  \"source_root\": ");
     try jsonEscapeAppend(&buf, a, source_root);
-    try buf.print(a, "\",\n  \"counts\": {{\n    \"emitted_pages\": {d},\n    \"generated_trunks\": {d},\n    \"routes\": {d},\n    \"link_rewrites\": {d},\n    \"asset_copies\": {d},\n    \"human_review\": {d},\n    \"unmatched_posts\": {d}\n  }},\n", .{
+    try buf.print(a, ",\n  \"counts\": {{\n    \"emitted_pages\": {d},\n    \"generated_trunks\": {d},\n    \"routes\": {d},\n    \"link_rewrites\": {d},\n    \"asset_copies\": {d},\n    \"human_review\": {d},\n    \"unmatched_posts\": {d}\n  }},\n", .{
         pages.len,
         blk: {
             var n: usize = 0;
@@ -2165,17 +2226,17 @@ fn emitReportJson(
     });
     try buf.appendSlice(a, "  \"pages\": [\n");
     for (pages, 0..) |p, i| {
-        try buf.appendSlice(a, "    {\"id\": \"");
+        try buf.appendSlice(a, "    {\"id\": ");
         try jsonEscapeAppend(&buf, a, p.id);
-        try buf.appendSlice(a, "\", \"source\": \"");
+        try buf.appendSlice(a, ", \"source\": ");
         try jsonEscapeAppend(&buf, a, p.source_path);
-        try buf.appendSlice(a, "\", \"kind\": \"");
+        try buf.appendSlice(a, ", \"kind\": ");
         try jsonEscapeAppend(&buf, a, p.kind);
-        try buf.appendSlice(a, "\", \"status\": \"");
+        try buf.appendSlice(a, ", \"status\": ");
         try jsonEscapeAppend(&buf, a, p.status);
-        try buf.appendSlice(a, "\", \"conversion\": \"");
+        try buf.appendSlice(a, ", \"conversion\": ");
         try jsonEscapeAppend(&buf, a, p.class);
-        try buf.appendSlice(a, "\", \"parent\": ");
+        try buf.appendSlice(a, ", \"parent\": ");
         try jsonOptAppend(&buf, a, p.parent);
         try buf.appendSlice(a, "}");
         if (i + 1 < pages.len) try buf.append(a, ',');
@@ -2183,47 +2244,47 @@ fn emitReportJson(
     }
     try buf.appendSlice(a, "  ],\n  \"routes\": [\n");
     for (routes, 0..) |r, i| {
-        try buf.appendSlice(a, "    {\"route\": \"");
+        try buf.appendSlice(a, "    {\"route\": ");
         try jsonEscapeAppend(&buf, a, r.route);
-        try buf.appendSlice(a, "\", \"source\": \"");
+        try buf.appendSlice(a, ", \"source\": ");
         try jsonEscapeAppend(&buf, a, r.source_path);
-        try buf.appendSlice(a, "\", \"entity_id\": \"");
+        try buf.appendSlice(a, ", \"entity_id\": ");
         try jsonEscapeAppend(&buf, a, r.entity_id);
-        try buf.appendSlice(a, "\"}");
+        try buf.appendSlice(a, "}");
         if (i + 1 < routes.len) try buf.append(a, ',');
         try buf.append(a, '\n');
     }
     try buf.appendSlice(a, "  ],\n  \"link_rewrites\": [\n");
     for (links, 0..) |l, i| {
-        try buf.appendSlice(a, "    {\"source\": \"");
+        try buf.appendSlice(a, "    {\"source\": ");
         try jsonEscapeAppend(&buf, a, l.source_path);
-        try buf.appendSlice(a, "\", \"target\": \"");
+        try buf.appendSlice(a, ", \"target\": ");
         try jsonEscapeAppend(&buf, a, l.target);
-        try buf.appendSlice(a, "\", \"result\": \"");
+        try buf.appendSlice(a, ", \"result\": ");
         try jsonEscapeAppend(&buf, a, l.result);
-        try buf.appendSlice(a, "\"}");
+        try buf.appendSlice(a, "}");
         if (i + 1 < links.len) try buf.append(a, ',');
         try buf.append(a, '\n');
     }
     try buf.appendSlice(a, "  ],\n  \"asset_copies\": [\n");
     for (asset_copies, 0..) |c, i| {
-        try buf.appendSlice(a, "    {\"source\": \"");
+        try buf.appendSlice(a, "    {\"source\": ");
         try jsonEscapeAppend(&buf, a, c.source_path);
-        try buf.appendSlice(a, "\", \"dest\": \"");
+        try buf.appendSlice(a, ", \"dest\": ");
         try jsonEscapeAppend(&buf, a, c.dest);
-        try buf.appendSlice(a, "\"}");
+        try buf.appendSlice(a, "}");
         if (i + 1 < asset_copies.len) try buf.append(a, ',');
         try buf.append(a, '\n');
     }
     try buf.appendSlice(a, "  ],\n  \"human_review\": [\n");
     for (review, 0..) |r, i| {
-        try buf.appendSlice(a, "    {\"source\": \"");
+        try buf.appendSlice(a, "    {\"source\": ");
         try jsonEscapeAppend(&buf, a, r.source_path);
-        try buf.appendSlice(a, "\", \"kind\": \"");
+        try buf.appendSlice(a, ", \"kind\": ");
         try jsonEscapeAppend(&buf, a, r.kind);
-        try buf.appendSlice(a, "\", \"detail\": \"");
+        try buf.appendSlice(a, ", \"detail\": ");
         try jsonEscapeAppend(&buf, a, r.detail);
-        try buf.appendSlice(a, "\"}");
+        try buf.appendSlice(a, "}");
         if (i + 1 < review.len) try buf.append(a, ',');
         try buf.append(a, '\n');
     }
