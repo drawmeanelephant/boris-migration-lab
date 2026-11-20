@@ -41,6 +41,7 @@
         "link_audit.zig",
         "frontmatter_review.zig",
         "hugo.zig",
+        "hugo_emit.zig",
         "jekyll.zig",
         "ghost.zig",
         "ghost_emit.zig",

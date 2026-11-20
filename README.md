@@ -21,6 +21,7 @@ Standalone **migration laboratory** for bringing existing sites into Boris.
 | **wordpress-theme** | Classic WordPress theme source tree | Deterministic PHP/template inventory + static Boris prototype + manual-review manifest (read-only) |
 | **link-audit** | Generated static HTML tree | Missing local routes/fragments report; external links are left out of scope |
 | **hugo-inventory** | Hugo project root (`config.toml`/`hugo.toml` + `content/`) | Read-only `inventory.json` + `INVENTORY.md` |
+| **hugo** | Hugo project root (`config.toml`/`hugo.toml` + `content/`) | Boris Markdown under `content/` (+ `<stem>.assets/`) + provenance sidecars, redirect and review reports |
 | **jekyll-inventory** | Jekyll site source tree | Read-only `inventory.json` + `INVENTORY.md` (posts, drafts, collections, Liquid, `_data` refs) |
 | **ghost-inventory** | Unpacked Ghost 5 export root (`ghost-export.json` + `content/images/`) | Read-only `inventory.json` + `INVENTORY.md` |
 | **ghost** | Unpacked Ghost 5 export root (same as `ghost-inventory`) | Candidate Boris Markdown under `content/{posts,pages}/` + sibling `.assets/`, `report.json`, `REPORT.md`, `provenance_manifest.json` |
@@ -221,6 +222,11 @@ zig build run -- --mode=hugo-inventory \
   --root=./fixtures/mini-hugo \
   --out=./.hugo-inventory-report
 
+# Convert a Hugo project to candidate Boris Markdown
+zig build run -- --mode=hugo \
+  --root=./fixtures/mini-hugo \
+  --out=./.hugo-emit
+
 # Read-only Jekyll site inventory (no Markdown emit)
 zig build run -- --mode=jekyll-inventory \
   --root=./fixtures/mini-jekyll \
@@ -261,10 +267,9 @@ zig build test   # with BORIS_BIN exported or `boris` on PATH (see Boris pins)
 |------|---------|---------|
 | `-h`, `--help` | | Print usage; exit 0 |
 | `-q`, `--quiet` | off | Suppress progress lines |
-| `--mode=MODE` | `astro` | `astro`, `astro-import-plan`, `astro-import-apply`, `wordpress` (`wp` / `wxr`), `wordpress-theme` (`wp-theme` / `kubrick-theme`), `instagram` (`ig` / `takeout`), `obsidian` (`obs` / `vault`), `tinderbox-inventory` (`tbx-inventory` / `tinderbox-inv`), `tinderbox` (`tinderbox-emit` / `tbx`), `notion` (`md-csv` / `notion-export`), `filed` (`filed-fyi`), `filed-scan`, `starlight` (`sl` / `evcc`), `asset-filename` (`assets` / `asset-compat` / `filename-compat`), `theme-archaeology` (`theme` / `theme-arch` / `theme-inventory`), `theme-materialize` (`materialize` / `theme-materialise`), `link-audit` (`links` / `output-audit`), `frontmatter-review` (`fm-review` / `fmreview`), `hugo-inventory` (`hugo-inv`), `jekyll-inventory` (`jekyll-inv` / `jekyll-archaeology`), `ghost-inventory` (`ghost-inv`), `ghost`, `mkdocs-inventory` (`mkdocs-inv`), `mastodon-inventory` (`mastodon-inv` / `masto-inventory`), or `mastodon` (`masto` / `mastodon-emit`) |
+| `--mode=MODE` | `astro` | `astro`, `astro-import-plan`, `astro-import-apply`, `wordpress` (`wp` / `wxr`), `wordpress-theme` (`wp-theme` / `kubrick-theme`), `instagram` (`ig` / `takeout`), `obsidian` (`obs` / `vault`), `tinderbox-inventory` (`tbx-inventory` / `tinderbox-inv`), `tinderbox` (`tinderbox-emit` / `tbx`), `notion` (`md-csv` / `notion-export`), `filed` (`filed-fyi`), `filed-scan`, `starlight` (`sl` / `evcc`), `asset-filename` (`assets` / `asset-compat` / `filename-compat`), `theme-archaeology` (`theme` / `theme-arch` / `theme-inventory`), `theme-materialize` (`materialize` / `theme-materialise`), `link-audit` (`links` / `output-audit`), `frontmatter-review` (`fm-review` / `fmreview`), `hugo-inventory` (`hugo-inv`), `hugo` (`hugo-emit`), `jekyll-inventory` (`jekyll-inv` / `jekyll-archaeology`), `ghost-inventory` (`ghost-inv`), `ghost`, `mkdocs-inventory` (`mkdocs-inv`), `mastodon-inventory` (`mastodon-inv` / `masto-inventory`), or `mastodon` (`masto` / `mastodon-emit`) |
 | `--out=DIR` | `migration-report` | Output directory (**must differ from inputs**); must be explicit for `astro-import-plan` |
-| `--root=DIR` | `.` | Astro archaeology root, Starlight project root, asset-filename content tree, theme scan root, Hugo project root, or generated HTML tree for `link-audit`; must be explicit for `astro-import-plan` |
-| `--root=DIR` | `.` | Astro archaeology root, Starlight project root, asset-filename content tree, theme scan root, Jekyll site source root, generated HTML tree for `link-audit`, MkDocs project root for `mkdocs-inventory`, unpacked Ghost export root for `ghost-inventory` / `ghost`, or unpacked Mastodon archive for `mastodon` / `mastodon-inventory`; must be explicit for `astro-import-plan` |
+| `--root=DIR` | `.` | Astro archaeology root, Starlight project root, asset-filename content tree, theme scan root, Hugo project root for `hugo` / `hugo-inventory`, Jekyll site source root, generated HTML tree for `link-audit`, MkDocs project root for `mkdocs-inventory`, unpacked Ghost export root for `ghost-inventory` / `ghost`, or unpacked Mastodon archive for `mastodon` / `mastodon-inventory`; must be explicit for `astro-import-plan` |
 | `--content-root=RELATIVE_DIR` | | Required by `astro-import-plan` and `astro-import-apply`; approved plain-Markdown root relative to `--root` |
 | `--project-id=ID` | | Required by `astro-import-plan` and `astro-import-apply`; stable importer identity namespace |
 | `--plan=FILE` | | Required by `astro-import-apply`; reviewed `import_plan.json` with adjacent `source_snapshot.json` |
@@ -342,7 +347,13 @@ Exit codes: **0** success, **2** usage, **3** I/O error.
    shortcode bodies (they are scanned as text), never fetches themes or the
    network. Front matter and `config.toml` are read by bounded scanners;
    anything unclassifiable is reported, never guessed. Shortcodes inside
-   fenced code blocks are not counted. See
+   fenced code blocks are not counted. `--mode=hugo` writes a staged,
+   ownership-marked `--out` (refusing source/output overlap), rewrites only
+   `figure`, `ref`, `relref`, page-resource images, and links that name an
+   emitted page; every other shortcode stays as text and is reported
+   `human_review`. Hugo-only fields (`slug`, `weight`, `aliases`, `layout`,
+   `type`, `url`) land in `provenance/<entity-id>.json` and
+   `redirects.json`, never frontmatter. See
    [`docs/contracts/hugo.md`](docs/contracts/hugo.md).
 18. **Jekyll** — source-tree inventory only (writes under `--out`). Never
     executes Liquid, Ruby, `_plugins/*.rb`, or `jekyll build`; Liquid inside
