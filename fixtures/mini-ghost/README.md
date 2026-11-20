@@ -20,7 +20,7 @@ JSON **encoded as strings** inside the post row, matching real exports.
 
 | Slug | Exercises |
 |------|-----------|
-| `welcome-post` | `type: post`, `status: published`, `visibility: public`, `html` body with an `__GHOST_URL__` link, `feature_image` at `__GHOST_URL__/content/images/2024/01/hero.png`, public tag `news` |
+| `welcome-post` | `type: post`, `status: published`, `visibility: public`, `custom_excerpt`, `html` body with an `__GHOST_URL__` link to `about` and an unresolved one to `/tag/news/`, `feature_image` at `__GHOST_URL__/content/images/2024/01/hero.png`, public tag `news` |
 | `lexical-dispatch` | `visibility: members`; `lexical` body with a heading + paragraph tree, a `__GHOST_URL__` link node, and `bookmark`, `gallery`, `html`, `callout`, `paywall`, and unknown `spectrometer` cards |
 | `mobiledoc-legacy` | `visibility: paid`; legacy `mobiledoc` body; internal tag `#internal` (`visibility: internal`) |
 | `draft-notes` | `status: draft` |

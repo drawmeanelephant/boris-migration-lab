@@ -1509,7 +1509,7 @@ fn extractMarkdownLinks(allocator: std.mem.Allocator, body: []const u8, post_id:
 /// no backslash escape sequences, so embedded double quotes are replaced with a
 /// single quote and control characters (< 0x20 and DEL) are dropped rather than
 /// replayed into the emitted document.
-fn appendQuotedFmScalar(buf: *std.ArrayList(u8), allocator: std.mem.Allocator, value: []const u8) !void {
+pub fn appendQuotedFmScalar(buf: *std.ArrayList(u8), allocator: std.mem.Allocator, value: []const u8) !void {
     try buf.append(allocator, '"');
     for (value) |c| {
         if (c == '"') try buf.appendSlice(allocator, "'") else if (c >= 0x20 and c != 0x7f) try buf.append(allocator, c);
