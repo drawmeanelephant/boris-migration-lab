@@ -225,7 +225,7 @@ fn collectImageRefs(
     while (std.mem.indexOfPos(u8, text, pos, images_prefix)) |start| {
         var end = start + images_prefix.len;
         while (end < text.len and !isImageTerminator(text[end])) end += 1;
-        const rel = text[start + images_prefix.len .. end];
+        const rel = try percentDecode(a, text[start + images_prefix.len .. end]);
         if (rel.len == 0 or std.mem.indexOf(u8, rel, "..") != null or std.mem.indexOfScalar(u8, rel, '\\') != null) {
             pos = end;
             continue;
@@ -239,9 +239,29 @@ fn collectImageRefs(
 
 fn isImageTerminator(c: u8) bool {
     return switch (c) {
-        '"', '\'', ')', ']', '}', '<', ' ', '\t', '\n', '\r', '&', '?' => true,
+        '"', '\'', ')', ']', '}', '<', ' ', '\t', '\n', '\r', '&', '?', '#' => true,
         else => false,
     };
+}
+
+/// Decode `%XX` escapes in a URL path segment; malformed escapes stay literal.
+fn percentDecode(a: std.mem.Allocator, s: []const u8) ![]const u8 {
+    if (std.mem.indexOfScalar(u8, s, '%') == null) return s;
+    var out: std.ArrayList(u8) = .empty;
+    var i: usize = 0;
+    while (i < s.len) : (i += 1) {
+        if (s[i] == '%' and i + 2 < s.len) {
+            const hi = std.fmt.charToDigit(s[i + 1], 16) catch 255;
+            const lo = std.fmt.charToDigit(s[i + 2], 16) catch 255;
+            if (hi != 255 and lo != 255) {
+                try out.append(a, hi * 16 + lo);
+                i += 2;
+                continue;
+            }
+        }
+        try out.append(a, s[i]);
+    }
+    return try out.toOwnedSlice(a);
 }
 
 const WalkState = struct {
@@ -331,9 +351,11 @@ fn dedupeImageRefs(a: std.mem.Allocator, refs: *std.ArrayList(ImageRef)) ![]Imag
 /// Parse `ghost-export.json` bytes into the inventory model. Returns
 /// `error.InvalidGhostInput` when the shape does not match a Ghost 5 export.
 fn parseExport(a: std.mem.Allocator, io: Io, bytes: []const u8, root_dir: []const u8) !Export {
-    var parsed = std.json.parseFromSlice(std.json.Value, a, bytes, .{}) catch
+    // The parsed tree (and every decoded string inside it) lives in the
+    // caller's arena until run() ends; Parsed.deinit is never called, so
+    // retained slices stay valid.
+    const parsed = std.json.parseFromSlice(std.json.Value, a, bytes, .{}) catch
         return error.InvalidGhostInput;
-    defer parsed.deinit();
 
     const root = parsed.value;
     const db = jsonArray(root, "db");
@@ -417,15 +439,13 @@ fn parseExport(a: std.mem.Allocator, io: Io, bytes: []const u8, root_dir: []cons
         var format: []const u8 = "none";
         if (jsonGetOptString(pv, "lexical")) |lex| {
             format = "lexical";
-            var lex_parsed = std.json.parseFromSlice(std.json.Value, a, lex, .{}) catch
+            const lex_parsed = std.json.parseFromSlice(std.json.Value, a, lex, .{}) catch
                 return error.InvalidGhostInput;
-            defer lex_parsed.deinit();
             try walkLexical(&walk_state, lex_parsed.value);
         } else if (jsonGetOptString(pv, "mobiledoc")) |mob| {
             format = "mobiledoc";
-            var mob_parsed = std.json.parseFromSlice(std.json.Value, a, mob, .{}) catch
+            const mob_parsed = std.json.parseFromSlice(std.json.Value, a, mob, .{}) catch
                 return error.InvalidGhostInput;
-            defer mob_parsed.deinit();
             try collectMobiledocCards(&walk_state, mob_parsed.value);
         }
         if (jsonGetOptString(pv, "html")) |html| {
@@ -556,7 +576,9 @@ fn buildDispositions(a: std.mem.Allocator, exp: Export) ![]Disposition {
     try add(&list, a, "lexical link node with __GHOST_URL__", "transformed", exp.lexical_ghost_links);
     var feature_images: usize = 0;
     for (exp.posts) |p| {
-        if (p.feature_image != null) feature_images += 1;
+        if (p.feature_image) |fi| {
+            if (std.mem.startsWith(u8, fi, images_prefix)) feature_images += 1;
+        }
     }
     try add(&list, a, "feature_image at __GHOST_URL__/content/images/...", "transformed", feature_images);
     try add(&list, a, "bookmark card", "transformed", cardCount(exp.cards, "bookmark"));
@@ -825,8 +847,7 @@ test "ghost: lexical card histogram + ghost link + structural nodes excluded" {
         .lexical_ghost_links = &links,
         .image_refs = &refs,
     };
-    var parsed = try std.json.parseFromSlice(std.json.Value, a, mini_lexical, .{});
-    defer parsed.deinit();
+    const parsed = try std.json.parseFromSlice(std.json.Value, a, mini_lexical, .{});
     try walkLexical(&state, parsed.value);
     try std.testing.expectEqual(@as(usize, 1), links);
     try std.testing.expectEqual(@as(usize, 1), cards.get("bookmark").?);
@@ -834,6 +855,20 @@ test "ghost: lexical card histogram + ghost link + structural nodes excluded" {
     try std.testing.expect(cards.get("paragraph") == null);
     try std.testing.expect(cards.get("text") == null);
     try std.testing.expect(cards.get("link") == null);
+}
+
+test "ghost: percent-encoded and fragment image urls resolve" {
+    const io = std.testing.io;
+    const gpa = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var refs: std.ArrayList(ImageRef) = .empty;
+    try collectImageRefs(a, "\"__GHOST_URL__/content/images/2024%2F01%2Fhero.png#hero\" \"__GHOST_URL__/content/images/2024/02/gallery-1.png?w=100\" \"__GHOST_URL__/content/images/2024/02/gallery-2.png#frag\"", "html", "fixtures/mini-ghost/content/images", io, &refs);
+    const deduped = try dedupeImageRefs(a, &refs);
+    try std.testing.expectEqual(@as(usize, 3), deduped.len);
+    try std.testing.expectEqualStrings("2024/01/hero.png", deduped[0].path);
+    for (deduped) |r| try std.testing.expect(r.exists);
 }
 
 test "ghost: mini-ghost inventory determinism + immutability + golden counts" {
