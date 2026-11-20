@@ -610,7 +610,7 @@ fn rewriteShortcode(ctx: BodyCtx, line: []const u8, start: usize, line_out_start
     const inner = hugo.trimSpace(line[start + 3 .. close]);
     const end = close + 3;
 
-    if (std.mem.startsWith(u8, inner, "/*") and std.mem.endsWith(u8, inner, "*/")) {
+    if (inner.len >= 4 and std.mem.startsWith(u8, inner, "/*") and std.mem.endsWith(u8, inner, "*/")) {
         // `{{</* x */>}}` is Hugo's escape for a literal shortcode.
         const lit = hugo.trimSpace(inner[2 .. inner.len - 2]);
         try out.print(a, "{s} {s} {s}", .{ delim, lit, close_tok });
@@ -1943,6 +1943,25 @@ test "hugo: synthesized landings, JSON/YAML lists, link-form refs, unresolved re
     try expectContains(gprov, "youtube");
 }
 
+test "hugo: overlapping escape markers in a short shortcode do not panic" {
+    const io = std.testing.io;
+    const a = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer cleanupTmp(io, &tmp);
+    const site_root = try testTmpBase(a, &tmp, "escape");
+    defer a.free(site_root);
+    try writeTestFile(io, a, site_root, "hugo.toml", "title = \"Escape\"\n");
+    try writeTestFile(io, a, site_root, "content/docs/x.md", "---\ntitle: X\n---\nboom {{< /*/ >}} and {{</* figure */>}}\n");
+    const out = try std.fmt.allocPrint(a, "{s}-out", .{site_root});
+    defer a.free(out);
+    try run(io, a, .{ .root_dir = site_root, .out_dir = out, .quiet = true });
+
+    var od = try Io.Dir.cwd().openDir(io, out, .{});
+    defer od.close(io);
+    const page = try hugo.readFileAlloc(io, od, "content/docs/x.md", a);
+    defer a.free(page);
+    try expectContains(page, "boom {{< /*/ >}} and {{< figure >}}");
+}
 test "hugo: generated content compiles with product Boris" {
     const io = std.testing.io;
     const gpa = std.testing.allocator;
