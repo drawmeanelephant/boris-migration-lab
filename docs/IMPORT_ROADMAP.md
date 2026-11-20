@@ -97,8 +97,13 @@ for new slices.
 ## Adding a mode (checklist)
 
 - Add a `<target>.zig` module with its own tests next to the code.
-- Register the mode in `Mode` (and its aliases in `Mode.parse`) in `main.zig`
-  and route it in the CLI dispatch.
+- Register the mode in `modes.zig`: one `table` entry (`tag` + canonical
+  name and aliases in `names`) plus a `fn run_<tag>(io, a, opts) u8`
+  runner (the `run_<Mode-tag>` name is how dispatch finds it). `Mode`,
+  `Mode.parse`, and the `--mode=MODE` usage list all derive from `table`;
+  implied-mode flags like `--wxr`/`--tbx` still live in `parseOptions` in
+  `main.zig`. Per-mode usage prose stays hand-maintained in
+  `modes.printUsage`.
 - Add the mode to the README mode table, flags table, format id table, and
   safety rules.
 - Add a `docs/contracts/<target>.md` contract and a `fixtures/mini-<target>/`

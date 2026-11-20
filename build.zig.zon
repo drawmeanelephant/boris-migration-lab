@@ -22,6 +22,7 @@
         "build.zig",
         "build.zig.zon",
         "main.zig",
+        "modes.zig",
         "wordpress.zig",
         "starlight.zig",
         "astro_import_plan.zig",
