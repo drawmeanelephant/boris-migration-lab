@@ -45,6 +45,7 @@
         "jekyll_emit.zig",
         "ghost.zig",
         "mkdocs.zig",
+        "mastodon.zig",
         "migration_semantics.zig",
         "publication.zig",
         "archaeology.zig",
