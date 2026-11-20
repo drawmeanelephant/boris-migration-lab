@@ -93,6 +93,11 @@ const Page = struct {
     class: ConversionClass,
 };
 
+const OptionalDir = struct {
+    dir: []const u8,
+    files: []const []const u8,
+};
+
 const Inventory = struct {
     config_file: []const u8,
     config_format: []const u8,
@@ -106,6 +111,9 @@ const Inventory = struct {
     shortcode_totals: []const ShortcodeCount,
     static_assets: []const []const u8,
     layout_shortcodes: []const []const u8,
+    /// `themes/`, `archetypes/`, `data/`, `i18n/`, `assets/` when present
+    /// (unsupported per the contract: inventoried, never emitted).
+    optional_dirs: []const OptionalDir,
     /// Entries the bounded scanners could not classify (reported, not guessed).
     unclassified: []const []const u8,
 };
@@ -393,15 +401,21 @@ const ShortcodeScan = struct {
     fenced_names: [][]const u8,
 };
 
-fn fenceMarker(line: []const u8) ?u8 {
-    if (std.mem.startsWith(u8, line, "```")) return '`';
-    if (std.mem.startsWith(u8, line, "~~~")) return '~';
+const Fence = struct { char: u8, len: usize };
+
+fn fenceMarker(line: []const u8) ?Fence {
+    if (line.len >= 3 and (line[0] == '`' or line[0] == '~')) {
+        var n: usize = 1;
+        while (n < line.len and line[n] == line[0]) n += 1;
+        if (n >= 3) return .{ .char = line[0], .len = n };
+    }
     return null;
 }
 
 fn scanShortcodes(a: std.mem.Allocator, body: []const u8, counts: *std.ArrayList(ShortcodeCount), fenced: *std.ArrayList([]const u8)) !void {
     var in_fence = false;
     var fence_char: u8 = 0;
+    var fence_len: usize = 0;
     var it = std.mem.splitScalar(u8, body, '\n');
     while (it.next()) |raw| {
         const line = std.mem.trimEnd(u8, raw, "\r");
@@ -409,8 +423,9 @@ fn scanShortcodes(a: std.mem.Allocator, body: []const u8, counts: *std.ArrayList
         if (fenceMarker(t)) |m| {
             if (!in_fence) {
                 in_fence = true;
-                fence_char = m;
-            } else if (m == fence_char) {
+                fence_char = m.char;
+                fence_len = m.len;
+            } else if (m.char == fence_char and m.len >= fence_len) {
                 in_fence = false;
             }
             continue;
@@ -464,16 +479,50 @@ fn scanShortcodes(a: std.mem.Allocator, body: []const u8, counts: *std.ArrayList
 // Config + site scan
 // ---------------------------------------------------------------------------
 
-fn dirExists(io: Io, root: Io.Dir, path: []const u8) bool {
-    var d = root.openDir(io, path, .{}) catch return false;
-    d.close(io);
-    return true;
+const RootEntryKind = enum { missing, file, dir, other };
+
+/// Kind of `rel` under `root`, or `null` when any path component is a
+/// symlink (reported to `unclassified`, never followed). Reads never leave
+/// `--root`: a symlinked `content`, `config.toml`, or intermediate directory
+/// is reported instead of resolved outside the tree.
+fn safeKind(io: Io, a: std.mem.Allocator, root: Io.Dir, rel: []const u8, unclassified: *std.ArrayList([]const u8)) !?RootEntryKind {
+    var parts = std.mem.splitScalar(u8, rel, '/');
+    var partial: std.ArrayList(u8) = .empty;
+    var last_kind: ?RootEntryKind = .missing;
+    while (parts.next()) |part| {
+        if (part.len == 0) continue;
+        if (partial.items.len > 0) try partial.append(a, '/');
+        try partial.appendSlice(a, part);
+        const stat = root.statFile(io, partial.items, .{ .follow_symlinks = false }) catch |err| switch (err) {
+            error.FileNotFound => {
+                last_kind = .missing;
+                continue;
+            },
+            else => return err,
+        };
+        if (stat.kind == .sym_link) {
+            try unclassified.append(a, try std.fmt.allocPrint(a, "{s}: symlink not followed", .{partial.items}));
+            return null;
+        }
+        last_kind = switch (stat.kind) {
+            .file => .file,
+            .directory => .dir,
+            else => .other,
+        };
+    }
+    return last_kind;
 }
 
-fn fileExists(io: Io, root: Io.Dir, path: []const u8) bool {
-    var f = root.openFile(io, path, .{}) catch return false;
-    f.close(io);
-    return true;
+/// Rejects relative paths that escape `--root`: absolute paths, drive-style
+/// prefixes, and `..` components (a hostile `contentDir` could otherwise
+/// point the scanner at arbitrary files outside the project).
+fn isUnsafeRelPath(p: []const u8) bool {
+    if (p.len == 0 or p[0] == '/' or p[0] == '\\' or std.mem.indexOfScalar(u8, p, ':') != null) return true;
+    var it = std.mem.splitScalar(u8, p, '/');
+    while (it.next()) |seg| {
+        if (std.mem.eql(u8, seg, "..")) return true;
+    }
+    return false;
 }
 
 fn readFileAlloc(io: Io, dir: Io.Dir, path: []const u8, allocator: std.mem.Allocator) ![]u8 {
@@ -512,32 +561,52 @@ fn scanConfig(io: Io, a: std.mem.Allocator, root: Io.Dir, unclassified: *std.Arr
         .languages = &.{},
     };
     var texts: std.ArrayList(struct { name: []const u8, text: []const u8 }) = .empty;
-    if (fileExists(io, root, "config.toml")) {
-        cfg.file = "config.toml";
-        try texts.append(a, .{ .name = "config.toml", .text = try readFileAlloc(io, root, "config.toml", a) });
-    } else if (fileExists(io, root, "hugo.toml")) {
-        cfg.file = "hugo.toml";
-        try texts.append(a, .{ .name = "hugo.toml", .text = try readFileAlloc(io, root, "hugo.toml", a) });
-    } else if (dirExists(io, root, "config/_default")) {
-        var d = try root.openDir(io, "config/_default", .{ .iterate = true });
-        defer d.close(io);
-        var names: std.ArrayList([]const u8) = .empty;
-        var it = d.iterate();
-        while (try it.next(io)) |entry| {
-            if (entry.kind != .file) continue;
-            if (!std.mem.endsWith(u8, entry.name, ".toml")) {
-                try unclassified.append(a, try std.fmt.allocPrint(a, "config/_default/{s}: unsupported config format", .{entry.name}));
-                continue;
-            }
-            const rel = try std.fmt.allocPrint(a, "config/_default/{s}", .{entry.name});
-            try names.append(a, rel);
-            try texts.append(a, .{ .name = rel, .text = try readFileAlloc(io, d, entry.name, a) });
+    if (try safeKind(io, a, root, "config.toml", unclassified)) |k| {
+        if (k == .file) {
+            cfg.file = "config.toml";
+            try texts.append(a, .{ .name = "config.toml", .text = try readFileAlloc(io, root, "config.toml", a) });
         }
-        std.mem.sort([]const u8, names.items, {}, strLess);
-        cfg.file = try std.mem.join(a, ",", names.items);
-    } else {
-        return Error.InvalidHugoRoot;
     }
+    if (texts.items.len == 0) {
+        if (try safeKind(io, a, root, "hugo.toml", unclassified)) |k| {
+            if (k == .file) {
+                cfg.file = "hugo.toml";
+                try texts.append(a, .{ .name = "hugo.toml", .text = try readFileAlloc(io, root, "hugo.toml", a) });
+            }
+        }
+    }
+    if (texts.items.len == 0) {
+        if (try safeKind(io, a, root, "config/_default", unclassified)) |k| {
+            if (k == .dir) {
+                var d = try root.openDir(io, "config/_default", .{ .iterate = true, .follow_symlinks = false });
+                defer d.close(io);
+                var names: std.ArrayList([]const u8) = .empty;
+                var it = d.iterate();
+                while (try it.next(io)) |entry| {
+                    if (entry.kind == .sym_link) {
+                        try unclassified.append(a, try std.fmt.allocPrint(a, "config/_default/{s}: symlink not followed", .{entry.name}));
+                        continue;
+                    }
+                    if (entry.kind != .file) continue;
+                    if (!std.mem.endsWith(u8, entry.name, ".toml")) {
+                        try unclassified.append(a, try std.fmt.allocPrint(a, "config/_default/{s}: unsupported config format", .{entry.name}));
+                        continue;
+                    }
+                    try names.append(a, try a.dupe(u8, entry.name));
+                }
+                // Sorted merge order: results must not depend on readdir order.
+                std.mem.sort([]const u8, names.items, {}, strLess);
+                var joined: std.ArrayList([]const u8) = .empty;
+                for (names.items) |n| {
+                    const rel = try std.fmt.allocPrint(a, "config/_default/{s}", .{n});
+                    try joined.append(a, rel);
+                    try texts.append(a, .{ .name = rel, .text = try readFileAlloc(io, d, n, a) });
+                }
+                cfg.file = try std.mem.join(a, ",", joined.items);
+            }
+        }
+    }
+    if (texts.items.len == 0) return Error.InvalidHugoRoot;
 
     var languages: std.ArrayList(Language) = .empty;
     var lang_index = std.StringHashMap(usize).init(a);
@@ -607,17 +676,22 @@ const DirListing = struct {
     dirs: [][]const u8,
 };
 
-fn listDir(io: Io, a: std.mem.Allocator, root: Io.Dir, dir_rel: []const u8) !DirListing {
+fn listDir(io: Io, a: std.mem.Allocator, root: Io.Dir, dir_rel: []const u8, unclassified: ?*std.ArrayList([]const u8)) !DirListing {
     var files: std.ArrayList([]const u8) = .empty;
     var dirs: std.ArrayList([]const u8) = .empty;
-    var d = try root.openDir(io, dir_rel, .{ .iterate = true });
+    var d = try root.openDir(io, dir_rel, .{ .iterate = true, .follow_symlinks = false });
     defer d.close(io);
     var it = d.iterate();
     while (try it.next(io)) |entry| {
         switch (entry.kind) {
             .file => try files.append(a, try a.dupe(u8, entry.name)),
             .directory => try dirs.append(a, try a.dupe(u8, entry.name)),
-            else => {},
+            .sym_link => if (unclassified) |u| {
+                try u.append(a, try std.fmt.allocPrint(a, "{s}/{s}: symlink not followed", .{ dir_rel, entry.name }));
+            },
+            else => if (unclassified) |u| {
+                try u.append(a, try std.fmt.allocPrint(a, "{s}/{s}: not a file or directory", .{ dir_rel, entry.name }));
+            },
         }
     }
     std.mem.sort([]const u8, files.items, {}, strLess);
@@ -653,7 +727,7 @@ fn langSuffix(noext: []const u8, codes: []const []const u8) ?[]const u8 {
 fn scanContentDir(io: Io, ctx: ScanCtx, root: Io.Dir, root_rel: []const u8, rel: []const u8, language: []const u8, depth: usize) !void {
     const a = ctx.a;
     const abs_rel = if (rel.len == 0) root_rel else try std.fmt.allocPrint(a, "{s}/{s}", .{ root_rel, rel });
-    const listing = try listDir(io, a, root, abs_rel);
+    const listing = try listDir(io, a, root, abs_rel, ctx.unclassified);
 
     // Directory file classes. `index.<lang>.md`/`_index.<lang>.md` and
     // `<name>.<lang>.md` are language variants of the same page kinds.
@@ -736,6 +810,17 @@ fn appendPage(io: Io, ctx: ScanCtx, root: Io.Dir, path: []const u8, language: []
     if (fm.format.len > 0 and !std.mem.eql(u8, fm.format, "none")) {
         class = ConversionClass.worse(class, if (std.mem.eql(u8, fm.format, "unclassified")) .human_review else .transformed);
     }
+    // Field-level disposition rows: these front-matter keys are lab
+    // provenance only, never Boris frontmatter → unsupported (worse wins).
+    const unsupported_keys = [_][]const u8{ "slug", "weight", "aliases", "layout", "type", "url" };
+    for (fm.keys) |k| {
+        for (unsupported_keys) |uk| {
+            if (std.mem.eql(u8, k, uk)) {
+                class = ConversionClass.worse(class, .unsupported);
+                break;
+            }
+        }
+    }
     for (counts.items) |sc| {
         class = ConversionClass.worse(class, shortcodeClass(sc.name));
         var found = false;
@@ -796,49 +881,88 @@ fn scanSite(io: Io, a: std.mem.Allocator, root: Io.Dir) !Inventory {
         .lang_codes = codes.items,
     };
 
+    // Resolve each language's content dir; no contentDir means Hugo's shared
+    // content/ tree. Directories claimed by more than one language are
+    // scanned once (pages carry `.<lang>` suffixes; unsuffixed pages take the
+    // default language when it shares the dir).
+    const langContentDir = struct {
+        fn of(lang: Language) []const u8 {
+            return if (lang.content_dir.len > 0) lang.content_dir else "content";
+        }
+    }.of;
+    var scanned_dirs = std.StringHashMap(void).init(a);
     var content_scanned = false;
-    if (cfg.languages.len > 0) {
-        for (cfg.languages) |lang| {
-            // No explicit contentDir: Hugo falls back to content/<lang>.
-            const content_dir = if (lang.content_dir.len > 0)
-                lang.content_dir
-            else
-                try std.fmt.allocPrint(a, "content/{s}", .{lang.code});
-            if (!dirExists(io, root, content_dir)) {
-                try unclassified.append(a, try std.fmt.allocPrint(a, "languages.{s} content dir {s} missing", .{ lang.code, content_dir }));
-                continue;
+    for (cfg.languages) |lang| {
+        const content_dir = langContentDir(lang);
+        if (isUnsafeRelPath(content_dir)) {
+            try unclassified.append(a, try std.fmt.allocPrint(a, "languages.{s} contentDir {s}: outside project root; not scanned", .{ lang.code, content_dir }));
+            continue;
+        }
+        if (scanned_dirs.contains(content_dir)) continue;
+        try scanned_dirs.put(try a.dupe(u8, content_dir), {});
+        var scan_lang = lang.code;
+        for (cfg.languages) |other| {
+            const od = langContentDir(other);
+            if (std.mem.eql(u8, od, content_dir)) {
+                if (cfg.default_language) |dl| {
+                    if (std.mem.eql(u8, other.code, dl)) scan_lang = dl;
+                }
             }
-            content_scanned = true;
-            try scanContentDir(io, ctx, root, content_dir, "", lang.code, 0);
         }
-        // A multilingual site can also keep a shared default tree under
-        // content/ when no language declares a directory for it.
-        if (!content_scanned and dirExists(io, root, "content")) {
-            content_scanned = true;
-            try scanContentDir(io, ctx, root, "content", "", cfg.default_language orelse "", 0);
+        const k = try safeKind(io, a, root, content_dir, &unclassified) orelse continue;
+        if (k != .dir) {
+            try unclassified.append(a, try std.fmt.allocPrint(a, "languages.{s} content dir {s} missing", .{ lang.code, content_dir }));
+            continue;
         }
-    } else if (dirExists(io, root, "content")) {
         content_scanned = true;
-        try scanContentDir(io, ctx, root, "content", "", cfg.default_language orelse "", 0);
+        try scanContentDir(io, ctx, root, content_dir, "", scan_lang, 0);
+    }
+    if (!content_scanned and cfg.languages.len == 0) {
+        if (try safeKind(io, a, root, "content", &unclassified)) |k| {
+            if (k == .dir) {
+                content_scanned = true;
+                try scanContentDir(io, ctx, root, "content", "", cfg.default_language orelse "", 0);
+            }
+        }
     }
     if (!content_scanned) return Error.InvalidHugoRoot;
 
     // static/ assets (transformed: copied verbatim by Hugo).
     var static_assets: std.ArrayList([]const u8) = .empty;
-    if (dirExists(io, root, "static")) {
-        try collectFiles(io, a, root, "static", &static_assets);
-        std.mem.sort([]const u8, static_assets.items, {}, strLess);
+    if (try safeKind(io, a, root, "static", &unclassified)) |k| {
+        if (k == .dir) {
+            try collectFiles(io, a, root, "static", &static_assets, &unclassified);
+            std.mem.sort([]const u8, static_assets.items, {}, strLess);
+        }
     }
 
     // layouts/shortcodes/*.html names (unsupported: inventoried only).
     var layout_sc: std.ArrayList([]const u8) = .empty;
-    if (dirExists(io, root, "layouts/shortcodes")) {
-        const listing = try listDir(io, a, root, "layouts/shortcodes");
-        for (listing.files) |f| {
-            const stem = if (std.mem.lastIndexOfScalar(u8, f, '.')) |d| f[0..d] else f;
-            try layout_sc.append(a, try a.dupe(u8, stem));
+    if (try safeKind(io, a, root, "layouts/shortcodes", &unclassified)) |k| {
+        if (k == .dir) {
+            const listing = try listDir(io, a, root, "layouts/shortcodes", &unclassified);
+            for (listing.files) |f| {
+                const stem = if (std.mem.lastIndexOfScalar(u8, f, '.')) |d| f[0..d] else f;
+                try layout_sc.append(a, try a.dupe(u8, stem));
+            }
+            std.mem.sort([]const u8, layout_sc.items, {}, strLess);
         }
-        std.mem.sort([]const u8, layout_sc.items, {}, strLess);
+    }
+
+    // Optional support dirs (unsupported per the contract: inventoried only).
+    var optional_dirs: std.ArrayList(OptionalDir) = .empty;
+    const optional_names = [_][]const u8{ "themes", "archetypes", "data", "i18n", "assets" };
+    for (optional_names) |name| {
+        const k = try safeKind(io, a, root, name, &unclassified) orelse continue;
+        if (k == .missing) continue;
+        if (k != .dir) {
+            try unclassified.append(a, try std.fmt.allocPrint(a, "{s}: not a directory", .{name}));
+            continue;
+        }
+        var files: std.ArrayList([]const u8) = .empty;
+        try collectFiles(io, a, root, name, &files, &unclassified);
+        std.mem.sort([]const u8, files.items, {}, strLess);
+        try optional_dirs.append(a, .{ .dir = name, .files = files.items });
     }
 
     std.mem.sort(Page, pages.items, {}, struct {
@@ -868,17 +992,18 @@ fn scanSite(io: Io, a: std.mem.Allocator, root: Io.Dir) !Inventory {
         .shortcode_totals = totals.items,
         .static_assets = static_assets.items,
         .layout_shortcodes = layout_sc.items,
+        .optional_dirs = optional_dirs.items,
         .unclassified = unclassified.items,
     };
 }
 
-fn collectFiles(io: Io, a: std.mem.Allocator, root: Io.Dir, dir_rel: []const u8, out: *std.ArrayList([]const u8)) !void {
-    const listing = try listDir(io, a, root, dir_rel);
+fn collectFiles(io: Io, a: std.mem.Allocator, root: Io.Dir, dir_rel: []const u8, out: *std.ArrayList([]const u8), unclassified: ?*std.ArrayList([]const u8)) !void {
+    const listing = try listDir(io, a, root, dir_rel, unclassified);
     for (listing.files) |f| {
         try out.append(a, try std.fmt.allocPrint(a, "{s}/{s}", .{ dir_rel, f }));
     }
     for (listing.dirs) |d| {
-        try collectFiles(io, a, root, try std.fmt.allocPrint(a, "{s}/{s}", .{ dir_rel, d }), out);
+        try collectFiles(io, a, root, try std.fmt.allocPrint(a, "{s}/{s}", .{ dir_rel, d }), out, unclassified);
     }
 }
 
@@ -965,7 +1090,9 @@ fn emitInventoryJson(a: std.mem.Allocator, root_dir: []const u8, inv: Inventory)
         try buf.append(a, '\n');
     }
     try buf.appendSlice(a, "  ],\n  \"counts\": {\n");
-    try buf.print(a, "    \"pages\": {d},\n    \"sections\": {d},\n    \"leaf_bundles\": {d},\n    \"branch_bundles\": {d},\n    \"single_pages\": {d},\n    \"page_resources\": {d},\n    \"aliases\": {d},\n    \"languages\": {d},\n    \"static_assets\": {d},\n    \"layout_shortcodes\": {d},\n    \"unclassified\": {d}\n", .{
+    var optional_total: usize = 0;
+    for (inv.optional_dirs) |od| optional_total += od.files.len;
+    try buf.print(a, "    \"pages\": {d},\n    \"sections\": {d},\n    \"leaf_bundles\": {d},\n    \"branch_bundles\": {d},\n    \"single_pages\": {d},\n    \"page_resources\": {d},\n    \"aliases\": {d},\n    \"languages\": {d},\n    \"static_assets\": {d},\n    \"layout_shortcodes\": {d},\n    \"optional_files\": {d},\n    \"unclassified\": {d}\n", .{
         inv.pages.len,
         kind_counts[@backingInt(PageKind.section)],
         kind_counts[@backingInt(PageKind.leaf_bundle)],
@@ -976,6 +1103,7 @@ fn emitInventoryJson(a: std.mem.Allocator, root_dir: []const u8, inv: Inventory)
         inv.languages.len,
         inv.static_assets.len,
         inv.layout_shortcodes.len,
+        optional_total,
         inv.unclassified.len,
     });
     try buf.appendSlice(a, "  },\n  \"class_counts\": {\n");
@@ -996,7 +1124,17 @@ fn emitInventoryJson(a: std.mem.Allocator, root_dir: []const u8, inv: Inventory)
     try jsonStrArray(&buf, a, inv.static_assets);
     try buf.appendSlice(a, ",\n  \"layout_shortcodes\": ");
     try jsonStrArray(&buf, a, inv.layout_shortcodes);
-    try buf.appendSlice(a, ",\n  \"unclassified\": [\n");
+    try buf.appendSlice(a, ",\n  \"optional_dirs\": [\n");
+    for (inv.optional_dirs, 0..) |od, i| {
+        try buf.appendSlice(a, "    { \"dir\": ");
+        try jsonEscapeAppend(&buf, a, od.dir);
+        try buf.appendSlice(a, ", \"files\": ");
+        try jsonStrArray(&buf, a, od.files);
+        try buf.append(a, '}');
+        if (i + 1 < inv.optional_dirs.len) try buf.append(a, ',');
+        try buf.append(a, '\n');
+    }
+    try buf.appendSlice(a, "  ],\n  \"unclassified\": [\n");
     for (inv.unclassified, 0..) |u, i| {
         try buf.appendSlice(a, "    ");
         try jsonEscapeAppend(&buf, a, u);
@@ -1043,6 +1181,13 @@ fn appendMdCount(buf: *std.ArrayList(u8), a: std.mem.Allocator, label: []const u
     try buf.print(a, "| {s} | {d} |\n", .{ label, n });
 }
 
+/// Escapes `|` so source-controlled text cannot break table cells.
+fn mdCellAppend(buf: *std.ArrayList(u8), a: std.mem.Allocator, s: []const u8) !void {
+    for (s) |c| {
+        if (c == '|') try buf.appendSlice(a, "\\|") else try buf.append(a, c);
+    }
+}
+
 fn emitInventoryMd(a: std.mem.Allocator, root_dir: []const u8, inv: Inventory) ![]u8 {
     var buf: std.ArrayList(u8) = .empty;
     errdefer buf.deinit(a);
@@ -1058,25 +1203,25 @@ fn emitInventoryMd(a: std.mem.Allocator, root_dir: []const u8, inv: Inventory) !
     try buf.appendSlice(a, "# Hugo inventory\n\n");
     try buf.appendSlice(a, "Read-only project scan. The Hugo source tree is never modified;\ntemplates and shortcode bodies are scanned as text, never executed.\n\n");
     try buf.appendSlice(a, "| Field | Value |\n| --- | --- |\n| Root | `");
-    try buf.appendSlice(a, root_dir);
+    try mdCellAppend(&buf, a, root_dir);
     try buf.appendSlice(a, "` |\n| Config | `");
-    try buf.appendSlice(a, inv.config_file);
+    try mdCellAppend(&buf, a, inv.config_file);
     try buf.appendSlice(a, "` (");
-    try buf.appendSlice(a, inv.config_format);
+    try mdCellAppend(&buf, a, inv.config_format);
     try buf.appendSlice(a, ") |\n| Site title | ");
-    try buf.appendSlice(a, inv.site_title orelse "");
+    try mdCellAppend(&buf, a, inv.site_title orelse "");
     try buf.appendSlice(a, " |\n| baseURL | ");
-    try buf.appendSlice(a, inv.base_url orelse "");
+    try mdCellAppend(&buf, a, inv.base_url orelse "");
     try buf.appendSlice(a, " |\n| Default language | ");
-    try buf.appendSlice(a, inv.default_content_language orelse "");
+    try mdCellAppend(&buf, a, inv.default_content_language orelse "");
     try buf.appendSlice(a, " |\n\n## Languages\n\n| Code | Name | Content dir | Weight |\n| --- | --- | --- | ---: |\n");
     for (inv.languages) |lang| {
         try buf.appendSlice(a, "| `");
-        try buf.appendSlice(a, lang.code);
+        try mdCellAppend(&buf, a, lang.code);
         try buf.appendSlice(a, "` | ");
-        try buf.appendSlice(a, lang.name);
+        try mdCellAppend(&buf, a, lang.name);
         try buf.appendSlice(a, " | `");
-        try buf.appendSlice(a, lang.content_dir);
+        try mdCellAppend(&buf, a, lang.content_dir);
         try buf.appendSlice(a, "` | ");
         if (lang.weight) |w| try buf.print(a, "{d}", .{w});
         try buf.appendSlice(a, " |\n");
@@ -1091,14 +1236,17 @@ fn emitInventoryMd(a: std.mem.Allocator, root_dir: []const u8, inv: Inventory) !
     try appendMdCount(&buf, a, "Aliases", alias_total);
     try appendMdCount(&buf, a, "Languages", inv.languages.len);
     try appendMdCount(&buf, a, "Static assets", inv.static_assets.len);
+    var optional_total: usize = 0;
+    for (inv.optional_dirs) |od| optional_total += od.files.len;
+    try appendMdCount(&buf, a, "Support-dir files", optional_total);
     try appendMdCount(&buf, a, "Unclassified", inv.unclassified.len);
 
     try buf.appendSlice(a, "\n## Shortcode usage\n\n| Name | Delimiter | Count |\n| --- | --- | ---: |\n");
     for (inv.shortcode_totals) |sc| {
         try buf.appendSlice(a, "| `");
-        try buf.appendSlice(a, sc.name);
+        try mdCellAppend(&buf, a, sc.name);
         try buf.appendSlice(a, "` | `");
-        try buf.appendSlice(a, sc.delimiter);
+        try mdCellAppend(&buf, a, sc.delimiter);
         try buf.print(a, " …` | {d} |\n", .{sc.count});
     }
     try buf.appendSlice(a, "\nShortcodes inside fenced code blocks (not counted): ");
@@ -1112,9 +1260,9 @@ fn emitInventoryMd(a: std.mem.Allocator, root_dir: []const u8, inv: Inventory) !
     try buf.appendSlice(a, "\n\n## Pages\n\n| Path | Lang | Kind | Depth | Class | FM | FM keys | Aliases | Resources | Shortcodes |\n| --- | --- | --- | ---: | --- | --- | --- | --- | --- | --- |\n");
     for (inv.pages) |p| {
         try buf.appendSlice(a, "| `");
-        try buf.appendSlice(a, p.path);
+        try mdCellAppend(&buf, a, p.path);
         try buf.appendSlice(a, "` | ");
-        try buf.appendSlice(a, p.language);
+        try mdCellAppend(&buf, a, p.language);
         try buf.appendSlice(a, " | ");
         try buf.appendSlice(a, p.kind.jsonName());
         try buf.print(a, " | {d} | ", .{p.depth});
@@ -1125,28 +1273,28 @@ fn emitInventoryMd(a: std.mem.Allocator, root_dir: []const u8, inv: Inventory) !
         for (p.front_matter_keys, 0..) |k, i| {
             if (i > 0) try buf.appendSlice(a, ", ");
             try buf.appendSlice(a, "`");
-            try buf.appendSlice(a, k);
+            try mdCellAppend(&buf, a, k);
             try buf.appendSlice(a, "`");
         }
         try buf.appendSlice(a, " | ");
         for (p.aliases, 0..) |al, i| {
             if (i > 0) try buf.appendSlice(a, ", ");
             try buf.appendSlice(a, "`");
-            try buf.appendSlice(a, al);
+            try mdCellAppend(&buf, a, al);
             try buf.appendSlice(a, "`");
         }
         try buf.appendSlice(a, " | ");
         for (p.resources, 0..) |r, i| {
             if (i > 0) try buf.appendSlice(a, ", ");
             try buf.appendSlice(a, "`");
-            try buf.appendSlice(a, r);
+            try mdCellAppend(&buf, a, r);
             try buf.appendSlice(a, "`");
         }
         try buf.appendSlice(a, " | ");
         for (p.shortcodes, 0..) |sc, i| {
             if (i > 0) try buf.appendSlice(a, ", ");
             try buf.appendSlice(a, "`");
-            try buf.appendSlice(a, sc.name);
+            try mdCellAppend(&buf, a, sc.name);
             try buf.appendSlice(a, "`");
         }
         try buf.appendSlice(a, " |\n");
@@ -1165,6 +1313,19 @@ fn emitInventoryMd(a: std.mem.Allocator, root_dir: []const u8, inv: Inventory) !
             try buf.appendSlice(a, "- `");
             try buf.appendSlice(a, s);
             try buf.appendSlice(a, "`\n");
+        }
+    }
+    if (inv.optional_dirs.len > 0) {
+        try buf.appendSlice(a, "\n## Support directories (inventoried, never emitted)\n\n");
+        for (inv.optional_dirs) |od| {
+            try buf.appendSlice(a, "### `");
+            try buf.appendSlice(a, od.dir);
+            try buf.print(a, "/` ({d} files)\n", .{od.files.len});
+            for (od.files) |f| {
+                try buf.appendSlice(a, "- `");
+                try buf.appendSlice(a, f);
+                try buf.appendSlice(a, "`\n");
+            }
         }
     }
     if (inv.unclassified.len > 0) {
@@ -1405,7 +1566,7 @@ test "hugo: split config/_default/languages.toml uses bare language tables" {
     try std.testing.expectEqualStrings("content/en", cfg.languages[0].content_dir);
 }
 
-test "hugo: language without contentDir falls back to content/<lang>" {
+test "hugo: language without contentDir uses shared content tree" {
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const a = arena_state.allocator();
@@ -1472,6 +1633,197 @@ test "hugo: shared content/ honors <name>.<lang>.md suffixes" {
     try std.testing.expect(std.mem.indexOf(u8, json, "\"path\": \"content/post/index.md\"") != null);
     const fr_bundle = std.mem.indexOf(u8, json, "\"path\": \"content/post/index.fr.md\"") orelse return error.TestUnexpectedResult;
     try std.testing.expect(std.mem.indexOfPos(u8, json, fr_bundle, "\"language\": \"fr\"") != null);
+}
+
+test "hugo: shared contentDir claimed by two languages scans once" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer {
+        tmp.dir.close(io);
+        tmp.parent_dir.deleteTree(io, &tmp.sub_path) catch {};
+        tmp.parent_dir.close(io);
+    }
+    const root = try tmpBase(a, &tmp, "dup-dir");
+    try Io.Dir.cwd().createDirPath(io, try std.fmt.allocPrint(a, "{s}/content", .{root}));
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fmt.allocPrint(a, "{s}/config.toml", .{root}), .data =
+        \\defaultContentLanguage = "en"
+        \\[languages.en]
+        \\contentDir = "content"
+        \\[languages.fr]
+        \\contentDir = "content"
+        \\
+    });
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fmt.allocPrint(a, "{s}/content/about.md", .{root}), .data = "en\n" });
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fmt.allocPrint(a, "{s}/content/about.fr.md", .{root}), .data = "fr\n" });
+    const out = try std.fmt.allocPrint(a, "{s}-out", .{root});
+    try run(io, a, .{ .root_dir = root, .out_dir = out, .quiet = true });
+    var o = try Io.Dir.cwd().openDir(io, out, .{});
+    defer o.close(io);
+    const json = try readFileAlloc(io, o, "inventory.json", a);
+    // Every page appears exactly once despite two languages claiming the dir.
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"pages\": 2") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"path\": \"content/about.md\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"path\": \"content/about.fr.md\"") != null);
+}
+
+test "hugo: contentDir outside root is not scanned" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer {
+        tmp.dir.close(io);
+        tmp.parent_dir.deleteTree(io, &tmp.sub_path) catch {};
+        tmp.parent_dir.close(io);
+    }
+    const base = try tmpBase(a, &tmp, "");
+    const outside = try std.fmt.allocPrint(a, "{s}/outside/secret", .{base});
+    try Io.Dir.cwd().createDirPath(io, outside);
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fmt.allocPrint(a, "{s}/stolen.md", .{outside}), .data = "leak\n" });
+    const root = try std.fmt.allocPrint(a, "{s}/site", .{base});
+    try Io.Dir.cwd().createDirPath(io, root);
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fmt.allocPrint(a, "{s}/config.toml", .{root}), .data =
+        \\[languages.en]
+        \\contentDir = "../../outside/secret"
+        \\
+    });
+    const out = try std.fmt.allocPrint(a, "{s}-out", .{root});
+    try std.testing.expectError(error.InvalidHugoRoot, run(io, a, .{ .root_dir = root, .out_dir = out, .quiet = true }));
+    // Absolute contentDir is equally refused.
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fmt.allocPrint(a, "{s}/config.toml", .{root}), .data =
+        \\[languages.en]
+        \\contentDir = "/etc"
+        \\
+    });
+    try std.testing.expectError(error.InvalidHugoRoot, run(io, a, .{ .root_dir = root, .out_dir = out, .quiet = true }));
+}
+
+test "hugo: symlinked entries are reported, never followed" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer {
+        tmp.dir.close(io);
+        tmp.parent_dir.deleteTree(io, &tmp.sub_path) catch {};
+        tmp.parent_dir.close(io);
+    }
+    const base = try tmpBase(a, &tmp, "");
+    const outside = try std.fmt.allocPrint(a, "{s}/outside", .{base});
+    try Io.Dir.cwd().createDirPath(io, outside);
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fmt.allocPrint(a, "{s}/stolen.md", .{outside}), .data = "{{< leaked >}}\n" });
+    const root = try std.fmt.allocPrint(a, "{s}/site", .{base});
+    try Io.Dir.cwd().createDirPath(io, try std.fmt.allocPrint(a, "{s}/content", .{root}));
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fmt.allocPrint(a, "{s}/content/page.md", .{root}), .data = "hi\n" });
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fmt.allocPrint(a, "{s}/hugo.toml", .{root}), .data = "title = \"x\"\n" });
+    var rdir = try Io.Dir.cwd().openDir(io, root, .{});
+    defer rdir.close(io);
+    // config.toml -> outside file; static -> outside dir; link inside content/.
+    try rdir.symLink(io, outside, "static", .{ .is_directory = true });
+    try rdir.symLink(io, try std.fmt.allocPrint(a, "{s}/stolen.md", .{outside}), "config.toml", .{});
+    var cdir = try rdir.openDir(io, "content", .{});
+    defer cdir.close(io);
+    try cdir.symLink(io, outside, "escape", .{ .is_directory = true });
+    const out = try std.fmt.allocPrint(a, "{s}-out", .{root});
+    try run(io, a, .{ .root_dir = root, .out_dir = out, .quiet = true });
+    var o = try Io.Dir.cwd().openDir(io, out, .{});
+    defer o.close(io);
+    const json = try readFileAlloc(io, o, "inventory.json", a);
+    try std.testing.expect(std.mem.indexOf(u8, json, "leaked") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "stolen") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "config.toml: symlink not followed") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "static: symlink not followed") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "content/escape: symlink not followed") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"path\": \"content/page.md\"") != null);
+}
+
+test "hugo: field-level front-matter keys raise class to unsupported" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer {
+        tmp.dir.close(io);
+        tmp.parent_dir.deleteTree(io, &tmp.sub_path) catch {};
+        tmp.parent_dir.close(io);
+    }
+    const root = try tmpBase(a, &tmp, "fmkeys");
+    try Io.Dir.cwd().createDirPath(io, try std.fmt.allocPrint(a, "{s}/content", .{root}));
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fmt.allocPrint(a, "{s}/config.toml", .{root}), .data = "title = \"x\"\n" });
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fmt.allocPrint(a, "{s}/content/page.md", .{root}), .data =
+        \\---
+        \\title: T
+        \\slug: s
+        \\weight: 3
+        \\---
+        \\body
+        \\
+    });
+    const out = try std.fmt.allocPrint(a, "{s}-out", .{root});
+    try run(io, a, .{ .root_dir = root, .out_dir = out, .quiet = true });
+    var o = try Io.Dir.cwd().openDir(io, out, .{});
+    defer o.close(io);
+    const json = try readFileAlloc(io, o, "inventory.json", a);
+    const idx = std.mem.indexOf(u8, json, "\"path\": \"content/page.md\"") orelse return error.TestUnexpectedResult;
+    try std.testing.expect(std.mem.indexOfPos(u8, json, idx, "\"class\": \"unsupported\"") != null);
+}
+
+test "hugo: support directories inventoried when present" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer {
+        tmp.dir.close(io);
+        tmp.parent_dir.deleteTree(io, &tmp.sub_path) catch {};
+        tmp.parent_dir.close(io);
+    }
+    const root = try tmpBase(a, &tmp, "optdirs");
+    try Io.Dir.cwd().createDirPath(io, try std.fmt.allocPrint(a, "{s}/content", .{root}));
+    try Io.Dir.cwd().createDirPath(io, try std.fmt.allocPrint(a, "{s}/data", .{root}));
+    try Io.Dir.cwd().createDirPath(io, try std.fmt.allocPrint(a, "{s}/themes/x", .{root}));
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fmt.allocPrint(a, "{s}/config.toml", .{root}), .data = "title = \"x\"\n" });
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fmt.allocPrint(a, "{s}/content/page.md", .{root}), .data = "hi\n" });
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fmt.allocPrint(a, "{s}/data/menu.json", .{root}), .data = "{}\n" });
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fmt.allocPrint(a, "{s}/themes/x/style.css", .{root}), .data = "x{}\n" });
+    const out = try std.fmt.allocPrint(a, "{s}-out", .{root});
+    try run(io, a, .{ .root_dir = root, .out_dir = out, .quiet = true });
+    var o = try Io.Dir.cwd().openDir(io, out, .{});
+    defer o.close(io);
+    const json = try readFileAlloc(io, o, "inventory.json", a);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"dir\": \"data\", \"files\": [\"data/menu.json\"]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"dir\": \"themes\", \"files\": [\"themes/x/style.css\"]") != null);
+}
+
+test "hugo: closing fence must match opener length" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var counts: std.ArrayList(ShortcodeCount) = .empty;
+    var fenced: std.ArrayList([]const u8) = .empty;
+    // ```` opener: the ``` line inside is content, ````` closes.
+    try scanShortcodes(a,
+        \\text {{< real >}}
+        \\````
+        \\{{ shorter is not a close
+        \\```
+        \\```not a fence
+        \\`````
+        \\{{< after >}}
+        \\
+    , &counts, &fenced);
+    var saw = std.StringHashMap(usize).init(a);
+    for (counts.items) |sc| try saw.put(sc.name, sc.count);
+    try std.testing.expectEqual(@as(usize, 1), saw.get("real") orelse 0);
+    try std.testing.expectEqual(@as(usize, 1), saw.get("after") orelse 0);
+    try std.testing.expectEqual(@as(usize, 0), saw.get("shorter") orelse 0);
 }
 
 test "hugo: fixture inventory determinism + golden counts" {
