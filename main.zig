@@ -53,6 +53,7 @@ const theme_materialize = @import("theme_materialize.zig");
 const wordpress_theme = @import("wordpress_theme.zig");
 const link_audit = @import("link_audit.zig");
 const frontmatter_review = @import("frontmatter_review.zig");
+const jekyll = @import("jekyll.zig");
 const publication = @import("publication.zig");
 const astro_import_plan = @import("astro_import_plan.zig");
 const astro_import_apply = @import("astro_import_apply.zig");
@@ -563,6 +564,7 @@ test {
     _ = astro_import_plan;
     _ = astro_import_apply;
     _ = link_audit;
+    _ = jekyll;
 }
 
 test "parseOptions: defaults and astro flags" {
@@ -818,6 +820,25 @@ test "parseOptions: frontmatter-review flags" {
 
     const o4 = try parseOptions(&.{ "boris-migration-lab", "--mode=fmreview", "--content=./c", "--out=./o" });
     try std.testing.expect(o4.mode == .frontmatter_review);
+}
+
+test "parseOptions: jekyll-inventory flags" {
+    const o = try parseOptions(&.{
+        "boris-migration-lab",
+        "--mode=jekyll-inventory",
+        "--root=fixtures/mini-jekyll",
+        "--out=./.jekyll-inv",
+    });
+    try std.testing.expect(o.mode == .jekyll_inventory);
+    try std.testing.expect(o.mode_explicit);
+    try std.testing.expectEqualStrings("fixtures/mini-jekyll", o.root_dir);
+    try std.testing.expectEqualStrings("./.jekyll-inv", o.out_dir);
+
+    const o2 = try parseOptions(&.{ "boris-migration-lab", "--mode=jekyll-inv", "--root=./j" });
+    try std.testing.expect(o2.mode == .jekyll_inventory);
+
+    const o3 = try parseOptions(&.{ "boris-migration-lab", "--mode=jekyll-archaeology", "--root=./j" });
+    try std.testing.expect(o3.mode == .jekyll_inventory);
 }
 
 test "parseOptions: filed-scan flags" {
