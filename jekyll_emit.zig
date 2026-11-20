@@ -894,7 +894,9 @@ fn convertPage(a: std.mem.Allocator, plan: *const Plan, page: *EmitPage) !void {
     // Status.
     if (page.kind == .draft) page.status = "draft";
     if (jekyll.frontmatterScalar(fm_src, "published")) |pub_v| {
-        if (std.mem.eql(u8, pub_v, "false")) page.status = "draft";
+        // YAML allows a trailing ` # comment` after the scalar.
+        const v = if (std.mem.indexOf(u8, pub_v, " #")) |h| trimSpace(pub_v[0..h]) else pub_v;
+        if (std.mem.eql(u8, stripQuotes(v), "false")) page.status = "draft";
     }
 
     // Tags (exact) and categories (provenance only).
@@ -1684,6 +1686,7 @@ test "jekyll: emit hostile tree: id collisions, bad dates, quoted titles and tag
         .{ "site/_drafts/2024-01-05-caf-post.md", "---\n---\n\nDraft with the same slug.\n" },
         .{ "site/notes/deep/page.md", "---\ntitle: Deep\n---\n\n[x|y]({% post_url 2024-02-30-bad-date %})\n" },
         .{ "site/plain.md", "No front matter: Jekyll copies this verbatim.\n" },
+        .{ "site/commented.md", "---\ntitle: Commented\npublished: false # not ready\n---\n\nHidden.\n" },
     };
     for (files) |f| {
         try ensureParentTest(io, tmp.dir, f[0]);
@@ -1707,6 +1710,7 @@ test "jekyll: emit hostile tree: id collisions, bad dates, quoted titles and tag
     try std.testing.expect(std.mem.indexOf(u8, bad, "published_at") == null);
     try expectContains(try readOut(io, a, out, "content/posts-2.md"), "[[posts/caf-post]]");
     try expectContains(try readOut(io, a, out, "content/posts/caf-post-2.md"), "title: caf-post\nparent: posts\nstatus: draft");
+    try expectContains(try readOut(io, a, out, "content/commented.md"), "status: draft\n");
 
     try compileWithBoris(io, std.testing.allocator, try std.fmt.allocPrint(a, "{s}/content", .{out}), try std.fmt.allocPrint(a, "{s}/html", .{base}));
 }
