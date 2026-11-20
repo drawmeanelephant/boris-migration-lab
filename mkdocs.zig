@@ -1929,6 +1929,11 @@ fn headingExists(inv: *const Inventory, source: []const u8, frag: []const u8) bo
     return fileExists(p.headings, frag);
 }
 
+/// True when `child` lies inside directory `dir` (ASCII case-insensitive).
+fn pathUnder(child: []const u8, dir: []const u8) bool {
+    return child.len > dir.len and child[dir.len] == '/' and std.ascii.eqlIgnoreCase(child[0..dir.len], dir);
+}
+
 /// Boris link-audits relative hrefs (EROUTEMISSING), so an unresolved link
 /// keeps only its label plus a review marker naming the original target.
 fn unresolvedLinkAppend(ctx: Ctx, out: *std.ArrayList(u8), label: []const u8, url: []const u8, why: []const u8, line: usize) !void {
@@ -1970,9 +1975,15 @@ fn emitLink(ctx: Ctx, out: *std.ArrayList(u8), is_img: bool, label: []const u8, 
             while (true) : (n += 1) {
                 var clash = false;
                 for (ctx.plan.assets.items) |x| {
-                    if (!std.ascii.eqlIgnoreCase(x.out_path, out_rel)) continue;
-                    if (std.mem.eql(u8, x.source, resolved.?)) reuse = true else clash = true;
-                    break;
+                    if (std.ascii.eqlIgnoreCase(x.out_path, out_rel)) {
+                        if (std.mem.eql(u8, x.source, resolved.?)) reuse = true else clash = true;
+                        break;
+                    }
+                    // A file path cannot also be a directory of another asset.
+                    if (pathUnder(x.out_path, out_rel) or pathUnder(out_rel, x.out_path)) {
+                        clash = true;
+                        break;
+                    }
                 }
                 if (!clash) break;
                 within = if (std.fs.path.dirname(sanitized)) |d|
@@ -3169,6 +3180,10 @@ fn writeHostileProject(io: Io, a: std.mem.Allocator, root: []const u8) !void {
             \\  - Ref:
             \\      - ref/README.md
             \\      - ref/index.md
+            \\  - Sec:
+            \\      - sec/README.md
+            \\      - sec/index.md
+            \\      - sec/inner.md
             \\
         },
         .{
@@ -3212,6 +3227,10 @@ fn writeHostileProject(io: Io, a: std.mem.Allocator, root: []const u8) !void {
         .{ "docs/edge.md", "# Edge\n\nHard break  \nnext. [v2](setup(v2).md)\n\n![a](img/a%20b.png) ![b](img/a-b.png)\n" },
         .{ "docs/img/a b.png", "A" },
         .{ "docs/img/a-b.png", "B" },
+        .{ "docs/img/2-a-b.png/c.png", "C" },
+        .{ "docs/titled.md", "# Titled\n\n[t](edge.md \"a (b\") then [u](edge.md).\n![c](img/2-a-b.png/c.png) ![a](img/a%20b.png) ![b](img/a-b.png)\n" },
+        .{ "docs/sec/README.md", "# Sec readme\n" },
+        .{ "docs/sec/inner.md", "# Inner\n" },
     };
     for (files) |f| {
         const path = try std.fmt.allocPrint(a, "{s}/{s}", .{ root, f[0] });
@@ -3360,12 +3379,19 @@ test "mkdocs: emit handles hostile nav, links, and literals" {
     // Boris reserves content/includes/ for fragments.
     try std.testing.expectEqual(Role.trunk, planPage(&plan, "includes-page/page").?.role);
 
+    // A missing index.md does not displace a usable README.md.
+    try std.testing.expectEqual(Role.trunk, planPage(&plan, "sec/index").?.role);
+    try std.testing.expectEqualStrings("sec/index", parentId(&plan, planPage(&plan, "sec/inner").?).?);
     // index.md wins over a README.md listed first.
     try std.testing.expectEqual(Role.trunk, planPage(&plan, "ref/index").?.role);
     try std.testing.expectEqualStrings("ref/index", parentId(&plan, planPage(&plan, "ref/README").?).?);
 
     const out = try std.fmt.allocPrint(a, ".zig-cache/tmp/{s}/hostile-out", .{tmp.sub_path});
     try runEmit(io, gpa, .{ .root_dir = root, .out_dir = out, .quiet = true });
+    const titled = try readOutFile(io, out, "content/titled.md", a);
+    try std.testing.expect(std.mem.indexOf(u8, titled, "[[edge|t]] then [[edge|u]].") != null);
+    try std.testing.expect(std.mem.indexOf(u8, titled, "titled.assets/img/2-a-b.png/c.png) ![a](titled.assets/img/a-b.png) ![b](titled.assets/img/3-a-b.png)") != null);
+    try std.testing.expectEqualStrings("B", try readOutFile(io, out, "content/titled.assets/img/3-a-b.png", a));
     const edge = try readOutFile(io, out, "content/edge.md", a);
     try std.testing.expect(std.mem.indexOf(u8, edge, "Hard break  \nnext. [[setup-v2|v2]]\n") != null);
     try std.testing.expect(std.mem.indexOf(u8, edge, "![a](edge.assets/img/a-b.png) ![b](edge.assets/img/2-a-b.png)") != null);
