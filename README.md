@@ -20,6 +20,7 @@ Standalone **migration laboratory** for bringing existing sites into Boris.
 | **theme-materialize** | Theme source tree + `adaptation_ledger.json` | Safe Boris theme draft + materialization, manifest, provenance, and review reports |
 | **wordpress-theme** | Classic WordPress theme source tree | Deterministic PHP/template inventory + static Boris prototype + manual-review manifest (read-only) |
 | **link-audit** | Generated static HTML tree | Missing local routes/fragments report; external links are left out of scope |
+| **jekyll-inventory** | Jekyll site source tree | Read-only `inventory.json` + `INVENTORY.md` (posts, drafts, collections, Liquid, `_data` refs) |
 | **ghost-inventory** | Unpacked Ghost 5 export root (`ghost-export.json` + `content/images/`) | Read-only `inventory.json` + `INVENTORY.md` |
 
 All modes are **read-only on inputs**: originals are never rewritten. There is
@@ -45,6 +46,7 @@ repository.
 | Starlight format id | `boris-starlight-migration-lab` |
 | Asset-filename format id | `boris-asset-filename-lab` |
 | Theme-archaeology format id | `boris-theme-archaeology-lab` |
+| Jekyll format id | `boris-jekyll-migration-lab` |
 | Ghost format id | `boris-ghost-migration-lab` |
 | Schema | Instagram **`2`**; Astro/Obsidian/Notion/Filed/Starlight/Asset-filename/Theme-archaeology/Theme-materialize/Tinderbox `1`; WordPress **`3`** |
 
@@ -206,6 +208,11 @@ zig build run -- --mode=link-audit \
   --root=./dist \
   --out=./.link-audit-report
 
+# Read-only Jekyll site inventory (no Markdown emit)
+zig build run -- --mode=jekyll-inventory \
+  --root=./fixtures/mini-jekyll \
+  --out=./.jekyll-inventory
+
 # Ghost 5 export → read-only inventory (no Markdown emit)
 zig build run -- --mode=ghost-inventory \
   --root=./fixtures/mini-ghost \
@@ -226,9 +233,9 @@ zig build test   # with BORIS_BIN exported or `boris` on PATH (see Boris pins)
 |------|---------|---------|
 | `-h`, `--help` | | Print usage; exit 0 |
 | `-q`, `--quiet` | off | Suppress progress lines |
-| `--mode=MODE` | `astro` | `astro`, `astro-import-plan`, `astro-import-apply`, `wordpress` (`wp` / `wxr`), `wordpress-theme` (`wp-theme` / `kubrick-theme`), `instagram` (`ig` / `takeout`), `obsidian` (`obs` / `vault`), `tinderbox-inventory` (`tbx-inventory` / `tinderbox-inv`), `tinderbox` (`tinderbox-emit` / `tbx`), `notion` (`md-csv` / `notion-export`), `filed` (`filed-fyi`), `filed-scan`, `starlight` (`sl` / `evcc`), `asset-filename` (`assets` / `asset-compat` / `filename-compat`), `theme-archaeology` (`theme` / `theme-arch` / `theme-inventory`), `theme-materialize` (`materialize` / `theme-materialise`), `link-audit` (`links` / `output-audit`), `frontmatter-review` (`fm-review` / `fmreview`), or `ghost-inventory` (`ghost-inv`) |
+| `--mode=MODE` | `astro` | `astro`, `astro-import-plan`, `astro-import-apply`, `wordpress` (`wp` / `wxr`), `wordpress-theme` (`wp-theme` / `kubrick-theme`), `instagram` (`ig` / `takeout`), `obsidian` (`obs` / `vault`), `tinderbox-inventory` (`tbx-inventory` / `tinderbox-inv`), `tinderbox` (`tinderbox-emit` / `tbx`), `notion` (`md-csv` / `notion-export`), `filed` (`filed-fyi`), `filed-scan`, `starlight` (`sl` / `evcc`), `asset-filename` (`assets` / `asset-compat` / `filename-compat`), `theme-archaeology` (`theme` / `theme-arch` / `theme-inventory`), `theme-materialize` (`materialize` / `theme-materialise`), `link-audit` (`links` / `output-audit`), `frontmatter-review` (`fm-review` / `fmreview`), `jekyll-inventory` (`jekyll-inv` / `jekyll-archaeology`), or `ghost-inventory` (`ghost-inv`) |
 | `--out=DIR` | `migration-report` | Output directory (**must differ from inputs**); must be explicit for `astro-import-plan` |
-| `--root=DIR` | `.` | Astro archaeology root, Starlight project root, asset-filename content tree, theme scan root, or generated HTML tree for `link-audit`; must be explicit for `astro-import-plan` |
+| `--root=DIR` | `.` | Astro archaeology root, Starlight project root, asset-filename content tree, theme scan root, Jekyll site source root, or generated HTML tree for `link-audit`; must be explicit for `astro-import-plan` |
 | `--content-root=RELATIVE_DIR` | | Required by `astro-import-plan` and `astro-import-apply`; approved plain-Markdown root relative to `--root` |
 | `--project-id=ID` | | Required by `astro-import-plan` and `astro-import-apply`; stable importer identity namespace |
 | `--plan=FILE` | | Required by `astro-import-apply`; reviewed `import_plan.json` with adjacent `source_snapshot.json` |
@@ -302,7 +309,13 @@ Exit codes: **0** success, **2** usage, **3** I/O error.
 16. **Astro import schemas** — Ajv is a test-only locked dependency under
    `schema-validation/`; it is not linked into Boris, shipped in product
    artifacts, or required by ordinary compiler execution.
-17. **Ghost** — read-only inventory of an unpacked Ghost 5 Admin export. Never
+17. **Jekyll** — source-tree inventory only (writes under `--out`). Never
+    executes Liquid, Ruby, `_plugins/*.rb`, or `jekyll build`; Liquid inside
+    `{% raw %}…{% endraw %}` and fenced code blocks is inert text, and
+    `_config.yml` is read only for `collections:`, `baseurl`,
+    `permalink`, and `title` via a bounded line scanner (no YAML parser). See
+    [`jekyll.md`](docs/contracts/jekyll.md).
+18. **Ghost** — read-only inventory of an unpacked Ghost 5 Admin export. Never
     mutates `ghost-export.json` or `content/images/`, never calls the Ghost API
     or the network, and never copies `users` emails, password hashes, or tokens
     into the inventory. See [`docs/contracts/ghost.md`](docs/contracts/ghost.md).
