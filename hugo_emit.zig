@@ -1169,9 +1169,8 @@ fn buildSite(io: Io, a: Allocator, root: Io.Dir, inv: hugo.Inventory) !Site {
         try site.pages.append(a, p);
     }
     for (all.items) |p| {
-        if (p.is_section) continue;
         const top = firstSegment(p.section);
-        if (top.len == 0) continue;
+        if (top.len == 0 or (p.is_section and segmentCount(p.section) <= 1)) continue;
         const key = try langKey(a, p.lang, top);
         if (site.section_ids.contains(key)) continue;
         const synth = try a.create(EmitPage);
@@ -1831,6 +1830,7 @@ test "hugo: synthesized landings, JSON/YAML lists, link-form refs, unresolved re
         \\Body with {{< youtube abc >}}.
         \\
     );
+    try writeTestFile(io, a, site_root, "content/notes/deep/_index.md", "---\ntitle: Deep notes\n---\nNested only.\n");
     try writeTestFile(io, a, site_root, "content/top.md", "---\ntitle: Top\ntags: solo\naliases: /old-top/\n---\nRoot page.\n");
     const out = try std.fmt.allocPrint(a, "{s}-out", .{site_root});
     defer a.free(out);
@@ -1866,7 +1866,10 @@ test "hugo: synthesized landings, JSON/YAML lists, link-form refs, unresolved re
 
     const report = try hugo.readFileAlloc(io, od, "report.json", a);
     defer a.free(report);
-    try expectContains(report, "\"synthesized_landings\": 1");
+    try expectContains(report, "\"synthesized_landings\": 2");
+    const deep_notes = try hugo.readFileAlloc(io, od, "content/notes/deep.md", a);
+    defer a.free(deep_notes);
+    try expectContains(deep_notes, "parent: notes\n");
     try expectContains(report, "ref target missing is not an emitted page");
     const prov = try hugo.readFileAlloc(io, od, "provenance/docs/intro.json", a);
     defer a.free(prov);
