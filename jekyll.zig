@@ -70,6 +70,7 @@ const TagCount = struct {
 };
 
 const Config = struct {
+    found: bool = false,
     title: ?[]const u8 = null,
     baseurl: ?[]const u8 = null,
     permalink: ?[]const u8 = null,
@@ -320,6 +321,8 @@ fn scanLiquid(
 ) !void {
     var i: usize = 0;
     var in_fence = false;
+    var fence_char: u8 = 0;
+    var fence_len: usize = 0;
     var in_raw = false;
     var at_line_start = true;
 
@@ -333,14 +336,20 @@ fn scanLiquid(
         if (at_line_start and !in_raw) {
             var j = i;
             while (j < body.len and (body[j] == ' ' or body[j] == '\t')) j += 1;
-            const flen = fenceMarkerLen(body[j..]);
-            if (flen > 0) {
-                in_fence = !in_fence;
+            const flen = if (j < body.len) fenceMarkerLen(body[j..]) else 0;
+            if (flen > 0 and (!in_fence or (body[j] == fence_char and flen >= fence_len))) {
+                if (in_fence) {
+                    in_fence = false;
+                } else {
+                    in_fence = true;
+                    fence_char = body[j];
+                    fence_len = flen;
+                }
                 i = j + flen;
                 at_line_start = false;
                 continue;
             }
-            if (body[j] != ' ' and body[j] != '\t') at_line_start = false;
+            if (j < body.len and body[j] != ' ' and body[j] != '\t') at_line_start = false;
         }
         if (in_raw) {
             if (c == '{' and i + 1 < body.len and body[i + 1] == '%') {
@@ -357,6 +366,13 @@ fn scanLiquid(
             continue;
         }
         if (c == '{' and i + 1 < body.len and (body[i + 1] == '%' or body[i + 1] == '{')) {
+            if (in_fence) {
+                // Inert example text: count the marker, never hunt for a
+                // closer past the end of the fence.
+                inv.n_fenced_liquid += 1;
+                i += 2;
+                continue;
+            }
             const is_tag = body[i + 1] == '%';
             const closer: []const u8 = if (is_tag) "%}" else "}}";
             const rest = body[i + 2 ..];
@@ -364,11 +380,6 @@ fn scanLiquid(
                 // Unclosed delimiter: treat remainder as inert text.
                 break;
             };
-            if (in_fence) {
-                inv.n_fenced_liquid += 1;
-                i += 2 + off + 2;
-                continue;
-            }
             const inner = trimSpace(rest[0..off]);
             i += 2 + off + 2;
             if (is_tag) {
@@ -455,10 +466,12 @@ fn parseConfig(a: std.mem.Allocator, source: []const u8) !Config {
     var in_collections = false;
     var current: ?*Collection = null;
     var it = std.mem.splitScalar(u8, source, '\n');
-    while (it.next()) |line_raw| {
+    while (it.next()) |line_crlf| {
+        const line_raw = std.mem.trimEnd(u8, line_crlf, "\r");
         const line = trimSpace(line_raw);
         if (line.len == 0 or line[0] == '#') continue;
-        const indent = line_raw.len - line.len;
+        var indent: usize = 0;
+        while (indent < line_raw.len and (line_raw[indent] == ' ' or line_raw[indent] == '\t')) indent += 1;
         if (indent == 0) {
             current = null;
             const colon = std.mem.indexOfScalar(u8, line, ':') orelse continue;
@@ -702,7 +715,7 @@ fn constructs(a: std.mem.Allocator, cfg: Config, inv: Inventory) ![]Construct {
         .{ .name = "Other {% … %} / {{ … }} Liquid", .class = .human_review, .count = inv.n_other_liquid },
         .{ .name = "Plain top-level page (*.md outside _posts, _drafts, collections)", .class = .transformed, .count = inv.pages.items.len },
         .{ .name = "assets/ and other static files", .class = .transformed, .count = inv.static_files.items.len },
-        .{ .name = "_config.yml", .class = .transformed, .count = 1 },
+        .{ .name = "_config.yml", .class = .transformed, .count = if (cfg.found) @as(usize, 1) else 0 },
     };
     try rows.appendSlice(a, &table);
     return try rows.toOwnedSlice(a);
@@ -976,8 +989,15 @@ pub fn run(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
     defer root.close(io);
 
     var cfg: Config = .{};
-    if (readFileAlloc(io, root, "_config.yml", a)) |bytes| {
-        cfg = try parseConfig(a, bytes);
+    // Only a regular in-tree file is config: a symlink could point outside the
+    // scan root, and a fifo/device would block the read. Other files are only
+    // read via collectUnderDir, which already skips non-regular entries.
+    if (root.statFile(io, "_config.yml", .{ .follow_symlinks = false })) |st| {
+        if (st.kind == .file) {
+            const bytes = try readFileAlloc(io, root, "_config.yml", a);
+            cfg = try parseConfig(a, bytes);
+            cfg.found = true;
+        }
     } else |_| {}
 
     var all_paths: std.ArrayList([]const u8) = .empty;
@@ -990,7 +1010,11 @@ pub fn run(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
     const json = try emitInventoryJson(a, opts.root_dir, cfg, inv);
     const md = try emitInventoryMd(a, opts.root_dir, cfg, inv);
 
-    var output = try publication.Publication.begin(io, a, opts.out_dir, &.{opts.root_dir}, format_id);
+    // A trailing slash would put the sibling stage/backup *inside* the output
+    // dir, so commit's rename into its own child fails. Strip before publish.
+    const out_dir = std.mem.trimEnd(u8, opts.out_dir, "/");
+    if (out_dir.len == 0) return error.InvalidJekyllInput;
+    var output = try publication.Publication.begin(io, a, out_dir, &.{opts.root_dir}, format_id);
     defer {
         output.abandon(io, a);
         output.deinit(a);
@@ -1001,7 +1025,7 @@ pub fn run(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
     try writeBytes(io, stage, "INVENTORY.md", md);
     try output.commit(io, a);
     if (!opts.quiet) {
-        std.debug.print("jekyll-inventory: wrote {s}/inventory.json, {s}/INVENTORY.md\n", .{ opts.out_dir, opts.out_dir });
+        std.debug.print("jekyll-inventory: wrote {s}/inventory.json, {s}/INVENTORY.md\n", .{ out_dir, out_dir });
     }
 }
 
@@ -1076,6 +1100,56 @@ test "jekyll: liquid scan skips raw blocks and fenced code" {
     try std.testing.expectEqual(@as(usize, 1), inv.data_refs.items.len);
     try std.testing.expectEqualStrings("site.data.team", inv.data_refs.items[0].name);
     try std.testing.expect(inv.data_refs.items[0].exists);
+}
+
+test "jekyll: liquid scan handles edge whitespace and nested fences" {
+    const a = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const files = [_][]const u8{};
+    const stems = [_][]const u8{};
+    const data_files = [_][]const u8{};
+
+    // Trailing whitespace-only line without newline must not read past the body.
+    var inv: Inventory = .{};
+    try scanLiquid(arena.allocator(), "text {{ site.baseurl }} \n   ", &files, &stems, &data_files, &inv);
+    try std.testing.expectEqual(@as(usize, 1), inv.n_baseurl);
+
+    // A longer fence is not closed by a shorter marker; the example tags stay inert.
+    inv = .{};
+    try scanLiquid(arena.allocator(),
+        \\````liquid
+        \\```
+        \\{% post_url x %}
+        \\````
+        \\live {{ site.baseurl }}
+        \\
+    , &files, &stems, &data_files, &inv);
+    try std.testing.expectEqual(@as(usize, 1), inv.n_baseurl);
+    try std.testing.expectEqual(@as(usize, 1), inv.n_fenced_liquid);
+    try std.testing.expectEqual(@as(usize, 0), inv.n_post_url_ok + inv.n_post_url_bad);
+
+    // An unclosed {{ inside a fence cannot swallow live output after the fence.
+    inv = .{};
+    try scanLiquid(arena.allocator(),
+        \\```
+        \\{{ unclosed
+        \\```
+        \\{{ site.baseurl }}
+        \\
+    , &files, &stems, &data_files, &inv);
+    try std.testing.expectEqual(@as(usize, 1), inv.n_baseurl);
+    try std.testing.expectEqual(@as(usize, 1), inv.n_fenced_liquid);
+}
+
+test "jekyll: config scanner tolerates CRLF" {
+    const a = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const cfg = try parseConfig(arena.allocator(), "title: T\r\npermalink: pretty\r\ncollections:\r\n  docs:\r\n    output: true\r\n");
+    try std.testing.expectEqualStrings("pretty", cfg.permalink.?);
+    try std.testing.expectEqual(@as(usize, 1), cfg.collections.items.len);
+    try std.testing.expect(cfg.collections.items[0].output);
 }
 
 test "jekyll: fixture inventory determinism + golden counts" {
