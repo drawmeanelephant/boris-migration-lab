@@ -1974,7 +1974,10 @@ fn emitLink(ctx: Ctx, out: *std.ArrayList(u8), is_img: bool, label: []const u8, 
                     break;
                 }
                 if (!clash) break;
-                within = try std.fmt.allocPrint(a, "{d}-{s}", .{ n, sanitized });
+                within = if (std.fs.path.dirname(sanitized)) |d|
+                    try std.fmt.allocPrint(a, "{s}/{d}-{s}", .{ d, n, std.fs.path.basename(sanitized) })
+                else
+                    try std.fmt.allocPrint(a, "{d}-{s}", .{ n, sanitized });
                 out_rel = try std.fmt.allocPrint(a, "{s}.assets/{s}", .{ stem, within });
             }
             if (!reuse) try ctx.plan.assets.append(a, .{ .page = page.id, .source = resolved.?, .out_path = out_rel });
@@ -3158,6 +3161,9 @@ fn writeHostileProject(io: Io, a: std.mem.Allocator, root: []const u8) !void {
             \\  - Again: topics/alpha.md
             \\  - Missing: nowhere.md
             \\  - includes/page.md
+            \\  - Ref:
+            \\      - ref/README.md
+            \\      - ref/index.md
             \\
         },
         .{
@@ -3195,6 +3201,12 @@ fn writeHostileProject(io: Io, a: std.mem.Allocator, root: []const u8) !void {
         .{ "docs/topics/index.md", "# Topics index (not in nav)\n" },
         .{ "docs/topics/deep/beta.md", "# Beta\n\nBack to [alpha](../alpha.md#alpha).\n" },
         .{ "docs/includes/page.md", "# Includes page\n" },
+        .{ "docs/ref/README.md", "# Ref readme\n" },
+        .{ "docs/ref/index.md", "# Ref index\n" },
+        .{ "docs/setup(v2).md", "# Setup v2\n" },
+        .{ "docs/edge.md", "# Edge\n\nHard break  \nnext. [v2](setup(v2).md)\n\n![a](img/a%20b.png) ![b](img/a-b.png)\n" },
+        .{ "docs/img/a b.png", "A" },
+        .{ "docs/img/a-b.png", "B" },
     };
     for (files) |f| {
         const path = try std.fmt.allocPrint(a, "{s}/{s}", .{ root, f[0] });
@@ -3343,8 +3355,17 @@ test "mkdocs: emit handles hostile nav, links, and literals" {
     // Boris reserves content/includes/ for fragments.
     try std.testing.expectEqual(Role.trunk, planPage(&plan, "includes-page/page").?.role);
 
+    // index.md wins over a README.md listed first.
+    try std.testing.expectEqual(Role.trunk, planPage(&plan, "ref/index").?.role);
+    try std.testing.expectEqualStrings("ref/index", parentId(&plan, planPage(&plan, "ref/README").?).?);
+
     const out = try std.fmt.allocPrint(a, ".zig-cache/tmp/{s}/hostile-out", .{tmp.sub_path});
     try runEmit(io, gpa, .{ .root_dir = root, .out_dir = out, .quiet = true });
+    const edge = try readOutFile(io, out, "content/edge.md", a);
+    try std.testing.expect(std.mem.indexOf(u8, edge, "Hard break  \nnext. [[setup-v2|v2]]\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, edge, "![a](edge.assets/img/a-b.png) ![b](edge.assets/img/2-a-b.png)") != null);
+    try std.testing.expectEqualStrings("A", try readOutFile(io, out, "content/edge.assets/img/a-b.png", a));
+    try std.testing.expectEqualStrings("B", try readOutFile(io, out, "content/edge.assets/img/2-a-b.png", a));
     const home = try readOutFile(io, out, "content/index.md", a);
     try std.testing.expect(std.mem.startsWith(u8, home, "---\nid: index\ntitle: Home\nstatus: published\ntags: [one, \"two words\"]\n---\n"));
     try std.testing.expect(std.mem.indexOf(u8, home, "Literal {\\{include x.md}} and [\\[not-a-link]] and &lt;Widget> stay text.") != null);
