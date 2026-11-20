@@ -1148,6 +1148,18 @@ fn emitInventoryJson(a: std.mem.Allocator, opts: RunOptions, cfg_sha: []const u8
     return try buf.toOwnedSlice(a);
 }
 
+// Append source-controlled text as inert Markdown: backslash-escape every
+// ASCII punctuation char so titles/labels can't inject links, images, or
+// break out of table cells.
+fn mdTextAppend(buf: *std.ArrayList(u8), a: std.mem.Allocator, s: []const u8) !void {
+    for (s) |c| {
+        const punct = (c >= 0x21 and c <= 0x2f) or (c >= 0x3a and c <= 0x40) or
+            (c >= 0x5b and c <= 0x60) or (c >= 0x7b and c <= 0x7e);
+        if (punct) try buf.append(a, '\\');
+        try buf.append(a, c);
+    }
+}
+
 fn appendMdCount(buf: *std.ArrayList(u8), a: std.mem.Allocator, label: []const u8, n: usize) !void {
     try buf.appendSlice(a, "| ");
     try buf.appendSlice(a, label);
@@ -1215,7 +1227,9 @@ fn emitInventoryMd(a: std.mem.Allocator, opts: RunOptions, cfg_sha: []const u8, 
         try buf.appendSlice(a, " | ");
         try buf.appendSlice(a, e.kind.jsonName());
         try buf.appendSlice(a, " | ");
-        try buf.appendSlice(a, e.title orelse "");
+        if (e.title) |title| {
+            try mdTextAppend(&buf, a, title);
+        }
         try buf.appendSlice(a, " | ");
         if (e.target) |t| {
             try buf.appendSlice(a, "`");
@@ -1237,7 +1251,9 @@ fn emitInventoryMd(a: std.mem.Allocator, opts: RunOptions, cfg_sha: []const u8, 
         try buf.appendSlice(a, "` | ");
         try buf.appendSlice(a, if (p.in_nav) "yes" else "no");
         try buf.appendSlice(a, " | ");
-        try buf.appendSlice(a, p.title orelse "");
+        if (p.title) |title| {
+            try mdTextAppend(&buf, a, title);
+        }
         try buf.appendSlice(a, " | ");
         for (p.fm_keys, 0..) |k, j| {
             if (j > 0) try buf.appendSlice(a, ", ");
@@ -1294,7 +1310,7 @@ fn emitInventoryMd(a: std.mem.Allocator, opts: RunOptions, cfg_sha: []const u8, 
         try buf.appendSlice(a, "` | ");
         if (x.custom_title) |t| {
             try buf.appendSlice(a, "\"");
-            try buf.appendSlice(a, t);
+            try mdTextAppend(&buf, a, t);
             try buf.appendSlice(a, "\"");
         }
         try buf.appendSlice(a, " | ");
@@ -1309,7 +1325,7 @@ fn emitInventoryMd(a: std.mem.Allocator, opts: RunOptions, cfg_sha: []const u8, 
         try buf.appendSlice(a, "` | ");
         try buf.appendSlice(a, try std.fmt.bufPrint(&tmp, "{d}", .{t.line}));
         try buf.appendSlice(a, " | \"");
-        try buf.appendSlice(a, t.label);
+        try mdTextAppend(&buf, a, t.label);
         try buf.appendSlice(a, "\" |\n");
     }
     try buf.appendSlice(a, "\n### Snippets\n\n| Page | Line | Target | Resolved | Status |\n| --- | ---: | --- | --- | --- |\n");
