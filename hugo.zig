@@ -631,7 +631,21 @@ const ScanCtx = struct {
     unclassified: *std.ArrayList([]const u8),
     shortcode_totals: *std.ArrayList(ShortcodeCount),
     fenced_names: *std.ArrayList([]const u8),
+    /// Declared language codes; a `<name>.<code>` filename suffix overrides
+    /// the directory's language for that page (shared-content convention).
+    lang_codes: []const []const u8,
 };
+
+/// Returns the language code when `noext` (file name minus `.md`) ends in
+/// `.<code>` for a declared language.
+fn langSuffix(noext: []const u8, codes: []const []const u8) ?[]const u8 {
+    const dot = std.mem.lastIndexOfScalar(u8, noext, '.') orelse return null;
+    const cand = noext[dot + 1 ..];
+    for (codes) |c| {
+        if (std.mem.eql(u8, cand, c)) return c;
+    }
+    return null;
+}
 
 /// Recursively scans a language content dir. `rel` is the directory relative
 /// to the language content root ("" at top); `root_rel` prefixes paths in the
@@ -641,41 +655,51 @@ fn scanContentDir(io: Io, ctx: ScanCtx, root: Io.Dir, root_rel: []const u8, rel:
     const abs_rel = if (rel.len == 0) root_rel else try std.fmt.allocPrint(a, "{s}/{s}", .{ root_rel, rel });
     const listing = try listDir(io, a, root, abs_rel);
 
-    // Directory file classes.
-    var index_md: ?[]const u8 = null; // "index.md" leaf bundle marker
-    var under_md: ?[]const u8 = null; // "_index.md" section/branch marker
+    // Directory file classes. `index.<lang>.md`/`_index.<lang>.md` and
+    // `<name>.<lang>.md` are language variants of the same page kinds.
+    const MdPage = struct { file: []const u8, lang: []const u8 };
+    var index_md: ?MdPage = null; // leaf bundle marker
+    var under_md: ?MdPage = null; // section/branch marker
     var resource_files: std.ArrayList([]const u8) = .empty;
-    var singles: std.ArrayList([]const u8) = .empty;
+    var singles: std.ArrayList(MdPage) = .empty;
     for (listing.files) |f| {
-        if (std.mem.eql(u8, f, "index.md")) {
-            index_md = f;
-        } else if (std.mem.eql(u8, f, "_index.md")) {
-            under_md = f;
-        } else if (isMd(f)) {
-            try singles.append(a, f);
-        } else {
+        if (!isMd(f)) {
             try resource_files.append(a, f);
+            continue;
+        }
+        var stem = f[0 .. f.len - ".md".len];
+        var page_lang = language;
+        if (langSuffix(stem, ctx.lang_codes)) |code| {
+            page_lang = code;
+            stem = stem[0 .. stem.len - code.len - 1];
+        }
+        if (std.mem.eql(u8, stem, "index")) {
+            index_md = .{ .file = f, .lang = page_lang };
+        } else if (std.mem.eql(u8, stem, "_index")) {
+            under_md = .{ .file = f, .lang = page_lang };
+        } else {
+            try singles.append(a, .{ .file = f, .lang = page_lang });
         }
     }
 
     const has_resources = resource_files.items.len > 0;
 
-    if (under_md != null) {
+    if (under_md) |u| {
         const kind: PageKind = if (has_resources) .branch_bundle else .section;
         var class: ConversionClass = .transformed;
         if (depth > 1) class = .human_review; // nested section: Boris trunk/satellite is two-level
-        const path = try std.fmt.allocPrint(a, "{s}/_index.md", .{abs_rel});
-        try appendPage(io, ctx, root, path, language, kind, depth, class, resource_files.items);
+        const path = try std.fmt.allocPrint(a, "{s}/{s}", .{ abs_rel, u.file });
+        try appendPage(io, ctx, root, path, u.lang, kind, depth, class, resource_files.items);
     }
 
-    if (index_md != null) {
-        const path = try std.fmt.allocPrint(a, "{s}/index.md", .{abs_rel});
-        try appendPage(io, ctx, root, path, language, .leaf_bundle, depth, .transformed, resource_files.items);
+    if (index_md) |p| {
+        const path = try std.fmt.allocPrint(a, "{s}/{s}", .{ abs_rel, p.file });
+        try appendPage(io, ctx, root, path, p.lang, .leaf_bundle, depth, .transformed, resource_files.items);
     }
 
-    for (singles.items) |f| {
-        const path = try std.fmt.allocPrint(a, "{s}/{s}", .{ abs_rel, f });
-        try appendPage(io, ctx, root, path, language, .single, depth, .exact, &.{});
+    for (singles.items) |p| {
+        const path = try std.fmt.allocPrint(a, "{s}/{s}", .{ abs_rel, p.file });
+        try appendPage(io, ctx, root, path, p.lang, .single, depth, .exact, &.{});
     }
 
     // Resources inside a section dir are only page resources when the dir is
@@ -761,12 +785,15 @@ fn scanSite(io: Io, a: std.mem.Allocator, root: Io.Dir) !Inventory {
     var pages: std.ArrayList(Page) = .empty;
     var totals: std.ArrayList(ShortcodeCount) = .empty;
     var fenced: std.ArrayList([]const u8) = .empty;
+    var codes: std.ArrayList([]const u8) = .empty;
+    for (cfg.languages) |lang| try codes.append(a, lang.code);
     const ctx = ScanCtx{
         .a = a,
         .pages = &pages,
         .unclassified = &unclassified,
         .shortcode_totals = &totals,
         .fenced_names = &fenced,
+        .lang_codes = codes.items,
     };
 
     var content_scanned = false;
@@ -1404,6 +1431,40 @@ test "hugo: language without contentDir falls back to content/<lang>" {
     const json = try readFileAlloc(io, o, "inventory.json", a);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"path\": \"content/en/page.md\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"language\": \"en\"") != null);
+}
+
+test "hugo: shared content/ honors <name>.<lang>.md suffixes" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer {
+        tmp.dir.close(io);
+        tmp.parent_dir.deleteTree(io, &tmp.sub_path) catch {};
+        tmp.parent_dir.close(io);
+    }
+    const root = try tmpBase(a, &tmp, "shared-lang");
+    try Io.Dir.cwd().createDirPath(io, try std.fmt.allocPrint(a, "{s}/content", .{root}));
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fmt.allocPrint(a, "{s}/config.toml", .{root}), .data =
+        \\defaultContentLanguage = "en"
+        \\[languages.en]
+        \\languageName = "English"
+        \\[languages.fr]
+        \\languageName = "Français"
+        \\
+    });
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fmt.allocPrint(a, "{s}/content/about.md", .{root}), .data = "en\n" });
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fmt.allocPrint(a, "{s}/content/about.fr.md", .{root}), .data = "fr\n" });
+    const out = try std.fmt.allocPrint(a, "{s}-out", .{root});
+    try run(io, a, .{ .root_dir = root, .out_dir = out, .quiet = true });
+    var o = try Io.Dir.cwd().openDir(io, out, .{});
+    defer o.close(io);
+    const json = try readFileAlloc(io, o, "inventory.json", a);
+    const fr_idx = std.mem.indexOf(u8, json, "\"path\": \"content/about.fr.md\"") orelse return error.TestUnexpectedResult;
+    try std.testing.expect(std.mem.indexOfPos(u8, json, fr_idx, "\"language\": \"fr\"") != null);
+    const en_idx = std.mem.indexOf(u8, json, "\"path\": \"content/about.md\"") orelse return error.TestUnexpectedResult;
+    try std.testing.expect(std.mem.indexOfPos(u8, json, en_idx, "\"language\": \"en\"") != null);
 }
 
 test "hugo: fixture inventory determinism + golden counts" {
