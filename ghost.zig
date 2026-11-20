@@ -1041,8 +1041,9 @@ const GhostEmitCtx = struct {
     images_dir: []const u8, // <root>/content/images
     /// ghost slug → boris id
     slug_ids: *const std.StringHashMap([]const u8),
-    /// dest path → true once a file has been written for it
-    copied: *std.StringHashMap(bool),
+    /// dest path → source path (collision dedup: same source reuses, a
+    /// different source takes a suffixed name)
+    copied: *std.StringHashMap([]const u8),
     review: *std.ArrayList(GReviewItem),
     links: *std.ArrayList(GLink),
     assets: *std.ArrayList(GAsset),
@@ -1088,7 +1089,7 @@ fn emitPublishedAt(a: std.mem.Allocator, raw: []const u8) !?[]const u8 {
     {
         return try a.dupe(u8, raw[0..20]);
     }
-    if (raw.len >= 19 and raw[4] == '-' and raw[7] == '-' and raw[10] == 'T' and
+    if (raw.len > 19 and raw[4] == '-' and raw[7] == '-' and raw[10] == 'T' and
         raw[13] == ':' and raw[16] == ':' and raw[19] == '.')
     {
         return try std.fmt.allocPrint(a, "{s}Z", .{raw[0..19]});
@@ -1159,12 +1160,35 @@ fn emitCopyGhostImage(ctx: *const GhostEmitCtx, url_tail: []const u8) !?[]const 
         rel = rel[idx + "/content/images/".len ..];
     }
     if (rel.len == 0) return null;
+    // An archive-held path must stay inside content/images/: no escaping
+    // segments, backslashes, or absolute/anchor forms, or local files
+    // outside the export could be copied into the output.
+    if (rel[0] == '/' or std.mem.indexOf(u8, rel, "..") != null or
+        std.mem.indexOfScalar(u8, rel, '\\') != null)
+    {
+        try ctx.review.append(ctx.a, .{ .source_path = ctx.post.slug, .kind = "asset_path_unsafe", .detail = try std.fmt.allocPrint(ctx.a, "image path '{s}' escapes content/images/; not copied", .{rel}) });
+        return null;
+    }
     const name = try asset_filename.sanitizeSegment(ctx.a, std.fs.path.basename(rel));
-    const dest_rel = try std.fmt.allocPrint(ctx.a, "{s}.assets/{s}", .{ ctx.post.id, name });
-    const link_rel = try std.fmt.allocPrint(ctx.a, "{s}.assets/{s}", .{ std.fs.path.basename(ctx.post.id), name });
     const full_src = try std.fmt.allocPrint(ctx.a, "{s}/{s}", .{ ctx.images_dir, rel });
-    if (!ctx.assets_seen.contains(dest_rel)) {
-        try ctx.assets_seen.put(dest_rel, {});
+    // Two different sources can share a sanitized basename — suffix the
+    // later dest instead of silently displaying the first image.
+    var dest_rel = try std.fmt.allocPrint(ctx.a, "{s}.assets/{s}", .{ ctx.post.id, name });
+    if (ctx.copied.get(dest_rel)) |prev_src| {
+        if (!std.mem.eql(u8, prev_src, full_src)) {
+            const stem = std.fs.path.stem(name);
+            const ext = std.fs.path.extension(name);
+            var n: usize = 2;
+            var t = dest_rel;
+            while (ctx.copied.get(t)) |ps| : (n += 1) {
+                if (std.mem.eql(u8, ps, full_src)) break;
+                t = try std.fmt.allocPrint(ctx.a, "{s}.assets/{s}-{d}{s}", .{ ctx.post.id, stem, n, ext });
+            }
+            dest_rel = t;
+        }
+    }
+    const link_rel = try std.fmt.allocPrint(ctx.a, "{s}.assets/{s}", .{ std.fs.path.basename(ctx.post.id), std.fs.path.basename(dest_rel) });
+    if (!ctx.copied.contains(dest_rel)) {
         const bytes = readFileAlloc(ctx.io, Io.Dir.cwd(), full_src, ctx.a) catch |err| switch (err) {
             error.FileNotFound => {
                 try ctx.assets.append(ctx.a, .{ .source_path = ctx.post.slug, .source = full_src, .dest = dest_rel, .kind = "missing" });
@@ -1172,12 +1196,9 @@ fn emitCopyGhostImage(ctx: *const GhostEmitCtx, url_tail: []const u8) !?[]const 
             },
             else => return err,
         };
-        const dest_kind: []const u8 = if (ctx.copied.contains(dest_rel)) "reused" else "copied";
-        if (!ctx.copied.contains(dest_rel)) {
-            try ctx.copied.put(dest_rel, true);
-            try writeBytes(ctx.io, ctx.stage, try std.fmt.allocPrint(ctx.a, "content/{s}", .{dest_rel}), bytes);
-        }
-        try ctx.assets.append(ctx.a, .{ .source_path = ctx.post.slug, .source = full_src, .dest = dest_rel, .kind = dest_kind });
+        try ctx.copied.put(dest_rel, full_src);
+        try writeBytes(ctx.io, ctx.stage, try std.fmt.allocPrint(ctx.a, "content/{s}", .{dest_rel}), bytes);
+        try ctx.assets.append(ctx.a, .{ .source_path = ctx.post.slug, .source = full_src, .dest = dest_rel, .kind = "copied" });
     }
     return link_rel;
 }
@@ -1237,7 +1258,7 @@ fn emitRewriteGhostLinks(ctx: *const GhostEmitCtx, md: []const u8) ![]const u8 {
         if (std.mem.lastIndexOf(u8, md[0..p], "](")) |lidx| {
             if (std.mem.indexOfScalar(u8, md[lidx + 2 .. p], ')') == null) {
                 if (std.mem.lastIndexOf(u8, md[0..lidx], "[")) |obr| {
-                    if (std.mem.indexOfScalar(u8, md[obr + 1 .. lidx], ']') == null) {
+                    if (obr >= pos and std.mem.indexOfScalar(u8, md[obr + 1 .. lidx], ']') == null) {
                         const label = md[obr + 1 .. lidx];
                         const url = md[p..tail_end];
                         try out.appendSlice(ctx.a, md[pos..obr]);
@@ -1291,7 +1312,8 @@ fn lexInline(ctx: *const GhostEmitCtx, node: std.json.Value, out: *std.ArrayList
         return;
     }
     if (std.mem.eql(u8, t, "codehighlight")) {
-        try out.appendSlice(ctx.a, jsonGetString(node, "code"));
+        const text = jsonGetOptString(node, "text") orelse jsonGetOptString(node, "code") orelse "";
+        try out.appendSlice(ctx.a, text);
         return;
     }
     // Inline-level unknown nodes render their children.
@@ -1711,7 +1733,7 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
     var review: std.ArrayList(GReviewItem) = .empty;
     var links: std.ArrayList(GLink) = .empty;
     var assets: std.ArrayList(GAsset) = .empty;
-    var copied: std.StringHashMap(bool) = .init(a);
+    var copied: std.StringHashMap([]const u8) = .init(a);
     var assets_seen: std.StringHashMap(void) = .init(a);
     var review_dedup: std.StringHashMap(void) = .init(a);
     var id_used: std.StringHashMap(void) = .init(a);
@@ -1797,8 +1819,9 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
         if (fm_published == null and post.published_at.len > 0) {
             try emitReviewOnce(&ctx, &review_dedup, "published_at_dropped", try std.fmt.allocPrint(a, "published_at '{s}' not a Boris timestamp; kept in provenance only", .{post.published_at}));
         }
-        // Boris requires a non-empty summary whenever published_at is set.
-        const summary = if (post.custom_excerpt) |s| s else if (fm_published != null) post.title else "";
+        // Boris requires a non-empty summary whenever published_at is set;
+        // an empty custom_excerpt is no summary and falls back to the title.
+        const summary = if (post.custom_excerpt) |s| (if (s.len > 0) s else if (fm_published != null) post.title else "") else if (fm_published != null) post.title else "";
         const fm = try emitGhostFrontmatter(a, gp.id, post.title, gp.parent, boris_status, post.tags, fm_published orelse "", if (summary.len > 0) summary else null);
 
         var prov: std.ArrayList(u8) = .empty;
