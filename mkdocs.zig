@@ -1720,15 +1720,13 @@ fn joinTrail(a: std.mem.Allocator, parts: []const []const u8, last: []const u8) 
 }
 
 /// Direct child page of section `ei` whose basename is index.md/README.md.
-fn ownPageEntry(nav: []const NavEntry, ei: usize) ?usize {
+/// Direct child page of section `ei` whose basename is `want`.
+fn ownPageEntry(nav: []const NavEntry, ei: usize, want: []const u8) ?usize {
     const e = nav[ei];
-    // MkDocs prefers index.md; README.md is the index only without one.
-    for ([_][]const u8{ "index.md", "readme.md" }) |want| {
-        var j = ei + 1;
-        while (j < nav.len and nav[j].depth > e.depth) : (j += 1) {
-            if (nav[j].depth != e.depth + 1 or nav[j].kind != .page or nav[j].target == null) continue;
-            if (std.ascii.eqlIgnoreCase(std.fs.path.basename(nav[j].target.?), want)) return j;
-        }
+    var j = ei + 1;
+    while (j < nav.len and nav[j].depth > e.depth) : (j += 1) {
+        if (nav[j].depth != e.depth + 1 or nav[j].kind != .page or nav[j].target == null) continue;
+        if (std.ascii.eqlIgnoreCase(std.fs.path.basename(nav[j].target.?), want)) return j;
     }
     return null;
 }
@@ -1760,16 +1758,19 @@ fn buildPlan(a: std.mem.Allocator, inv: Inventory) !EmitPlan {
             .section => {
                 const title = e.title orelse "";
                 if (e.depth == 1) {
-                    if (ownPageEntry(nav, ei)) |oj| {
-                        if (plan.bySource(navTarget(nav[oj].target.?))) |pi| {
-                            const p = &plan.pages.items[pi];
-                            if (!p.placed or p.role == .trunk) {
-                                p.placed = true;
-                                p.role = .trunk;
-                                cur_trunk = pi;
-                                try plan.event(a, where, e.line, "nav: section with own page", .transformed, try std.fmt.allocPrint(a, "section \"{s}\": {s} is the Trunk; nested pages become its Satellites", .{ title, p.id }));
-                            }
-                        }
+                    // MkDocs prefers index.md; README.md is the index only
+                    // without one. Skip candidates that are missing or
+                    // already placed as Satellites.
+                    for ([_][]const u8{ "index.md", "readme.md" }) |want| {
+                        const oj = ownPageEntry(nav, ei, want) orelse continue;
+                        const pi = plan.bySource(navTarget(nav[oj].target.?)) orelse continue;
+                        const p = &plan.pages.items[pi];
+                        if (p.placed and p.role != .trunk) continue;
+                        p.placed = true;
+                        p.role = .trunk;
+                        cur_trunk = pi;
+                        try plan.event(a, where, e.line, "nav: section with own page", .transformed, try std.fmt.allocPrint(a, "section \"{s}\": {s} is the Trunk; nested pages become its Satellites", .{ title, p.id }));
+                        break;
                     }
                     if (cur_trunk == null) {
                         const out_path = try claimPath(a, &plan, try titleSlug(a, title));
