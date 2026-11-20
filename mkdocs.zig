@@ -2076,6 +2076,24 @@ fn emitLink(ctx: Ctx, out: *std.ArrayList(u8), is_img: bool, label: []const u8, 
     try ctx.plan.event(a, ctx.source, line, "relative .md page link", .transformed, try std.fmt.allocPrint(a, "{s} → [[{s}]]", .{ url, target.id }));
 }
 
+/// Index of the `)` closing a link destination that starts at `start`;
+/// balanced inner parentheses (`setup(v2).md`) belong to the destination.
+fn closingParen(line: []const u8, start: usize) ?usize {
+    var depth: usize = 0;
+    var k = start;
+    while (k < line.len) : (k += 1) {
+        switch (line[k]) {
+            '(' => depth += 1,
+            ')' => {
+                if (depth == 0) return k;
+                depth -= 1;
+            },
+            else => {},
+        }
+    }
+    return null;
+}
+
 /// Rewrite inline links/images on one line; inline code spans stay verbatim.
 fn rewriteInline(ctx: Ctx, out: *std.ArrayList(u8), line: []const u8, line_no: usize) !void {
     var i: usize = 0;
@@ -2110,7 +2128,7 @@ fn rewriteInline(ctx: Ctx, out: *std.ArrayList(u8), line: []const u8, line_no: u
                 i += 1;
                 continue;
             }
-            const rp = std.mem.indexOfScalarPos(u8, line, rb + 2, ')') orelse {
+            const rp = closingParen(line, rb + 2) orelse {
                 i += 1;
                 continue;
             };
