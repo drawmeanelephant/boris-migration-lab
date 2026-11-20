@@ -63,6 +63,7 @@ const jekyll = @import("jekyll.zig");
 const publication = @import("publication.zig");
 const astro_import_plan = @import("astro_import_plan.zig");
 const astro_import_apply = @import("astro_import_apply.zig");
+const car = @import("car.zig");
 const hugo = @import("hugo.zig");
 const hugo_emit = @import("hugo_emit.zig");
 const ghost = @import("ghost.zig");
@@ -576,6 +577,7 @@ test {
     _ = astro_import_plan;
     _ = astro_import_apply;
     _ = link_audit;
+    _ = car;
     _ = hugo;
     _ = hugo_emit;
     _ = jekyll;
