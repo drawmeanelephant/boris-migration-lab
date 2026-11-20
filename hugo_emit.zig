@@ -496,12 +496,18 @@ fn resolveRef(site: *Site, lang: []const u8, source_dir: []const u8, target_raw:
 
 /// Site-absolute Hugo URL path (`/posts/`, `/en/posts/x/`, `/old/alias/`)
 /// → entity id of the emitted page it names, when one exists.
-fn resolveUrl(site: *Site, lang: []const u8, url: []const u8) !?[]const u8 {
-    const a = site.a;
+/// Published URL → comparable path: query/fragment, `index.html`/`.html`,
+/// and slashes dropped. Shared by link lookups and the `url_ids` keys.
+fn urlKeyPath(a: Allocator, url: []const u8) !?[]const u8 {
     var path = url;
     if (std.mem.indexOfAny(u8, path, "?#")) |q| path = path[0..q];
     if (std.mem.endsWith(u8, path, "/index.html")) path = path[0 .. path.len - "index.html".len] else if (std.mem.endsWith(u8, path, ".html")) path = path[0 .. path.len - ".html".len];
-    var norm = try normalizeLogical(a, path) orelse return null;
+    return normalizeLogical(a, path);
+}
+
+fn resolveUrl(site: *Site, lang: []const u8, url: []const u8) !?[]const u8 {
+    const a = site.a;
+    var norm = try urlKeyPath(a, url) orelse return null;
     var use_lang = lang;
     for (site.inv.languages) |l| {
         const seg = firstSegment(norm);
@@ -1245,7 +1251,7 @@ fn buildSite(io: Io, a: Allocator, root: Io.Dir, inv: hugo.Inventory) !Site {
             if (std.mem.startsWith(u8, al, "/")) try urls.append(a, al);
         }
         for (urls.items) |u| {
-            const norm = try normalizeLogical(a, u) orelse continue;
+            const norm = try urlKeyPath(a, u) orelse continue;
             const gop = try site.url_ids.getOrPut(try langKey(a, p.lang, norm));
             if (!gop.found_existing) gop.value_ptr.* = p.id;
         }
@@ -1811,13 +1817,14 @@ test "hugo: synthesized landings, JSON/YAML lists, link-form refs, unresolved re
         \\  "tags": ["a", "b c"],
         \\  "params": {"x": 1}
         \\}
-        \\See [the guide]({{< ref "docs/guide.md" >}}) and {{< ref "missing" >}} and [old](/docs/legacy-guide/).
+        \\See [the guide]({{< ref "docs/guide.md" >}}) and {{< ref "missing" >}} and [old](/docs/legacy-guide/) and [html](/legacy.html).
         \\
     );
     try writeTestFile(io, a, site_root, "content/docs/guide.md",
         \\---
         \\title: Guide
         \\description: The guide.
+        \\url: /legacy.html
         \\aliases:
         \\  - /docs/legacy-guide/
         \\tags:
@@ -1849,7 +1856,7 @@ test "hugo: synthesized landings, JSON/YAML lists, link-form refs, unresolved re
     try expectContains(intro, "tags: [a, \"b c\"]\n");
     try expectContains(intro, "published_at: 2024-05-01T10:00:00Z\n");
     try expectContains(intro, "summary: \"Intro\"\n");
-    try expectContains(intro, "See [[docs/guide|the guide]] and {{< ref \"missing\" >}} and [[docs/guide|old]].");
+    try expectContains(intro, "See [[docs/guide|the guide]] and {{< ref \"missing\" >}} and [[docs/guide|old]] and [[docs/guide|html]].");
     try std.testing.expect(frontmatterKeysClosed(intro));
 
     const guide = try hugo.readFileAlloc(io, od, "content/docs/guide.md", a);
