@@ -57,27 +57,45 @@ published_at, summary}`; Boris `status` is only `draft` / `published` /
 |-----------------|-------|------------------------|
 | Post row (`type: post`) | transformed | Candidate page under `content/posts/`; `title` from `title` |
 | Page row (`type: page`) | transformed | Candidate page under `content/pages/`; distinct landing from posts |
-| `status: published` | exact | `status: published`; `published_at` → `published_at` |
+| `status: published` | exact | `status: published`; `published_at` → `published_at` (normalized to `YYYY-MM-DDTHH:MM:SSZ`) only when `custom_excerpt` supplies the `summary` Boris requires alongside it; otherwise the date stays in provenance (`published_at_needs_summary`) |
 | `status: draft` | transformed | `status: draft`; source status kept in report |
 | `status: scheduled` | transformed | `status: draft` (Boris has no `scheduled`); future `published_at` kept in report/provenance |
 | `visibility: public` | exact | Default; no frontmatter |
-| `visibility: members` / `paid` / `tiers` | human_review | Page still emits; visibility is report/provenance evidence, never a frontmatter key |
+| `visibility: members` / `paid` / `tiers` | human_review | Page still emits as `status: draft` — never `published`; visibility is report/provenance evidence, never a frontmatter key |
 | Public tag via `posts_tags` | transformed | `tags: [...]` from tag `name` |
 | Internal tag (`#`-prefixed name, `visibility: internal`) | human_review | Not a content tag; listed in report, excluded from `tags` |
-| `html` body | transformed | HTML → Markdown; `__GHOST_URL__` links rewritten to emitted entity references or reported unresolved |
+| `custom_excerpt` | transformed | `summary` (one line, ≤ 1,024 bytes) |
+| `html` body | transformed | HTML → Markdown (`wordpress.htmlToMarkdown`); `__GHOST_URL__` links rewritten to emitted entity references or reported unresolved |
 | `lexical` body (JSON string) | transformed | Lexical document tree walked after string decode; paragraphs/headings → Markdown |
 | `mobiledoc` body (JSON string) | transformed | Mobiledoc sections → Markdown; decoded from the string payload |
-| Lexical link node with `__GHOST_URL__` | transformed | `[[entity-id]]` when destination emits; else human_review |
+| Lexical link node with `__GHOST_URL__` | transformed | `[[entity-id\|label]]` when destination emits; else human_review: `__GHOST_URL__` stripped, label kept as text, path parked in a review comment (a root-relative link to an unemitted route would fail Boris link audit) |
 | `feature_image` at `__GHOST_URL__/content/images/...` | transformed | Copied into the page's `<stem>.assets/` and rewritten to the local path; missing files reported |
 | `bookmark` card | transformed | Markdown link card → link with title/description; missing metadata → human_review |
 | `gallery` card | transformed | One image line per item; each `src` materialized like `feature_image` |
-| `html` card | transformed | Raw HTML embedded inline when safe; listed as mapped |
-| `callout` card | transformed | `<Aside kind="note">…</Aside>` (emoji→kind mapping recorded in report) |
+| `html` card | transformed | Raw HTML embedded inline when safe; listed as mapped. Unsafe HTML (script/style/iframe/object/embed/form, `on*=` handlers, `javascript:`, Boris syntax) is withheld: payload in report, review marker in body (human_review) |
+| `callout` card | transformed | `<Aside kind="note\|tip\|info\|warning\|danger">…</Aside>` (emoji→kind mapping recorded in report; unknown emoji → `note`) |
 | `paywall` card | unsupported | Membership marker, not content; counted in inventory, dropped from body |
 | Unknown card type | human_review | Payload preserved in report; body gets a review marker |
 | `users` / `posts_authors` | unsupported | Author registry inventoried as provenance; no author frontmatter or relation |
 | `meta` block (`exported_on`, `version`) | unsupported | Export provenance in `inventory.json` only |
 | Post `id` / `uuid` / `slug` | unsupported | Path derivation and provenance only; never Boris `id` unless explicitly mapped later |
+
+## Emit output (`--mode=ghost`)
+
+Published atomically via `publication.zig` (the usual ownership marker and
+overlap/symlink refusal):
+
+| Path | Content |
+|------|---------|
+| `content/posts.md`, `content/pages.md` | Trunk stubs; every emitted page sets `parent: posts` or `parent: pages` |
+| `content/posts/<slug>.md`, `content/pages/<slug>.md` | Candidate pages; entity id `posts/<slug>` / `pages/<slug>` (slug sanitized and de-duplicated; sanitization reported) |
+| `content/<trunk>/<slug>.assets/...` | Local images copied from `<root>/content/images/` (Boris-safe path) |
+| `report.json`, `REPORT.md` | Disposition counts, per-page Ghost/Boris status and conversion class, findings (`entity_id`, `code`, `class`, `detail`), copied assets |
+| `provenance_manifest.json` | Ghost `id`, `uuid`, `slug`, `type`, status, visibility, source and emitted `published_at`, `feature_image`, body format, internal tags, author slugs |
+
+Review markers in bodies are HTML comments starting
+`<!-- boris-migration-review: `. Source text that Boris would read as its own
+syntax (`[[`, `{{`, `<Capitalized`) is entity-escaped.
 
 ## ConversionClass ranks
 
@@ -88,4 +106,4 @@ published_at, summary}`; Boris `status` is only `draft` / `published` /
 - Mutating the source export or media tree
 - Ghost Admin API, authentication, or any network access
 - Rendering membership/paywall behavior (visibility is evidence, not gating)
-- Calling the Boris product compiler except optional `--gate` on emitted Markdown
+- Calling the Boris product compiler from the lab at runtime (the test suite compiles `mini-ghost` output with the pinned product `boris`)

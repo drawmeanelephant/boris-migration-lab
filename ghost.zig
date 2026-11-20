@@ -21,7 +21,7 @@ pub const RunOptions = struct {
 };
 
 pub const ghost_url = "__GHOST_URL__";
-const images_prefix = ghost_url ++ "/content/images/";
+pub const images_prefix = ghost_url ++ "/content/images/";
 
 /// Lexical node `type` values that are document structure, not Ghost cards.
 /// Any other `type` inside a lexical document is counted as a card.
@@ -36,20 +36,20 @@ const lexical_structural = [_][]const u8{
 /// other card type rolls up into "unknown card type".
 const known_cards = [_][]const u8{ "bookmark", "gallery", "html", "callout", "paywall" };
 
-const Tag = struct {
+pub const Tag = struct {
     id: []const u8,
     name: []const u8,
     slug: []const u8,
     internal: bool,
 };
 
-const Author = struct {
+pub const Author = struct {
     id: []const u8,
     name: []const u8,
     slug: []const u8,
 };
 
-const Post = struct {
+pub const Post = struct {
     id: []const u8,
     uuid: []const u8,
     slug: []const u8,
@@ -63,21 +63,25 @@ const Post = struct {
     tags: [][]const u8, // public tag names, sorted
     internal_tags: [][]const u8, // internal tag names, sorted
     authors: [][]const u8, // author slugs, sorted
+    html: ?[]const u8,
+    lexical: ?[]const u8,
+    mobiledoc: ?[]const u8,
+    custom_excerpt: ?[]const u8,
 };
 
-const ImageRef = struct {
+pub const ImageRef = struct {
     path: []const u8, // relative to <root>/content/images/
     source: []const u8, // "feature_image" | "html" | "lexical"
     exists: bool,
 };
 
-const CardCount = struct {
+pub const CardCount = struct {
     name: []const u8,
     count: usize,
     known: bool,
 };
 
-const Export = struct {
+pub const Export = struct {
     exported_on: ?i64,
     version: []const u8,
     posts: []Post,
@@ -91,12 +95,12 @@ const Export = struct {
     image_refs: []ImageRef,
 };
 
-fn jsonGet(obj: std.json.Value, key: []const u8) ?std.json.Value {
+pub fn jsonGet(obj: std.json.Value, key: []const u8) ?std.json.Value {
     if (obj != .object) return null;
     return obj.object.get(key);
 }
 
-fn jsonGetString(obj: std.json.Value, key: []const u8) []const u8 {
+pub fn jsonGetString(obj: std.json.Value, key: []const u8) []const u8 {
     const v = jsonGet(obj, key) orelse return "";
     return switch (v) {
         .string => |s| s,
@@ -104,7 +108,7 @@ fn jsonGetString(obj: std.json.Value, key: []const u8) []const u8 {
     };
 }
 
-fn jsonGetOptString(obj: std.json.Value, key: []const u8) ?[]const u8 {
+pub fn jsonGetOptString(obj: std.json.Value, key: []const u8) ?[]const u8 {
     const v = jsonGet(obj, key) orelse return null;
     return switch (v) {
         .string => |s| s,
@@ -121,7 +125,7 @@ fn jsonGetI64(obj: std.json.Value, key: []const u8) ?i64 {
     };
 }
 
-fn jsonArray(obj: std.json.Value, key: []const u8) []const std.json.Value {
+pub fn jsonArray(obj: std.json.Value, key: []const u8) []const std.json.Value {
     const v = jsonGet(obj, key) orelse return &.{};
     return switch (v) {
         .array => |arr| arr.items,
@@ -133,12 +137,12 @@ fn strLess(_: void, a: []const u8, b: []const u8) bool {
     return std.mem.order(u8, a, b) == .lt;
 }
 
-fn isStructuralLexical(t: []const u8) bool {
+pub fn isStructuralLexical(t: []const u8) bool {
     for (lexical_structural) |s| if (std.mem.eql(u8, t, s)) return true;
     return false;
 }
 
-fn isKnownCard(t: []const u8) bool {
+pub fn isKnownCard(t: []const u8) bool {
     for (known_cards) |s| if (std.mem.eql(u8, t, s)) return true;
     return false;
 }
@@ -164,21 +168,21 @@ fn authorLess(_: void, a: Author, b: Author) bool {
     return std.mem.order(u8, a.slug, b.slug) == .lt;
 }
 
-fn readFileAlloc(io: Io, dir: Io.Dir, path: []const u8, allocator: std.mem.Allocator) ![]u8 {
+pub fn readFileAlloc(io: Io, dir: Io.Dir, path: []const u8, allocator: std.mem.Allocator) ![]u8 {
     var file = try dir.openFile(io, path, .{});
     defer file.close(io);
     var reader = file.reader(io, &.{});
     return try reader.interface.allocRemaining(allocator, .unlimited);
 }
 
-fn writeBytes(io: Io, root: Io.Dir, rel_path: []const u8, data: []const u8) !void {
+pub fn writeBytes(io: Io, root: Io.Dir, rel_path: []const u8, data: []const u8) !void {
     if (std.fs.path.dirname(rel_path)) |parent| {
         if (parent.len > 0) try root.createDirPath(io, parent);
     }
     try root.writeFile(io, .{ .sub_path = rel_path, .data = data });
 }
 
-fn sha256Hex(a: std.mem.Allocator, data: []const u8) ![]u8 {
+pub fn sha256Hex(a: std.mem.Allocator, data: []const u8) ![]u8 {
     var digest: [32]u8 = undefined;
     std.crypto.hash.sha2.Sha256.hash(data, &digest, .{});
     const out = try a.alloc(u8, 64);
@@ -190,7 +194,7 @@ fn sha256Hex(a: std.mem.Allocator, data: []const u8) ![]u8 {
     return out;
 }
 
-fn jsonEscapeAppend(buf: *std.ArrayList(u8), gpa: std.mem.Allocator, s: []const u8) !void {
+pub fn jsonEscapeAppend(buf: *std.ArrayList(u8), gpa: std.mem.Allocator, s: []const u8) !void {
     try buf.append(gpa, '"');
     for (s) |c| {
         switch (c) {
@@ -237,7 +241,7 @@ fn collectImageRefs(
     }
 }
 
-fn isImageTerminator(c: u8) bool {
+pub fn isImageTerminator(c: u8) bool {
     return switch (c) {
         '"', '\'', ')', ']', '}', '<', ' ', '\t', '\n', '\r', '&', '?', '#' => true,
         else => false,
@@ -245,7 +249,7 @@ fn isImageTerminator(c: u8) bool {
 }
 
 /// Decode `%XX` escapes in a URL path segment; malformed escapes stay literal.
-fn percentDecode(a: std.mem.Allocator, s: []const u8) ![]const u8 {
+pub fn percentDecode(a: std.mem.Allocator, s: []const u8) ![]const u8 {
     if (std.mem.indexOfScalar(u8, s, '%') == null) return s;
     var out: std.ArrayList(u8) = .empty;
     var i: usize = 0;
@@ -350,7 +354,7 @@ fn dedupeImageRefs(a: std.mem.Allocator, refs: *std.ArrayList(ImageRef)) ![]Imag
 
 /// Parse `ghost-export.json` bytes into the inventory model. Returns
 /// `error.InvalidGhostInput` when the shape does not match a Ghost 5 export.
-fn parseExport(a: std.mem.Allocator, io: Io, bytes: []const u8, root_dir: []const u8) !Export {
+pub fn parseExport(a: std.mem.Allocator, io: Io, bytes: []const u8, root_dir: []const u8) !Export {
     // The parsed tree (and every decoded string inside it) lives in the
     // caller's arena until run() ends; Parsed.deinit is never called, so
     // retained slices stay valid.
@@ -484,6 +488,10 @@ fn parseExport(a: std.mem.Allocator, io: Io, bytes: []const u8, root_dir: []cons
             .tags = try pt.toOwnedSlice(a),
             .internal_tags = try it.toOwnedSlice(a),
             .authors = try pa.toOwnedSlice(a),
+            .html = jsonGetOptString(pv, "html"),
+            .lexical = jsonGetOptString(pv, "lexical"),
+            .mobiledoc = jsonGetOptString(pv, "mobiledoc"),
+            .custom_excerpt = jsonGetOptString(pv, "custom_excerpt"),
         });
     }
     std.mem.sort(Post, posts.items, {}, postLess);
@@ -513,7 +521,7 @@ fn parseExport(a: std.mem.Allocator, io: Io, bytes: []const u8, root_dir: []cons
     };
 }
 
-const Disposition = struct {
+pub const Disposition = struct {
     construct: []const u8,
     class: []const u8,
     count: usize,
@@ -554,7 +562,7 @@ fn countTagJoins(exp: Export, internal: bool) usize {
 
 /// One row per construct in docs/contracts/ghost.md's disposition table, with
 /// the contract's ConversionClass.
-fn buildDispositions(a: std.mem.Allocator, exp: Export) ![]Disposition {
+pub fn buildDispositions(a: std.mem.Allocator, exp: Export) ![]Disposition {
     var list: std.ArrayList(Disposition) = .empty;
     const add = struct {
         fn f(l: *std.ArrayList(Disposition), alloc: std.mem.Allocator, construct: []const u8, class: []const u8, count: usize) !void {
