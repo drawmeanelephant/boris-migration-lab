@@ -854,6 +854,14 @@ fn escapeHtmlTextBrackets(a: std.mem.Allocator, html: []const u8) ![]const u8 {
             // render as a link.
             var bs: usize = 0;
             while (bs < i and html[i - 1 - bs] == '\\') bs += 1;
+            if (bs % 2 == 1) {
+                // `\`` escapes only the first backtick; the rest of the
+                // run is still delimiter syntax — emit one literal tick
+                // and let the next iteration handle the remainder.
+                try out.append(a, '`');
+                i += 1;
+                continue;
+            }
             var n: usize = 0;
             while (i + n < html.len and html[i + n] == '`') n += 1;
             var close: ?usize = null;
@@ -871,9 +879,9 @@ fn escapeHtmlTextBrackets(a: std.mem.Allocator, html: []const u8) ![]const u8 {
                     j += 1;
                 }
             }
-            if (close != null and bs % 2 == 0) {
-                try out.appendSlice(a, html[i..close.?]);
-                i = close.?;
+            if (close) |end| {
+                try out.appendSlice(a, html[i..end]);
+                i = end;
                 continue;
             }
             // No real span: the whole backtick run is literal text —
@@ -1081,4 +1089,17 @@ test "convHtml treats unmatched backtick runs as literal text" {
     const out = try escapeWikiBrackets(a, conv[0]);
     try testing.expect(std.mem.indexOf(u8, out, "`real[x](y)`") != null);
     try testing.expect(std.mem.indexOf(u8, out, "rest \\[z\\]\\(w\\)") != null);
+}
+
+test "convHtml keeps the real span after an escaped backtick" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // `\`` escapes only the first tick; the second opens a real span
+    // whose brackets must stay verbatim.
+    const html = "<p>\\``x[y](z)` tail [a](b)</p>";
+    const conv = try wordpress.htmlToMarkdown(a, try escapeHtmlTextBrackets(a, html));
+    const out = try escapeWikiBrackets(a, conv[0]);
+    try testing.expect(std.mem.indexOf(u8, out, "`x[y](z)`") != null);
+    try testing.expect(std.mem.indexOf(u8, out, "tail \\[a\\]\\(b\\)") != null);
 }
