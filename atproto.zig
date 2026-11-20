@@ -535,14 +535,14 @@ pub fn run(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
 
     // Refuse symlinked inputs like hugo.zig: a --root or repo.car symlink
     // pointing outside the export must not be followed.
-    var root = Io.Dir.cwd().openDir(io, opts.root_dir, .{ .follow_symlinks = false }) catch |err| switch (err) {
+    var in_root = Io.Dir.cwd().openDir(io, opts.root_dir, .{ .follow_symlinks = false }) catch |err| switch (err) {
         error.FileNotFound => return error.InvalidAtprotoInput,
         error.SymLinkLoop => return error.InputSymlink,
         else => return err,
     };
-    defer root.close(io);
+    defer in_root.close(io);
     const car_path = try std.fmt.allocPrint(a, "{s}/repo.car", .{opts.root_dir});
-    const bytes = readFileAlloc(io, root, "repo.car", a) catch |err| switch (err) {
+    const bytes = readFileAlloc(io, in_root, "repo.car", a) catch |err| switch (err) {
         error.FileNotFound => return error.InvalidAtprotoInput,
         error.SymLinkLoop => return error.InputSymlink,
         error.OutOfMemory => return error.OutOfMemory,
@@ -1006,14 +1006,30 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
     defer arena_state.deinit();
     const a = arena_state.allocator();
 
-    const car_path = try std.fmt.allocPrint(a, "{s}/repo.car", .{opts.root_dir});
-    const bytes = readFileAlloc(io, Io.Dir.cwd(), car_path, a) catch |err| switch (err) {
+    // Same out-of-root policy as the inventory mode: refuse a symlinked
+    // --root or repo.car instead of following it.
+    var in_root = Io.Dir.cwd().openDir(io, opts.root_dir, .{ .follow_symlinks = false }) catch |err| switch (err) {
         error.FileNotFound => return error.InvalidAtprotoInput,
+        error.SymLinkLoop => return error.InputSymlink,
+        else => return err,
+    };
+    defer in_root.close(io);
+    const car_path = try std.fmt.allocPrint(a, "{s}/repo.car", .{opts.root_dir});
+    const bytes = readFileAlloc(io, in_root, "repo.car", a) catch |err| switch (err) {
+        error.FileNotFound => return error.InvalidAtprotoInput,
+        error.SymLinkLoop => return error.InputSymlink,
+        error.OutOfMemory => return error.OutOfMemory,
         else => return err,
     };
     const sha = try sha256Hex(a, bytes);
-    var parsed = car.parse(a, bytes) catch return error.InvalidAtprotoInput;
-    const recs = parsed.records(a) catch return error.InvalidAtprotoInput;
+    var parsed = car.parse(a, bytes) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return error.InvalidAtprotoInput,
+    };
+    const recs = parsed.records(a) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return error.InvalidAtprotoInput,
+    };
 
     var review: std.ArrayList(EReviewItem) = .empty;
     var assets: std.ArrayList(EAsset) = .empty;
