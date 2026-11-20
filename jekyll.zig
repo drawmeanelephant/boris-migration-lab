@@ -21,13 +21,13 @@ pub const RunOptions = struct {
     quiet: bool = false,
 };
 
-const Class = enum {
+pub const Class = enum {
     exact,
     transformed,
     unsupported,
     human_review,
 
-    fn jsonName(self: Class) []const u8 {
+    pub fn jsonName(self: Class) []const u8 {
         return @tagName(self);
     }
 };
@@ -51,7 +51,7 @@ const Page = struct {
     permalink: ?[]const u8,
 };
 
-const Collection = struct {
+pub const Collection = struct {
     name: []const u8,
     output: bool,
     members: std.ArrayList([]const u8) = .empty,
@@ -69,7 +69,7 @@ const TagCount = struct {
     count: usize,
 };
 
-const Config = struct {
+pub const Config = struct {
     found: bool = false,
     title: ?[]const u8 = null,
     baseurl: ?[]const u8 = null,
@@ -77,7 +77,7 @@ const Config = struct {
     collections: std.ArrayList(Collection) = .empty,
 };
 
-const Inventory = struct {
+pub const Inventory = struct {
     posts: std.ArrayList(Post) = .empty,
     unmatched_posts: std.ArrayList(SimpleDoc) = .empty,
     drafts: std.ArrayList(SimpleDoc) = .empty,
@@ -109,13 +109,13 @@ const Inventory = struct {
     n_other_liquid: usize = 0,
 };
 
-const Construct = struct {
+pub const Construct = struct {
     name: []const u8,
     class: Class,
     count: usize,
 };
 
-fn trimSpace(s: []const u8) []const u8 {
+pub fn trimSpace(s: []const u8) []const u8 {
     var start: usize = 0;
     var end: usize = s.len;
     while (start < end and (s[start] == ' ' or s[start] == '\t')) start += 1;
@@ -123,13 +123,13 @@ fn trimSpace(s: []const u8) []const u8 {
     return s[start..end];
 }
 
-fn stripQuotes(s: []const u8) []const u8 {
+pub fn stripQuotes(s: []const u8) []const u8 {
     if (s.len >= 2 and s[0] == '"' and s[s.len - 1] == '"') return s[1 .. s.len - 1];
     if (s.len >= 2 and s[0] == '\'' and s[s.len - 1] == '\'') return s[1 .. s.len - 1];
     return s;
 }
 
-fn readFileAlloc(io: Io, dir: Io.Dir, path: []const u8, a: std.mem.Allocator) ![]u8 {
+pub fn readFileAlloc(io: Io, dir: Io.Dir, path: []const u8, a: std.mem.Allocator) ![]u8 {
     var file = try dir.openFile(io, path, .{});
     defer file.close(io);
     var reader = file.reader(io, &.{});
@@ -142,12 +142,12 @@ fn ensureParent(io: Io, root: Io.Dir, rel_path: []const u8) !void {
     }
 }
 
-fn writeBytes(io: Io, root: Io.Dir, rel_path: []const u8, data: []const u8) !void {
+pub fn writeBytes(io: Io, root: Io.Dir, rel_path: []const u8, data: []const u8) !void {
     try ensureParent(io, root, rel_path);
     try root.writeFile(io, .{ .sub_path = rel_path, .data = data });
 }
 
-fn jsonEscapeAppend(buf: *std.ArrayList(u8), a: std.mem.Allocator, s: []const u8) !void {
+pub fn jsonEscapeAppend(buf: *std.ArrayList(u8), a: std.mem.Allocator, s: []const u8) !void {
     try buf.append(a, '"');
     for (s) |c| {
         switch (c) {
@@ -168,15 +168,15 @@ fn jsonEscapeAppend(buf: *std.ArrayList(u8), a: std.mem.Allocator, s: []const u8
     try buf.append(a, '"');
 }
 
-fn jsonOptAppend(buf: *std.ArrayList(u8), a: std.mem.Allocator, v: ?[]const u8) !void {
+pub fn jsonOptAppend(buf: *std.ArrayList(u8), a: std.mem.Allocator, v: ?[]const u8) !void {
     if (v) |s| try jsonEscapeAppend(buf, a, s) else try buf.appendSlice(a, "null");
 }
 
-fn lessStr(_: void, x: []const u8, y: []const u8) bool {
+pub fn lessStr(_: void, x: []const u8, y: []const u8) bool {
     return std.mem.order(u8, x, y) == .lt;
 }
 
-fn collectUnderDir(
+pub fn collectUnderDir(
     io: Io,
     a: std.mem.Allocator,
     dir: Io.Dir,
@@ -201,21 +201,21 @@ fn collectUnderDir(
     }
 }
 
-fn topComponent(path: []const u8) []const u8 {
+pub fn topComponent(path: []const u8) []const u8 {
     if (std.mem.indexOfScalar(u8, path, '/')) |idx| return path[0..idx];
     return path;
 }
 
-fn isMd(path: []const u8) bool {
+pub fn isMd(path: []const u8) bool {
     return std.mem.endsWith(u8, path, ".md") or std.mem.endsWith(u8, path, ".markdown");
 }
 
-fn isDigit(c: u8) bool {
+pub fn isDigit(c: u8) bool {
     return c >= '0' and c <= '9';
 }
 
 /// `YYYY-MM-DD-slug.ext` → stem ("YYYY-MM-DD-slug"); else null.
-fn parsePostName(name: []const u8) ?[]const u8 {
+pub fn parsePostName(name: []const u8) ?[]const u8 {
     const stem_end = std.mem.lastIndexOfScalar(u8, name, '.') orelse return null;
     const stem = name[0..stem_end];
     if (stem.len < 11) return null;
@@ -229,7 +229,7 @@ fn parsePostName(name: []const u8) ?[]const u8 {
     return stem;
 }
 
-fn frontmatterScalar(source: []const u8, key: []const u8) ?[]const u8 {
+pub fn frontmatterScalar(source: []const u8, key: []const u8) ?[]const u8 {
     if (!std.mem.startsWith(u8, source, "---\n") and !std.mem.startsWith(u8, source, "---\r\n")) return null;
     var it = std.mem.splitScalar(u8, source, '\n');
     _ = it.next(); // opening ---
@@ -287,7 +287,7 @@ fn bumpDataRef(
     });
 }
 
-fn fenceMarkerLen(s: []const u8) usize {
+pub fn fenceMarkerLen(s: []const u8) usize {
     if (std.mem.startsWith(u8, s, "```")) {
         var n: usize = 0;
         while (n < s.len and s[n] == '`') n += 1;
@@ -301,13 +301,13 @@ fn fenceMarkerLen(s: []const u8) usize {
     return 0;
 }
 
-fn findClose(s: []const u8, closer: []const u8) ?usize {
+pub fn findClose(s: []const u8, closer: []const u8) ?usize {
     return std.mem.indexOf(u8, s, closer);
 }
 
 /// Offset of the line that closes a fence opened at `from` (a position
 /// inside the opener's line), or body.len when it never closes.
-fn fenceClosePos(body: []const u8, from: usize, ch: u8, len: usize) usize {
+pub fn fenceClosePos(body: []const u8, from: usize, ch: u8, len: usize) usize {
     var p = from;
     while (true) {
         while (p < body.len and body[p] != '\n') p += 1;
@@ -321,7 +321,7 @@ fn fenceClosePos(body: []const u8, from: usize, ch: u8, len: usize) usize {
     }
 }
 
-fn isIdentChar(c: u8) bool {
+pub fn isIdentChar(c: u8) bool {
     return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or (c >= '0' and c <= '9') or c == '_';
 }
 
@@ -487,7 +487,7 @@ fn recordFmKeys(a: std.mem.Allocator, inv: *Inventory, fm: archaeology.Frontmatt
 
 /// Bounded `_config.yml` scan: top-level `title`/`baseurl`/`permalink` scalars
 /// plus `collections:` names with their `output:` flag. Not a YAML parser.
-fn parseConfig(a: std.mem.Allocator, source: []const u8) !Config {
+pub fn parseConfig(a: std.mem.Allocator, source: []const u8) !Config {
     var cfg: Config = .{};
     var in_collections = false;
     var current: ?*Collection = null;
@@ -538,7 +538,7 @@ fn parseConfig(a: std.mem.Allocator, source: []const u8) !Config {
     return cfg;
 }
 
-fn findCollection(cfg: *Config, dir_name: []const u8) ?*Collection {
+pub fn findCollection(cfg: *Config, dir_name: []const u8) ?*Collection {
     if (dir_name.len == 0 or dir_name[0] != '_') return null;
     const name = dir_name[1..];
     for (cfg.collections.items) |*c| {
@@ -547,7 +547,7 @@ fn findCollection(cfg: *Config, dir_name: []const u8) ?*Collection {
     return null;
 }
 
-fn scan(
+pub fn scan(
     io: Io,
     a: std.mem.Allocator,
     root: Io.Dir,
@@ -711,7 +711,7 @@ fn collectionCount(cfg: Config, want_output: bool) usize {
     return n;
 }
 
-fn constructs(a: std.mem.Allocator, cfg: Config, inv: Inventory) ![]Construct {
+pub fn constructs(a: std.mem.Allocator, cfg: Config, inv: Inventory) ![]Construct {
     var rows: std.ArrayList(Construct) = .empty;
     const table = [_]Construct{
         .{ .name = "_posts/YYYY-MM-DD-slug.md", .class = .transformed, .count = inv.posts.items.len },
