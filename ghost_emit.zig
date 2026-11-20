@@ -984,13 +984,16 @@ pub fn run(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
         const seg = try wordpress.sanitizeEntitySegment(a, p.slug);
         var entity_id = try std.fmt.allocPrint(a, "{s}/{s}", .{ trunk, seg });
         var n: usize = 2;
+        var identity_class: Class = .exact;
         while (taken.contains(entity_id)) : (n += 1) entity_id = try std.fmt.allocPrint(a, "{s}/{s}-{d}", .{ trunk, seg, n });
         try taken.put(a, entity_id, {});
         if (!std.mem.eql(u8, entity_id, try std.fmt.allocPrint(a, "{s}/{s}", .{ trunk, p.slug }))) {
             try findings.append(a, .{ .entity_id = entity_id, .code = "slug_sanitized", .class = .transformed, .detail = p.slug });
+            identity_class = Class.worse(identity_class, .transformed);
         }
         if (!is_page and !std.mem.eql(u8, p.kind, "post")) {
             try findings.append(a, .{ .entity_id = entity_id, .code = "unknown_post_type", .class = .human_review, .detail = p.kind });
+            identity_class = Class.worse(identity_class, .human_review);
         }
         if (p.slug.len > 0 and !slug_map.contains(p.slug)) try slug_map.put(a, p.slug, entity_id);
         try pages.append(a, .{
@@ -999,6 +1002,7 @@ pub fn run(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
             .output = try std.fmt.allocPrint(a, "content/{s}.md", .{entity_id}),
             .trunk = trunk,
             .boris_status = "draft",
+            .class = identity_class,
         });
     }
 
@@ -1023,6 +1027,7 @@ pub fn run(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
             .slug_map = &slug_map,
             .findings = &findings,
             .assets = &assets,
+            .class = page.class,
         };
         try mapStatus(&ctx, page);
         const doc = try convertPage(&ctx, page);
