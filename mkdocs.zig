@@ -1442,6 +1442,61 @@ test "mkdocs: nav parser captures depth, sections, bare and titled entries" {
     try std.testing.expect(std.mem.startsWith(u8, cfg.python_tags[0], "!!python/name:"));
 }
 
+test "mkdocs: yaml edge cases — comments, indentless lists, quoted titles" {
+    const gpa = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const cfg = try parseConfigYaml(a,
+        \\site_name: Edge # trailing comment
+        \\docs_dir: "docs/" # kept quoted, comment stripped
+        \\plugins:
+        \\- search
+        \\nav:
+        \\- Home: index.md
+        \\- "Guide: Setup": guide/setup.md
+        \\- 'Deep: Dive': guide/deep.md
+        \\- Section: # comment after section
+        \\  - child.md # comment after item
+        \\- bare#notcomment.md
+    );
+
+    try std.testing.expectEqualStrings("docs", cfg.docs_dir);
+    try std.testing.expectEqual(@as(usize, 1), cfg.plugins.len);
+    try std.testing.expectEqual(@as(usize, 6), cfg.nav.len);
+    // Quoted titles keep their colon; targets stay the page path.
+    try std.testing.expectEqualStrings("Guide: Setup", cfg.nav[1].title.?);
+    try std.testing.expectEqualStrings("guide/setup.md", cfg.nav[1].target.?);
+    try std.testing.expectEqualStrings("Deep: Dive", cfg.nav[2].title.?);
+    try std.testing.expectEqualStrings("guide/deep.md", cfg.nav[2].target.?);
+    try std.testing.expectEqual(NavKind.section, cfg.nav[3].kind);
+    try std.testing.expectEqualStrings("Section", cfg.nav[3].title.?);
+    try std.testing.expectEqual(@as(usize, 2), cfg.nav[4].depth);
+    // `#` without a preceding space stays part of the target.
+    try std.testing.expectEqualStrings("bare#notcomment.md", cfg.nav[5].target.?);
+}
+
+test "mkdocs: nested fence lengths do not hide following content" {
+    const gpa = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const out = try scanPage(a, "p.md",
+        \\# H
+        \\
+        \\````
+        \\```python
+        \\[inner](inner.md)
+        \\```
+        \\````
+        \\[real](real.md)
+    );
+    try std.testing.expectEqual(@as(usize, 1), out.links.len);
+    try std.testing.expectEqualStrings("real.md", out.links[0].target);
+}
+
 test "mkdocs: fixture inventory counts match the disposition table" {
     const gpa = std.testing.allocator;
     var arena = std.heap.ArenaAllocator.init(gpa);
