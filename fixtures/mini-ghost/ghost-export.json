@@ -1,0 +1,151 @@
+{
+  "db": [
+    {
+      "meta": {
+        "exported_on": 1735689600000,
+        "version": "5.105.0"
+      },
+      "data": {
+        "posts": [
+          {
+            "id": "659a00000000000000000001",
+            "uuid": "11111111-1111-4111-8111-111111111111",
+            "title": "Welcome Post",
+            "slug": "welcome-post",
+            "html": "<p>Hello from the lab. Read <a href=\"__GHOST_URL__/about/\">the about page</a>.</p>",
+            "lexical": null,
+            "mobiledoc": null,
+            "feature_image": "__GHOST_URL__/content/images/2024/01/hero.png",
+            "featured": 0,
+            "type": "post",
+            "status": "published",
+            "visibility": "public",
+            "created_at": "2024-01-10T09:00:00.000Z",
+            "updated_at": "2024-01-10T09:30:00.000Z",
+            "published_at": "2024-01-10T10:00:00.000Z"
+          },
+          {
+            "id": "659a00000000000000000002",
+            "uuid": "22222222-2222-4222-8222-222222222222",
+            "title": "Lexical Dispatch",
+            "slug": "lexical-dispatch",
+            "html": null,
+            "lexical": "{\"root\":{\"children\":[{\"type\":\"heading\",\"tag\":\"h2\",\"children\":[{\"type\":\"text\",\"text\":\"Dispatch\"}]},{\"type\":\"paragraph\",\"children\":[{\"type\":\"text\",\"text\":\"See \"},{\"type\":\"link\",\"url\":\"__GHOST_URL__/welcome-post/\",\"children\":[{\"type\":\"text\",\"text\":\"the welcome post\"}]},{\"type\":\"text\",\"text\":\".\"}]},{\"type\":\"bookmark\",\"url\":\"https://example.com/reference\",\"metadata\":{\"title\":\"Example Reference\",\"description\":\"A placeholder bookmark\",\"author\":\"Example\",\"publisher\":\"Example\"}},{\"type\":\"gallery\",\"images\":[{\"src\":\"__GHOST_URL__/content/images/2024/02/gallery-1.png\"},{\"src\":\"__GHOST_URL__/content/images/2024/02/gallery-2.png\"}]},{\"type\":\"html\",\"html\":\"<p>Raw HTML card</p>\"},{\"type\":\"callout\",\"calloutEmoji\":\"💡\",\"calloutText\":\"A callout card\"},{\"type\":\"paywall\"},{\"type\":\"spectrometer\",\"reading\":42}],\"direction\":\"ltr\",\"format\":\"\",\"indent\":0,\"version\":1}}",
+            "mobiledoc": null,
+            "feature_image": null,
+            "featured": 0,
+            "type": "post",
+            "status": "published",
+            "visibility": "members",
+            "created_at": "2024-02-05T09:00:00.000Z",
+            "updated_at": "2024-02-05T09:30:00.000Z",
+            "published_at": "2024-02-05T10:00:00.000Z"
+          },
+          {
+            "id": "659a00000000000000000003",
+            "uuid": "33333333-3333-4333-8333-333333333333",
+            "title": "Mobiledoc Legacy",
+            "slug": "mobiledoc-legacy",
+            "html": null,
+            "lexical": null,
+            "mobiledoc": "{\"version\":\"0.3.1\",\"atoms\":[],\"cards\":[],\"markups\":[],\"sections\":[[1,\"p\",[[0,[],0,\"Legacy mobiledoc paragraph.\"]]],[1,\"h2\",[[0,[],0,\"Legacy heading\"]]]]}",
+            "feature_image": null,
+            "featured": 0,
+            "type": "post",
+            "status": "published",
+            "visibility": "paid",
+            "created_at": "2024-03-01T09:00:00.000Z",
+            "updated_at": "2024-03-01T09:30:00.000Z",
+            "published_at": "2024-03-01T10:00:00.000Z"
+          },
+          {
+            "id": "659a00000000000000000004",
+            "uuid": "44444444-4444-4444-8444-444444444444",
+            "title": "Draft Notes",
+            "slug": "draft-notes",
+            "html": "<p>Unfinished draft body.</p>",
+            "lexical": null,
+            "mobiledoc": null,
+            "feature_image": null,
+            "featured": 0,
+            "type": "post",
+            "status": "draft",
+            "visibility": "public",
+            "created_at": "2024-04-01T09:00:00.000Z",
+            "updated_at": "2024-04-01T09:30:00.000Z",
+            "published_at": "2024-04-01T10:00:00.000Z"
+          },
+          {
+            "id": "659a00000000000000000005",
+            "uuid": "55555555-5555-4555-8555-555555555555",
+            "title": "Scheduled Release",
+            "slug": "scheduled-release",
+            "html": "<p>Goes live later.</p>",
+            "lexical": null,
+            "mobiledoc": null,
+            "feature_image": null,
+            "featured": 0,
+            "type": "post",
+            "status": "scheduled",
+            "visibility": "public",
+            "created_at": "2024-05-01T09:00:00.000Z",
+            "updated_at": "2024-05-01T09:30:00.000Z",
+            "published_at": "2030-01-15T10:00:00.000Z"
+          },
+          {
+            "id": "659a00000000000000000006",
+            "uuid": "66666666-6666-4666-8666-666666666666",
+            "title": "About Page",
+            "slug": "about",
+            "html": "<p>A static page, not a post.</p>",
+            "lexical": null,
+            "mobiledoc": null,
+            "feature_image": null,
+            "featured": 0,
+            "type": "page",
+            "status": "published",
+            "visibility": "public",
+            "created_at": "2024-01-05T09:00:00.000Z",
+            "updated_at": "2024-01-05T09:30:00.000Z",
+            "published_at": "2024-01-05T10:00:00.000Z"
+          }
+        ],
+        "tags": [
+          {
+            "id": "659a00000000000000000011",
+            "name": "news",
+            "slug": "news",
+            "visibility": "public"
+          },
+          {
+            "id": "659a00000000000000000012",
+            "name": "#internal",
+            "slug": "hash-internal",
+            "visibility": "internal"
+          }
+        ],
+        "posts_tags": [
+          { "post_id": "659a00000000000000000001", "tag_id": "659a00000000000000000011", "sort_order": 0 },
+          { "post_id": "659a00000000000000000003", "tag_id": "659a00000000000000000012", "sort_order": 0 }
+        ],
+        "users": [
+          {
+            "id": "659a00000000000000000021",
+            "name": "Example Author",
+            "slug": "example-author",
+            "email": "author@example.com",
+            "visibility": "public"
+          }
+        ],
+        "posts_authors": [
+          { "post_id": "659a00000000000000000001", "author_id": "659a00000000000000000021", "sort_order": 0 },
+          { "post_id": "659a00000000000000000002", "author_id": "659a00000000000000000021", "sort_order": 0 },
+          { "post_id": "659a00000000000000000003", "author_id": "659a00000000000000000021", "sort_order": 0 },
+          { "post_id": "659a00000000000000000004", "author_id": "659a00000000000000000021", "sort_order": 0 },
+          { "post_id": "659a00000000000000000005", "author_id": "659a00000000000000000021", "sort_order": 0 },
+          { "post_id": "659a00000000000000000006", "author_id": "659a00000000000000000021", "sort_order": 0 }
+        ]
+      }
+    }
+  ]
+}
