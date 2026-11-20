@@ -40,6 +40,7 @@
         "layouts",
         "link_audit.zig",
         "frontmatter_review.zig",
+        "ghost.zig",
         "migration_semantics.zig",
         "publication.zig",
         "archaeology.zig",
