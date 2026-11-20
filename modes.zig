@@ -26,6 +26,7 @@ const link_audit = @import("link_audit.zig");
 const frontmatter_review = @import("frontmatter_review.zig");
 const astro_import_plan = @import("astro_import_plan.zig");
 const astro_import_apply = @import("astro_import_apply.zig");
+const hugo = @import("hugo.zig");
 
 pub const ExitCode = enum(u8) {
     success = 0,
@@ -56,6 +57,7 @@ pub const Mode = enum {
     wordpress_theme,
     link_audit,
     frontmatter_review,
+    hugo_inventory,
 
     pub fn parse(s: []const u8) ?Mode {
         for (table) |entry| {
@@ -156,6 +158,9 @@ pub const table = [_]Entry{
     .{ .tag = .theme_materialize, .names = &.{ "theme-materialize", "theme-materialise", "materialize" } },
     .{ .tag = .link_audit, .names = &.{ "link-audit", "links", "output-audit" } },
     .{ .tag = .frontmatter_review, .names = &.{ "frontmatter-review", "fm-review", "fmreview" } },
+    // Bare "hugo" stays unregistered on purpose: #38 owns it, and a
+    // parseOptions test uses --mode=hugo as an invalid mode.
+    .{ .tag = .hugo_inventory, .names = &.{ "hugo-inventory", "hugo-inv" } },
 };
 
 const mode_list = blk: {
@@ -539,6 +544,21 @@ fn run_frontmatter_review(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
     return ExitCode.success.int();
 }
 
+fn run_hugo_inventory(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
+    hugo.run(io, gpa, .{
+        .root_dir = opts.root_dir,
+        .out_dir = opts.out_dir,
+        .quiet = opts.quiet,
+    }) catch |err| {
+        std.log.err("migration-lab (hugo-inventory) failed: {s}", .{@errorName(err)});
+        return switch (err) {
+            error.InvalidHugoRoot, error.InputOutputOverlap, error.InputSymlink => ExitCode.usage.int(),
+            else => ExitCode.io_error.int(),
+        };
+    };
+    return ExitCode.success.int();
+}
+
 pub fn printUsage() void {
     std.debug.print("{s}", .{usage_text});
 }
@@ -661,6 +681,17 @@ const usage_text =
     \\  Writes: content/**, report.json, REPORT.md
     \\  Aliases: tinderbox-emit | tbx
     \\  Prototypes, the Prototypes container (unless stamped), agents, adornments, and aliases are not emitted as pages.
+    \\
+    \\Hugo inventory (read-only project scan):
+    \\  --mode=hugo-inventory  Inventory pages by kind, front-matter format/keys,
+    \\                     shortcodes by name, page resources, languages, aliases
+    \\  --root=DIR         Hugo project root with config.toml/hugo.toml +
+    \\                     content/ (required; never modified)
+    \\  Writes: inventory.json, INVENTORY.md
+    \\  Aliases: hugo-inv
+    \\  No TOML parser: `+++` front matter and config use a bounded scanner;
+    \\  anything unclassifiable is reported, never guessed. Fenced code blocks
+    \\  are not shortcode usage. No Markdown emit, no template execution.
     \\
     \\Notion mode:
     \\  --export=DIR       Unpacked Notion Markdown & CSV export root (required; never modified)

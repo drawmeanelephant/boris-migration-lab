@@ -15,6 +15,7 @@
 //!   theme-materialize — Ledger-driven safe static Boris theme materialization
 //!   wordpress-theme — Read-only classic WordPress PHP theme inventory → static prototype + review manifest
 //!   frontmatter-review — Scan a content tree for unsupported frontmatter keys → JSON + MD report
+//!   hugo-inventory — Hugo project → inventory.json + INVENTORY.md (read-only)
 //!
 //! Never rewrites inputs. Not part of the Boris product compiler pipeline.
 //!
@@ -30,6 +31,7 @@
 //!   zig build run -- --mode=notion --export=./fixtures/mini-notion --out=./.out-notion
 //!   zig build run -- --mode=starlight --root=./fixtures/mini-starlight --out=./.out-sl
 //!   zig build run -- --mode=frontmatter-review --content=./content --out=./.out-fmreview
+//!   zig build run -- --mode=hugo-inventory --root=./fixtures/mini-hugo --out=./.out-hugo-inv
 //!   zig build test
 //!
 //! The black-box compile tests also need a pinned product `boris` binary
@@ -56,6 +58,7 @@ const frontmatter_review = @import("frontmatter_review.zig");
 const publication = @import("publication.zig");
 const astro_import_plan = @import("astro_import_plan.zig");
 const astro_import_apply = @import("astro_import_apply.zig");
+const hugo = @import("hugo.zig");
 const modes = @import("modes.zig");
 
 pub const ExitCode = modes.ExitCode;
@@ -563,6 +566,7 @@ test {
     _ = astro_import_plan;
     _ = astro_import_apply;
     _ = link_audit;
+    _ = hugo;
 }
 
 test "parseOptions: defaults and astro flags" {
@@ -830,6 +834,24 @@ test "parseOptions: filed-scan flags" {
     try std.testing.expect(o.mode == .filed_scan);
     try std.testing.expectEqualStrings("fixtures/filed.fyi", o.root_dir);
     try std.testing.expectEqualStrings("outputs/filed-native-scan", o.out_dir);
+}
+
+test "parseOptions: hugo-inventory flags" {
+    const o = try parseOptions(&.{
+        "boris-migration-lab",
+        "--mode=hugo-inventory",
+        "--root=fixtures/mini-hugo",
+        "--out=./.hugo-out",
+    });
+    try std.testing.expect(o.mode == .hugo_inventory);
+    try std.testing.expectEqualStrings("fixtures/mini-hugo", o.root_dir);
+    try std.testing.expectEqualStrings("./.hugo-out", o.out_dir);
+
+    const o2 = try parseOptions(&.{ "boris-migration-lab", "--mode=hugo-inv", "--root=./h", "--out=./o" });
+    try std.testing.expect(o2.mode == .hugo_inventory);
+
+    // Bare `hugo` is reserved for the emit slice and stays invalid.
+    try std.testing.expectError(error.InvalidValue, parseOptions(&.{ "x", "--mode=hugo" }));
 }
 
 test "parseOptions: unknown flag" {
