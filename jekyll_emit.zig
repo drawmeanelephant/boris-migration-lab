@@ -783,7 +783,7 @@ fn buildPlan(io: Io, a: std.mem.Allocator, root: Io.Dir, cfg: *jekyll.Config, al
     for (candidates.items) |cand| {
         const source = try jekyll.readFileAlloc(io, root, cand.source_path.?, a);
         const fm = try archaeology.parseFrontmatterLite(a, source);
-        if (cand.kind == .page and !fm.present) {
+        if ((cand.kind == .page or cand.kind == .collection) and !fm.present) {
             try plan.static_files.append(a, cand.source_path.?);
             continue;
         }
@@ -1684,7 +1684,8 @@ test "jekyll: emit hostile tree: id collisions, bad dates, quoted titles and tag
     const base = try std.fmt.allocPrint(a, ".zig-cache/tmp/{s}", .{tmp.sub_path});
     const src = try std.fmt.allocPrint(a, "{s}/site", .{base});
     const files = [_][2][]const u8{
-        .{ "site/_config.yml", "title: Hostile\n" },
+        .{ "site/_config.yml", "title: Hostile\ncollections:\n  docs:\n    output: true\n" },
+        .{ "site/_docs/README.md", "Collection file without front matter {% raw %}\n" },
         .{ "site/posts.md", "---\ntitle: A page named posts\n---\n\nSee {% post_url 2024-01-05-Caf\xc3\xa9 Post %}.\n" },
         .{ "site/_posts/2024-01-05-Caf\xc3\xa9 Post.md", "---\ntitle: \"Say \\\"hi\\\": now\"\ntags: [a b, \"c,d\", ok]\ndate: 2024-01-06\n---\n\n# Heading\n\n{% if x %}Liquid first{% endif %}\n\nReal first paragraph with \"quotes\".\n" },
         .{ "site/_posts/2024-02-30-bad-date.md", "---\ntitle: Bad date\n---\n\nBody.\n" },
@@ -1708,7 +1709,8 @@ test "jekyll: emit hostile tree: id collisions, bad dates, quoted titles and tag
     try expectContains(report, "entity_id_collision");
     try expectContains(report, "invalid_filename_date");
     try expectContains(report, "post_url_label_unrepresentable");
-    try expectContains(report, "\"unreferenced_static_files\": [\"plain.md\"]");
+    try expectContains(report, "\"unreferenced_static_files\": [\"_docs/README.md\", \"plain.md\"]");
+    try std.testing.expect(std.mem.indexOf(u8, report, "\"entity_id\": \"docs") == null);
 
     const post = try readOut(io, a, out, "content/posts/caf-post.md");
     try expectClosedFrontmatter(post);
