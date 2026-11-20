@@ -725,6 +725,7 @@ const EPage = struct {
 
 const ECtx = struct {
     a: std.mem.Allocator,
+    gpa: std.mem.Allocator, // non-arena: freed right after use (blob bytes)
     io: Io,
     stage: Io.Dir,
     root_dir: []const u8,
@@ -800,7 +801,7 @@ fn atCopyBlob(ctx: *const ECtx, page: *const EPage, cid: []const u8, mime: []con
             };
             defer src_file.close(ctx.io);
             var fr = src_file.reader(ctx.io, &.{});
-            break :blk try fr.interface.allocRemaining(ctx.a, .limited(512 << 20));
+            break :blk try fr.interface.allocRemaining(ctx.gpa, .limited(512 << 20));
         } catch |err| switch (err) {
             error.FileNotFound => {
                 try ctx.assets.append(ctx.a, .{ .source_path = page.rkey, .source = full_src, .dest = dest_rel, .kind = "missing" });
@@ -809,6 +810,7 @@ fn atCopyBlob(ctx: *const ECtx, page: *const EPage, cid: []const u8, mime: []con
             },
             else => |e| return e,
         };
+        defer ctx.gpa.free(bytes);
         try ctx.stage.createDirPath(ctx.io, try std.fmt.allocPrint(ctx.a, "content/{s}.assets", .{page.id}));
         try ctx.stage.writeFile(ctx.io, .{ .sub_path = try std.fmt.allocPrint(ctx.a, "content/{s}", .{dest_rel}), .data = bytes });
         try ctx.assets.append(ctx.a, .{ .source_path = page.rkey, .source = full_src, .dest = dest_rel, .kind = "copied" });
@@ -1032,6 +1034,7 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
     var emitted_ids: std.StringHashMap(void) = .init(a);
     var ctx = ECtx{
         .a = a,
+        .gpa = gpa,
         .io = io,
         .stage = stage,
         .root_dir = opts.root_dir,
