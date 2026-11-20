@@ -29,6 +29,7 @@ const jsonOpt = jekyll.jsonOptAppend;
 
 const posts_trunk_id = "posts";
 const max_summary_bytes = 280;
+const max_id_base_bytes = 240;
 
 fn worse(a: Class, b: Class) Class {
     return if (@backingInt(b) > @backingInt(a)) b else a;
@@ -877,6 +878,11 @@ fn buildPlan(io: Io, a: std.mem.Allocator, root: Io.Dir, cfg: *jekyll.Config, al
             .page => base_id = try idPath(a, withoutExt(path)),
             .generated_trunk => unreachable,
         }
+        if (base_id.len > max_id_base_bytes) {
+            // Boris caps entity ids at 255 bytes; leave room for a `-N` suffix.
+            base_id = std.mem.trimEnd(u8, base_id[0..max_id_base_bytes], "/-.");
+            try page.flag(a, .human_review, "entity_id_truncated");
+        }
         const r = try reserveId(a, &taken, base_id);
         page.entity_id = r.id;
         if (r.collided) try page.flag(a, .human_review, "entity_id_collision");
@@ -1709,6 +1715,7 @@ test "jekyll: emit hostile tree: id collisions, bad dates, quoted titles and tag
         .{ "site/notes/deep/page.md", "---\ntitle: Deep\n---\n\n[x|y]({% post_url 2024-02-30-bad-date %})\n" },
         .{ "site/plain.md", "No front matter: Jekyll copies this verbatim.\n" },
         .{ "site/assets/hero image.png", "img\n" },
+        .{ "site/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd/long.md", "---\ntitle: Long\n---\n\nDeep.\n" },
         .{ "site/assets/foo bar.png", "a\n" },
         .{ "site/assets/foo-bar.png/child.png", "b\n" },
         .{ "site/gallery.md", "---\ntitle: Gallery\n---\n\n![h](/assets/hero%20image.png) ![a](/assets/foo%20bar.png) ![b](/assets/foo-bar.png/child.png)\n" },
@@ -1726,6 +1733,7 @@ test "jekyll: emit hostile tree: id collisions, bad dates, quoted titles and tag
     try expectContains(report, "\"entity_id\": \"posts/caf-post-2\"");
     try expectContains(report, "entity_id_collision");
     try expectContains(report, "invalid_filename_date");
+    try expectContains(report, "entity_id_truncated");
     try expectContains(report, "post_url_label_unrepresentable");
     try expectContains(report, "\"unreferenced_static_files\": [\"_docs/README.md\", \"plain.md\"]");
     try std.testing.expect(std.mem.indexOf(u8, report, "\"entity_id\": \"docs") == null);
