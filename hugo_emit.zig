@@ -53,14 +53,11 @@ fn fmScalar(fields: []const FmField, key: []const u8) ?[]const u8 {
     };
 }
 
-fn fmList(fields: []const FmField, key: []const u8) []const []const u8 {
+fn fmList(a: Allocator, fields: []const FmField, key: []const u8) ![]const []const u8 {
     const v = fmGet(fields, key) orelse return &.{};
     return switch (v) {
         .list => |l| l,
-        .scalar => |s| if (s.len == 0) &.{} else blk: {
-            const one = [_][]const u8{s};
-            break :blk &one;
-        },
+        .scalar => |s| if (s.len == 0) &.{} else try a.dupe([]const u8, &.{s}),
         .nested => &.{},
     };
 }
@@ -1051,7 +1048,7 @@ fn emitPage(io: Io, site: *Site, root: Io.Dir, stage: Io.Dir, p: *EmitPage) !voi
             }
         }
         for ([_][]const u8{ "tags", "categories" }) |k| {
-            for (fmList(fields, k)) |t| {
+            for (try fmList(a, fields, k)) |t| {
                 const tt = hugo.trimSpace(t);
                 if (tt.len > 0 and !inList(tags.items, tt)) try tags.append(a, tt);
             }
@@ -1084,7 +1081,7 @@ fn emitPage(io: Io, site: *Site, root: Io.Dir, stage: Io.Dir, p: *EmitPage) !voi
         if (summary) |s| summary = truncateUtf8(hugo.trimSpace(s), 1024);
 
         // Aliases, slug, and url are provenance + redirect report entries.
-        for (fmList(fields, "aliases")) |al| {
+        for (try fmList(a, fields, "aliases")) |al| {
             try site.redirects.append(a, .{ .kind = "alias", .from = al, .to = p.id, .source = src.path });
         }
         if (fmScalar(fields, "slug")) |sl| try site.redirects.append(a, .{ .kind = "slug", .from = sl, .to = p.id, .source = src.path });
@@ -1245,7 +1242,7 @@ fn buildSite(io: Io, a: Allocator, root: Io.Dir, inv: hugo.Inventory) !Site {
             try urls.append(a, if (p.section.len == 0 or p.is_section) sl else try std.fmt.allocPrint(a, "{s}/{s}", .{ p.section, sl }));
         }
         if (fmScalar(p.fields, "url")) |u| try urls.append(a, u);
-        for (fmList(p.fields, "aliases")) |al| {
+        for (try fmList(a, p.fields, "aliases")) |al| {
             if (std.mem.startsWith(u8, al, "/")) try urls.append(a, al);
         }
         for (urls.items) |u| {
@@ -1834,7 +1831,7 @@ test "hugo: synthesized landings, JSON/YAML lists, link-form refs, unresolved re
         \\Body with {{< youtube abc >}}.
         \\
     );
-    try writeTestFile(io, a, site_root, "content/top.md", "---\ntitle: Top\n---\nRoot page.\n");
+    try writeTestFile(io, a, site_root, "content/top.md", "---\ntitle: Top\ntags: solo\naliases: /old-top/\n---\nRoot page.\n");
     const out = try std.fmt.allocPrint(a, "{s}-out", .{site_root});
     defer a.free(out);
     try run(io, a, .{ .root_dir = site_root, .out_dir = out, .quiet = true });
@@ -1864,6 +1861,7 @@ test "hugo: synthesized landings, JSON/YAML lists, link-form refs, unresolved re
     const top = try hugo.readFileAlloc(io, od, "content/top.md", a);
     defer a.free(top);
     try expectContains(top, "id: top\n");
+    try expectContains(top, "tags: [solo]\n");
     try std.testing.expect(std.mem.indexOf(u8, top, "parent:") == null);
 
     const report = try hugo.readFileAlloc(io, od, "report.json", a);
