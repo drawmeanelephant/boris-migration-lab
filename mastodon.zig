@@ -845,6 +845,27 @@ fn escapeHtmlTextBrackets(a: std.mem.Allocator, html: []const u8) ![]const u8 {
                 continue;
             }
         }
+        if (!in_code and html[i] == '`') {
+            // Backtick code span in plain text: copy verbatim — an added
+            // backslash would render literally inside the span.
+            var n: usize = 0;
+            while (i + n < html.len and html[i + n] == '`') n += 1;
+            try out.appendSlice(a, html[i .. i + n]);
+            var j = i + n;
+            while (j < html.len) {
+                if (html[j] == '`') {
+                    var m: usize = 0;
+                    while (j + m < html.len and html[j + m] == '`') m += 1;
+                    j += m;
+                    if (m >= n) break;
+                } else {
+                    j += 1;
+                }
+            }
+            try out.appendSlice(a, html[i + n .. j]);
+            i = j;
+            continue;
+        }
         if (!in_code and (html[i] == '[' or html[i] == ']' or html[i] == '(' or html[i] == ')')) {
             try out.append(a, '\\');
         }
@@ -1005,4 +1026,15 @@ test "convHtml escapes plain-text link syntax but keeps real links" {
     try testing.expect(std.mem.indexOf(u8, out, "handlers\\[groups\\[i\\]\\]\\(request\\)") != null);
     try testing.expect(std.mem.indexOf(u8, out, "[a \\[b\\] link](https://e.test/x)") != null);
     try testing.expect(std.mem.indexOf(u8, out, "`fn[x](y)`") != null);
+}
+
+test "convHtml leaves backtick code spans in text untouched" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const html = "<p>run `handlers[groups[i]](request)` then handlers[groups[i]](request)</p>";
+    const conv = try wordpress.htmlToMarkdown(a, try escapeHtmlTextBrackets(a, html));
+    const out = try escapeWikiBrackets(a, conv[0]);
+    try testing.expect(std.mem.indexOf(u8, out, "`handlers[groups[i]](request)`") != null);
+    try testing.expect(std.mem.indexOf(u8, out, "then handlers\\[groups\\[i\\]\\]\\(request\\)") != null);
 }
