@@ -1811,6 +1811,13 @@ fn emitPageId(a: std.mem.Allocator, path: []const u8) ![]const u8 {
         stem = std.fs.path.dirname(stem) orelse "index";
     }
     const id = try emitEntityId(a, stem);
+    return emitRemapIncludes(a, id);
+}
+
+/// `content/includes/` is Boris's fragment-only directory, not a page
+/// tree — a top-level `includes` id segment (page or generated section
+/// trunk) is remapped so emitted pages stay out of it.
+fn emitRemapIncludes(a: std.mem.Allocator, id: []const u8) ![]const u8 {
     if (std.mem.eql(u8, id, "includes") or std.mem.startsWith(u8, id, "includes/")) {
         return try std.fmt.allocPrint(a, "includes-src{s}", .{id["includes".len..]});
     }
@@ -2462,6 +2469,7 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
                         try std.fmt.allocPrint(a, "{s}/{s}", .{ stack.items[stack.items.len - 1].id, slug })
                     else
                         slug;
+                    sec_id = try emitRemapIncludes(a, sec_id);
                     // A child page can already own the section's slug —
                     // the generated trunk still needs a real (fresh) id or
                     // descendants would parent to that page or to nothing.
