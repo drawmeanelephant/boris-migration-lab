@@ -64,6 +64,7 @@ pub const Mode = enum {
     jekyll_inventory,
     ghost_inventory,
     mkdocs_inventory,
+    mkdocs,
 
     pub fn parse(s: []const u8) ?Mode {
         for (table) |entry| {
@@ -170,6 +171,7 @@ pub const table = [_]Entry{
     .{ .tag = .jekyll_inventory, .names = &.{ "jekyll-inventory", "jekyll-inv", "jekyll-archaeology" } },
     .{ .tag = .ghost_inventory, .names = &.{ "ghost-inventory", "ghost-inv" } },
     .{ .tag = .mkdocs_inventory, .names = &.{ "mkdocs-inventory", "mkdocs-inv" } },
+    .{ .tag = .mkdocs, .names = &.{ "mkdocs", "mkdocs-emit" } },
 };
 
 const mode_list = blk: {
@@ -587,6 +589,25 @@ fn run_mkdocs_inventory(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
     return ExitCode.success.int();
 }
 
+fn run_mkdocs(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
+    mkdocs.runEmit(io, gpa, .{
+        .root_dir = opts.root_dir,
+        .out_dir = opts.out_dir,
+        .quiet = opts.quiet,
+    }) catch |err| {
+        std.log.err("migration-lab (mkdocs) failed: {s}", .{@errorName(err)});
+        return switch (err) {
+            error.InvalidMkdocsInput,
+            error.InputOutputOverlap,
+            error.InputSymlink,
+            error.OutputSymlink,
+            => ExitCode.usage.int(),
+            else => ExitCode.io_error.int(),
+        };
+    };
+    return ExitCode.success.int();
+}
+
 fn run_jekyll_inventory(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
     if (std.mem.eql(u8, opts.root_dir, opts.out_dir)) {
         std.log.err("--out must differ from --root", .{});
@@ -769,6 +790,16 @@ const usage_text =
     \\  Aliases: mkdocs-inv
     \\  Python YAML tags are recorded as unsupported, never evaluated.
     \\  No plugin/hook execution, no Markdown emit.
+    \\
+    \\MkDocs emit (proposed Boris Markdown):
+    \\  --mode=mkdocs      Inventory + content/ tree + review reports
+    \\  --root=DIR         MkDocs project root containing mkdocs.yml (required;
+    \\                     never modified)
+    \\  Writes: content/**, inventory.json, INVENTORY.md, report.json,
+    \\          REPORT.md, provenance_manifest.json
+    \\  Aliases: mkdocs-emit
+    \\  nav: is flattened to Trunk + Satellite pages; admonitions become Aside,
+    \\  tabs become Details and snippets become {{include}} (reported).
     \\
     \\Ghost inventory (read-only Ghost 5 export archaeology):
     \\  --mode=ghost-inventory  Parse ghost-export.json; never emit Markdown

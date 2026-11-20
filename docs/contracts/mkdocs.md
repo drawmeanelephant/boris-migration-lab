@@ -57,7 +57,7 @@ published_at, summary}`.
 | `nav:` three or more levels deep | transformed | Flattened to Trunk + Satellites; collapsed levels reported |
 | `nav:` external link (`- Name: https://…`) | transformed | Markdown link on the parent landing page; not a page |
 | Page not in `nav` | transformed | Still emitted; listed as unlisted/orphaned in report |
-| Relative `.md` page link | transformed | `[[entity-id\|Label]]`; unresolved dest → human_review |
+| Relative `.md` page link | transformed | `[[entity-id\|Label]]`; unresolved dest → human_review (label kept, review marker names the target; Boris link-audits relative hrefs) |
 | Heading anchor `#fragment` | transformed | Validated against rendered heading id; bad id → human_review |
 | Inline image under `docs/` (e.g. `img/hero.png`) | transformed | Page-owned media under `<stem>.assets/` or inventoried site asset |
 | Front matter `title` | exact | `title:` |
@@ -66,13 +66,58 @@ published_at, summary}`.
 | `!!! note` admonition | transformed | `<Aside kind="note">` |
 | `!!! warning "Custom title"` | transformed | `<Aside kind="warning">`; custom title preserved per product grammar else recorded |
 | `??? tip` collapsible admonition | transformed | `<Aside kind="tip">`; collapsibility reported |
-| `!!! abstract` (kind with no `Aside` equivalent) | human_review | No `note/tip/warning/danger` match; flagged for author |
-| `pymdownx` tabbed blocks (`=== "Tab"`) | transformed | `<Details>` or sequential sections; structure reported |
+| `!!! caution` | transformed | `<Aside kind="warning">` (same mapping as starlight `:::caution`) |
+| `!!! abstract` (kind with no `Aside` equivalent, e.g. `info`, `example`) | human_review | Never re-typed: review comment + body kept as plain Markdown |
+| Admonition or tab nested inside an admonition/tab | human_review | Boris components cannot nest; inner block left as literal source |
+| `pymdownx` tabbed blocks (`=== "Tab"`) | human_review | Each tab becomes a sequential `<Details summary="Tab">`; tab-group exclusivity is lost, so the author confirms |
 | Snippet `--8<--` with present target | transformed | `{{include includes/name.md}}`; fragment kept out of the page graph |
-| Snippet `--8<--` with missing target | human_review | `EINCLUDEMISSING`-style report entry; emit leaves marker |
+| Snippet `--8<--` with missing target | human_review | `EINCLUDEMISSING`-style report entry; emit leaves a `boris-migration-review` comment marker |
+| Literal `{{`, `[[`, or `<PascalCase` in prose | transformed | Backslash/entity-escaped so it stays text (inline code and fences untouched) |
 | `index.md` as section index | transformed | Section Trunk page at that directory |
 | `README.md` as section index | transformed | Same, only when the directory has no `index.md` |
 | MkDocs plugins, macros, Python hooks | unsupported | Preprocess out of band; listed in report |
+
+## Emit (`--mode=mkdocs`)
+
+Writes, through the shared `publication.zig` stage/commit flow (refuses
+output equal to, inside, or an ancestor of `--root` or `docs_dir`):
+
+| Output | Content |
+|--------|---------|
+| `content/**.md` | One Boris page per docs page (snippet targets excluded) plus generated Trunks |
+| `content/includes/**` | Snippet fragments referenced by `{{include includes/…}}` |
+| `content/<stem>.assets/**` | Page-owned copies of inline images (ASCII path grammar via `asset_filename.zig`) |
+| `inventory.json`, `INVENTORY.md` | Same as `mkdocs-inventory` |
+| `report.json`, `REPORT.md` | Pages (role, parent, title source, class), includes, assets, and one event per transformed/reviewed construct |
+| `provenance_manifest.json` | Dropped front matter keys with raw values, nav titles |
+
+**Graph.** Nav is walked in order with its recorded depth:
+
+- depth-1 page → Trunk;
+- depth-1 section with its own page (direct `index.md`/`README.md` child) →
+  that page is the Trunk; every page nested under the section, at any depth,
+  becomes its Satellite (deeper sections are collapsed and reported);
+- depth-1 section without its own page → generated Trunk
+  (`generated_trunk`) at `content/<slug(title)>.md` listing its Satellites;
+- external nav link → Markdown link under `## External links` on the
+  section Trunk (root-level links go to the home `index.md`);
+- page listed twice → first placement kept, reported; missing nav target →
+  reported `human_review`; page not in nav → standalone Trunk, reported.
+
+So no Satellite ever parents another Satellite.
+
+**Paths and ids.** Output path = docs path with sanitized ASCII segments;
+`X/README.md` becomes `X/index.md` when `X/` has no `index.md`; a top-level
+`includes/` page directory becomes `includes-page/` (Boris reserves
+`content/includes/`). The id is the output path without `.md`, emitted
+explicitly as `id:`.
+
+**Frontmatter.** Only `id`, `title`, `parent`, `status: published`, `tags`.
+Title precedence: front matter `title` → nav title → first H1 → filename.
+Tags beyond Boris bounds (32 tags, 64 bytes) are dropped and reported.
+
+**Provenance.** Each page ends with a `boris-migration-provenance` HTML
+comment (source path, role, nav trail); never frontmatter.
 
 ## ConversionClass ranks
 
