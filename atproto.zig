@@ -76,19 +76,79 @@ fn textOf(v: ?car.Value) ?[]const u8 {
     };
 }
 
+/// Encode a CID (binary, as decoded by car.zig) to its filename string:
+/// CIDv1 → "b" + base32-lower (multibase); CIDv0 → base58btc "Qm...".
+/// Returns null for unrecognized CID shapes.
+fn cidToString(a: std.mem.Allocator, cid: []const u8) ?[]u8 {
+    if (cid.len == 36 and cid[0] == 0x12 and cid[1] == 0x20) {
+        // CIDv0: base58btc of the raw multihash.
+        const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+        var digits: std.ArrayList(u8) = .empty;
+        var num: std.ArrayList(u8) = .empty;
+        num.appendSlice(a, cid) catch return null;
+        while (num.items.len > 0) {
+            var carry: u16 = 0;
+            var next: std.ArrayList(u8) = .empty;
+            for (num.items) |byte| {
+                const acc = (carry << 8) | byte;
+                const q = acc / 58;
+                carry = acc % 58;
+                if (q > 0 or next.items.len > 0) next.append(a, @intCast(q)) catch return null;
+            }
+            digits.append(a, alphabet[carry]) catch return null;
+            num = next;
+        }
+        var zeros: usize = 0;
+        while (zeros < cid.len and cid[zeros] == 0) zeros += 1;
+        const out = a.alloc(u8, zeros + digits.items.len) catch return null;
+        @memset(out[0..zeros], '1');
+        for (digits.items, 0..) |_, i| out[zeros + i] = digits.items[digits.items.len - 1 - i];
+        return out;
+    }
+    if (cid.len >= 3 and cid[0] == 0x01) {
+        // CIDv1: 'b' multibase prefix + RFC4648 base32 lower-case, no padding.
+        const alphabet = "abcdefghijklmnopqrstuvwxyz234567";
+        const nchars = (cid.len * 8 + 4) / 5;
+        const out = a.alloc(u8, 1 + nchars) catch return null;
+        out[0] = 'b';
+        var acc: u32 = 0;
+        var bits: u5 = 0;
+        var w: usize = 1;
+        for (cid) |byte| {
+            acc = (acc << 8) | byte;
+            bits += 8;
+            while (bits >= 5) {
+                bits -= 5;
+                out[w] = alphabet[@intCast(acc >> bits & 0x1F)];
+                w += 1;
+            }
+            acc &= (@as(u32, 1) << bits) - 1;
+        }
+        if (bits > 0) {
+            out[w] = alphabet[@intCast(acc << @intCast(5 - bits) & 0x1F)];
+            w += 1;
+        }
+        return out[0..w];
+    }
+    return null;
+}
+
 /// Recursively collect `{ $type: "blob", ref: { $link }, mimeType }`
 /// references anywhere inside a record value (image embeds, thumbs,
-/// recordWithMedia media, ...).
+/// recordWithMedia media, ...). `ref` is a real CID link in DAG-CBOR
+/// exports; the `{ "$link": "<cid>" }` map form also appears (atproto
+/// JSON-style encodings and the mini fixture).
 fn collectBlobs(v: car.Value, rkey: []const u8, blobs: *std.StringArrayHashMapUnmanaged(*BlobRef), a: std.mem.Allocator) !void {
     switch (v) {
         .map => |m| {
             const is_blob = if (textOf(car.mapGet(m, "$type"))) |t| std.mem.eql(u8, t, "blob") else false;
             if (is_blob) {
-                const ref_m = switch (car.mapGet(m, "ref") orelse return) {
-                    .map => |rm| rm,
-                    else => return,
-                };
-                const cid = textOf(car.mapGet(ref_m, "$link")) orelse return;
+                const ref_v = car.mapGet(m, "ref") orelse return;
+                const cid = switch (ref_v) {
+                    .map => |rm| textOf(car.mapGet(rm, "$link")),
+                    .link => |l| cidToString(a, l),
+                    else => null,
+                } orelse return;
                 const mime = textOf(car.mapGet(m, "mimeType")) orelse "";
                 const gop = try blobs.getOrPut(a, cid);
                 if (!gop.found_existing) {
@@ -170,17 +230,19 @@ fn analyze(io: Io, a: std.mem.Allocator, root_dir: []const u8, parsed: *const ca
         const gop = try collections.getOrPut(a, rec.collection);
         if (!gop.found_existing) gop.value_ptr.* = 0;
         gop.value_ptr.* += 1;
-        if (!std.mem.eql(u8, rec.collection, "app.bsky.feed.post")) continue;
-        inv.posts_total += 1;
+        // Blob refs live in non-post records too (profile avatar/banner),
+        // so decode + scan every record, not just posts.
         const value = car.decodeValue(a, rec.record) catch |err| switch (err) {
             else => return error.InvalidAtprotoInput,
         };
+        try collectBlobs(value, rec.rkey, &blobs, a);
+        if (!std.mem.eql(u8, rec.collection, "app.bsky.feed.post")) continue;
+        inv.posts_total += 1;
         const m = switch (value) {
             .map => |mm| mm,
             else => return error.InvalidAtprotoInput,
         };
         try collectEmbedTypes(a, m, &embeds);
-        try collectBlobs(value, rec.rkey, &blobs, a);
         const shape = classifyPost(m, parsed.did);
         switch (shape) {
             .top_level => inv.top_level += 1,
@@ -475,4 +537,40 @@ test "parseAtUri: shapes" {
     try testing.expectEqualStrings("3kxyz", p.rkey);
     try testing.expect(parseAtUri("https://example.com") == null);
     try testing.expect(parseAtUri("at://did:plc:abc") == null);
+}
+
+test "cidToString: CIDv1 raw sha256 matches fixture blob name" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const hex = "01551220f150597a5dcadc7aef29465802e4784d00ce63e510654e2aadf2256afc0dba3a";
+    var cid: [36]u8 = undefined;
+    _ = try std.fmt.hexToBytes(&cid, hex);
+    try testing.expectEqualStrings(
+        "bafkreihrkbmxuxok3r5o6kkglaboi6cnadhghziqmvhcvlpsevvpydn2hi",
+        cidToString(a, &cid).?,
+    );
+    try testing.expect(cidToString(a, &[_]u8{ 0x02, 0x03 }) == null);
+}
+
+test "collectBlobs: real CID-link ref form" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const hex = "01551220f150597a5dcadc7aef29465802e4784d00ce63e510654e2aadf2256afc0dba3a";
+    var cid: [36]u8 = undefined;
+    _ = try std.fmt.hexToBytes(&cid, hex);
+    const blob = car.Value{ .map = &.{
+        .{ .key = "$type", .value = .{ .text = "blob" } },
+        .{ .key = "ref", .value = .{ .link = &cid } },
+        .{ .key = "mimeType", .value = .{ .text = "image/png" } },
+    } };
+    const rec = car.Value{ .map = &.{.{ .key = "avatar", .value = blob }} };
+    var blobs: std.StringArrayHashMapUnmanaged(*BlobRef) = .empty;
+    try collectBlobs(rec, "self", &blobs, a);
+    try testing.expectEqual(@as(usize, 1), blobs.count());
+    try testing.expectEqualStrings(
+        "bafkreihrkbmxuxok3r5o6kkglaboi6cnadhghziqmvhcvlpsevvpydn2hi",
+        blobs.keys()[0],
+    );
 }
