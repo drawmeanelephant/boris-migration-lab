@@ -15,6 +15,10 @@ const asset_filename = @import("asset_filename.zig");
 
 pub const format_id = "boris-atproto-migration-lab";
 
+/// Boris rejects oversized pages; bodies beyond this are truncated with
+/// a `body_too_large` review row.
+const max_body_bytes: usize = 1024 * 1024;
+
 pub const RunOptions = struct {
     root_dir: []const u8,
     out_dir: []const u8,
@@ -733,7 +737,8 @@ const ECtx = struct {
     review: *std.ArrayList(EReviewItem),
     assets: *std.ArrayList(EAsset),
     assets_seen: *std.StringHashMap(void),
-    emitted_ids: *std.StringHashMap(void), // rkey -> emitted post/document
+    emitted_ids: *std.StringHashMap(usize), // lowercased page id -> winning record index
+    trunk_ids: *std.StringHashMap(void), // emitted ids that are Trunk (parents may point only here)
     review_dedup: *std.StringHashMap(void),
 };
 
@@ -744,12 +749,64 @@ fn eReview(ctx: *const ECtx, key: []const u8, kind: []const u8, detail: []const 
     try ctx.review.append(ctx.a, .{ .source_path = key, .kind = kind, .detail = detail });
 }
 
+/// atproto record-key grammar: `[A-Za-z0-9._:~-]{1,512}`, excluding the
+/// bare `.`/`..` path segments. Anything else (separators, whitespace,
+/// `%`) must never reach a filesystem call.
+fn isRkey(rkey: []const u8) bool {
+    if (rkey.len == 0 or rkey.len > 512) return false;
+    if (std.mem.eql(u8, rkey, ".") or std.mem.eql(u8, rkey, "..")) return false;
+    for (rkey) |c| {
+        if (!((c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or (c >= '0' and c <= '9') or
+            c == '.' or c == '_' or c == ':' or c == '~' or c == '-')) return false;
+    }
+    return true;
+}
+
+/// Page id for a record: `<prefix>-<rkey>` pushed through sanitizeSegment
+/// so a grammar-valid rkey can never escape `content/` either.
+fn pageId(a: std.mem.Allocator, prefix: []const u8, rkey: []const u8) ![]u8 {
+    return asset_filename.sanitizeSegment(a, try std.fmt.allocPrint(a, "{s}-{s}", .{ prefix, rkey }));
+}
+
+fn digit2(s: []const u8) ?usize {
+    if (s[0] < '0' or s[0] > '9' or s[1] < '0' or s[1] > '9') return null;
+    return (s[0] - '0') * 10 + (s[1] - '0');
+}
+
+fn isLeapYear(y: usize) bool {
+    return (y % 4 == 0 and y % 100 != 0) or y % 400 == 0;
+}
+
+/// `YYYY-MM-DDTHH:MM:SS` must be digits forming a real UTC calendar
+/// instant — punctuation-shaped junk must not pass to frontmatter.
+fn isUtcInstant(s: []const u8) bool {
+    if (s.len != 19) return false;
+    var y: usize = 0;
+    for (s[0..4]) |c| {
+        if (c < '0' or c > '9') return false;
+        y = y * 10 + (c - '0');
+    }
+    const month = digit2(s[5..7]) orelse return false;
+    const day = digit2(s[8..10]) orelse return false;
+    const hour = digit2(s[11..13]) orelse return false;
+    const min = digit2(s[14..16]) orelse return false;
+    const sec = digit2(s[17..19]) orelse return false;
+    if (month < 1 or month > 12 or hour > 23 or min > 59 or sec > 59) return false;
+    const days_in_month: usize = switch (month) {
+        4, 6, 9, 11 => 30,
+        2 => if (isLeapYear(y)) @as(usize, 29) else 28,
+        else => 31,
+    };
+    return day >= 1 and day <= days_in_month;
+}
+
 /// Boris `published_at` needs `YYYY-MM-DDTHH:MM:SSZ`: pass a trailing
 /// `Z`, normalize a trailing fraction or `+00:00` (both after the
 /// fraction), else null — a non-UTC offset can never be stamped `Z`.
 fn atPublishedAt(a: std.mem.Allocator, raw: []const u8) !?[]const u8 {
     if (raw.len < 20) return null;
     if (!(raw[4] == '-' and raw[7] == '-' and raw[10] == 'T' and raw[13] == ':' and raw[16] == ':')) return null;
+    if (!isUtcInstant(raw[0..19])) return null;
     if (raw[19] == 'Z') return try a.dupe(u8, raw[0..20]);
     if (raw[19] == '.') {
         var i: usize = 20;
@@ -773,6 +830,82 @@ fn fmClamp(s: []const u8, max: usize) []const u8 {
     return s[0..end];
 }
 
+/// Neutralize text Boris would read as its own syntax: `[[` wiki-links,
+/// `{{` directives, `<Capitalized` components. Applied to record text —
+/// attacker-controlled, and a stray `[[x]]` is an EREFERENCEMISSING.
+fn neutralize(a: std.mem.Allocator, s: []const u8) ![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    var i: usize = 0;
+    while (i < s.len) : (i += 1) {
+        const c = s[i];
+        const next: u8 = if (i + 1 < s.len) s[i + 1] else 0;
+        if (c == '[' and next == '[') {
+            try out.appendSlice(a, "&#91;");
+        } else if (c == '{' and next == '{') {
+            try out.appendSlice(a, "&#123;");
+        } else if (c == '<' and (std.ascii.isUpper(next) or (next == '/' and i + 2 < s.len and std.ascii.isUpper(s[i + 2])))) {
+            try out.appendSlice(a, "&lt;");
+        } else {
+            try out.append(a, c);
+        }
+    }
+    return try out.toOwnedSlice(a);
+}
+
+/// Post `text` is plain text, not Markdown: escape inline punctuation so
+/// it renders literally, then neutralize Boris syntax.
+fn plainBody(a: std.mem.Allocator, text: []const u8) ![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    var it = std.mem.splitScalar(u8, text, '\n');
+    var first = true;
+    while (it.next()) |line| {
+        if (!first) try out.append(a, '\n');
+        first = false;
+        var lit: std.ArrayList(u8) = .empty;
+        for (line) |c| {
+            switch (c) {
+                '\\', '*', '_', '`', '[', ']', '~' => try lit.appendSlice(a, &.{ '\\', c }),
+                else => try lit.append(a, c),
+            }
+        }
+        try out.appendSlice(a, try neutralize(a, lit.items));
+    }
+    return try out.toOwnedSlice(a);
+}
+
+/// Label inside `[label](uri)` or `![alt](uri)`: brackets/backslash break
+/// the construct, newlines could open a block.
+fn mdInlineLabel(a: std.mem.Allocator, s: []const u8) ![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    for (s) |c| {
+        switch (c) {
+            '[', ']', '\\' => try out.appendSlice(a, &.{ '\\', c }),
+            '\n', '\r' => try out.append(a, ' '),
+            else => try out.append(a, c),
+        }
+    }
+    return try out.toOwnedSlice(a);
+}
+
+/// External embed URIs link into the emitted site: only http(s) targets,
+/// and no characters that could break out of `](uri)` or reach a JS scheme.
+fn safeExternalUri(uri: []const u8) bool {
+    if (!(std.mem.startsWith(u8, uri, "https://") or std.mem.startsWith(u8, uri, "http://"))) return false;
+    for (uri) |c| {
+        if (c == ' ' or c == '(' or c == ')' or c == '[' or c == ']' or c == '<' or c == '>' or c < 0x20) return false;
+    }
+    return true;
+}
+
+/// did/rev land inside the `<!-- -->` provenance comment: `>` or control
+/// bytes could close it early and smuggle Boris syntax into the body.
+fn commentSafe(s: []const u8) bool {
+    for (s) |c| {
+        if (c < 0x20 or c == '>') return false;
+    }
+    return true;
+}
+
 /// Copy `blobs/<cid>` into `content/<id>.assets/<cid>.<ext>`; returns the
 /// page-relative link, or null with a `blob_missing` review row. The blob
 /// file is opened without following symlinks so an untrusted export can
@@ -791,6 +924,7 @@ fn atCopyBlob(ctx: *const ECtx, page: *const EPage, cid: []const u8, mime: []con
                 .follow_symlinks = false,
             }) catch |err| switch (err) {
                 error.FileNotFound => break :blk error.FileNotFound,
+                error.SymLinkLoop => return error.InputSymlink,
                 else => return err,
             };
             defer blobs_dir.close(ctx.io);
@@ -851,7 +985,7 @@ fn emitEmbedValue(ctx: *const ECtx, page: *EPage, em: []const car.MapEntry) !voi
             };
             const mime = textOf(car.mapGet(blob_m, "mimeType")) orelse "";
             if (try atCopyBlob(ctx, page, cid, mime)) |link| {
-                try page.body.print(ctx.a, "![{s}]({s})\n\n", .{ alt, link });
+                try page.body.print(ctx.a, "![{s}]({s})\n\n", .{ try mdInlineLabel(ctx.a, alt), link });
             }
         }
     } else if (std.mem.eql(u8, ty, "app.bsky.embed.external")) {
@@ -861,7 +995,12 @@ fn emitEmbedValue(ctx: *const ECtx, page: *EPage, em: []const car.MapEntry) !voi
         };
         const uri = textOf(car.mapGet(ext_m, "uri")) orelse return;
         const title = textOf(car.mapGet(ext_m, "title")) orelse uri;
-        try page.body.print(ctx.a, "> [{s}]({s})\n\n", .{ title, uri });
+        if (safeExternalUri(uri)) {
+            try page.body.print(ctx.a, "> [{s}]({s})\n\n", .{ try mdInlineLabel(ctx.a, title), uri });
+        } else {
+            try eReview(ctx, page.rkey, "external_uri_unsafe", try std.fmt.allocPrint(ctx.a, "external embed uri rejected (scheme/characters): {s}", .{uri}));
+            try page.body.print(ctx.a, "> {s}\n\n", .{try mdInlineLabel(ctx.a, title)});
+        }
     } else if (std.mem.eql(u8, ty, "app.bsky.embed.record")) {
         const rec_m = switch (car.mapGet(em, "record") orelse return) {
             .map => |r| r,
@@ -929,9 +1068,9 @@ fn emitQuoteRef(ctx: *const ECtx, page: *EPage, rec_m: []const car.MapEntry) !vo
         "std"
     else
         null;
-    if (prefix != null and std.mem.eql(u8, parts.did, ctx.did)) {
-        const id = try std.fmt.allocPrint(ctx.a, "{s}-{s}", .{ prefix.?, parts.rkey });
-        if (ctx.emitted_ids.contains(id)) {
+    if (prefix != null and std.mem.eql(u8, parts.did, ctx.did) and isRkey(parts.rkey)) {
+        const id = try pageId(ctx.a, prefix.?, parts.rkey);
+        if (ctx.emitted_ids.contains(try asset_filename.asciiLowerAlloc(ctx.a, id))) {
             try page.body.print(ctx.a, "> quoted: [[{s}]]\n\n", .{id});
             return;
         }
@@ -1030,6 +1169,8 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
         error.OutOfMemory => return error.OutOfMemory,
         else => return error.InvalidAtprotoInput,
     };
+    // did/rev land inside the `<!-- -->` provenance comment of every page.
+    if (!commentSafe(parsed.did) or !commentSafe(parsed.rev)) return error.InvalidAtprotoInput;
 
     var review: std.ArrayList(EReviewItem) = .empty;
     var assets: std.ArrayList(EAsset) = .empty;
@@ -1047,7 +1188,8 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
     var stage = try Io.Dir.cwd().openDir(io, pub_.stage_path, .{});
     defer stage.close(io);
 
-    var emitted_ids: std.StringHashMap(void) = .init(a);
+    var emitted_ids: std.StringHashMap(usize) = .init(a);
+    var trunk_ids: std.StringHashMap(void) = .init(a);
     var ctx = ECtx{
         .a = a,
         .gpa = gpa,
@@ -1059,6 +1201,7 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
         .assets = &assets,
         .assets_seen = &assets_seen,
         .emitted_ids = &emitted_ids,
+        .trunk_ids = &trunk_ids,
         .review_dedup = &review_dedup,
     };
 
@@ -1067,26 +1210,49 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
     var nsid_counts: std.StringArrayHashMapUnmanaged(usize) = .empty;
     var threads: usize = 0;
     var replies: usize = 0;
-    for (recs) |rec| {
+    for (recs, 0..) |rec, rec_idx| {
         const gop = try nsid_counts.getOrPut(a, rec.collection);
         if (!gop.found_existing) gop.value_ptr.* = 0;
         gop.value_ptr.* += 1;
         const is_post = std.mem.eql(u8, rec.collection, "app.bsky.feed.post");
         const is_doc = std.mem.eql(u8, rec.collection, "site.standard.document");
         if (!is_post and !is_doc) continue;
-        const id = try std.fmt.allocPrint(a, "{s}-{s}", .{ if (is_post) "bsky" else "std", rec.rkey });
-        try ctx.emitted_ids.put(id, {});
+        if (!isRkey(rec.rkey)) {
+            try eReview(&ctx, rec.rkey, "rkey_invalid", "rkey violates the atproto grammar [A-Za-z0-9._:~-]{1,512}; record not emitted");
+            continue;
+        }
+        const id = try pageId(a, if (is_post) "bsky" else "std", rec.rkey);
+        const id_key = try asset_filename.asciiLowerAlloc(a, id);
+        if (ctx.emitted_ids.contains(id_key)) {
+            try eReview(&ctx, rec.rkey, "id_collision", try std.fmt.allocPrint(a, "page id {s} already emitted; skipped (case-insensitive filesystems would overwrite)", .{id}));
+            continue;
+        }
+        try ctx.emitted_ids.put(id_key, @intCast(rec_idx));
+        // Only Trunk pages may be parented: documents always are; posts
+        // only when they classify top-level (a reply is a Satellite).
+        if (is_doc) {
+            try ctx.trunk_ids.put(id_key, {});
+        } else if (car.decodeValue(a, rec.record) catch null) |v0| {
+            switch (v0) {
+                .map => |mm0| {
+                    if (classifyPost(mm0, parsed.did) == .top_level) try ctx.trunk_ids.put(id_key, {});
+                },
+                else => {},
+            }
+        }
     }
-    for (recs) |rec| {
+    for (recs, 0..) |rec, rec_idx| {
         const is_post = std.mem.eql(u8, rec.collection, "app.bsky.feed.post");
         const is_doc = std.mem.eql(u8, rec.collection, "site.standard.document");
         if (!is_post and !is_doc) continue;
+        if (!isRkey(rec.rkey)) continue; // reported in pass 1
+        const id = try pageId(a, if (is_post) "bsky" else "std", rec.rkey);
+        if (ctx.emitted_ids.get(try asset_filename.asciiLowerAlloc(a, id)) != rec_idx) continue; // collision loser, reported in pass 1
         const value = car.decodeValue(a, rec.record) catch return error.InvalidAtprotoInput;
         const m = switch (value) {
             .map => |mm| mm,
             else => return error.InvalidAtprotoInput,
         };
-        const id = try std.fmt.allocPrint(a, "{s}-{s}", .{ if (is_post) "bsky" else "std", rec.rkey });
         var page = EPage{
             .id = id,
             .title = id,
@@ -1118,7 +1284,9 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
             }
             const text = textOf(car.mapGet(m, "text")) orelse "";
             page.summary = if (text.len > 0) fmClamp(try excerpt(a, text), 1024) else page.title;
-            try page.body.appendSlice(a, text);
+            // Document text is authored Markdown: keep its formatting,
+            // neutralize only Boris-specific syntax.
+            try page.body.appendSlice(a, try neutralize(a, text));
             try page.body.appendSlice(a, "\n\n");
         } else {
             const text = textOf(car.mapGet(m, "text")) orelse "";
@@ -1153,8 +1321,15 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
             if (shape == .self_reply) {
                 replies += 1;
                 if (threadRootRkey(m, parsed.did)) |root| {
-                    page.parent = try std.fmt.allocPrint(a, "bsky-{s}", .{root});
-                    if (!ctx.emitted_ids.contains(page.parent.?)) page.parent = null;
+                    const cand = try pageId(a, "bsky", root);
+                    const cand_key = try asset_filename.asciiLowerAlloc(a, cand);
+                    if (ctx.trunk_ids.contains(cand_key)) {
+                        page.parent = cand;
+                    } else if (ctx.emitted_ids.contains(cand_key)) {
+                        try eReview(&ctx, rec.rkey, "parent_not_trunk", try std.fmt.allocPrint(a, "reply root {s} emitted as a Satellite; nested Satellite parenting impossible, emitted standalone", .{root}));
+                    } else {
+                        try eReview(&ctx, rec.rkey, "parent_missing", try std.fmt.allocPrint(a, "reply root {s} not emitted; emitted standalone", .{root}));
+                    }
                 }
             }
             if (textOf(car.mapGet(m, "createdAt"))) |raw| {
@@ -1165,7 +1340,7 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
                 }
             }
             page.summary = if (text.len > 0) fmClamp(try excerpt(a, text), 1024) else page.title;
-            try page.body.appendSlice(a, text);
+            try page.body.appendSlice(a, try plainBody(a, text));
             try page.body.appendSlice(a, "\n\n");
         }
         try pages.append(a, page);
@@ -1192,6 +1367,11 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
                 else => continue,
             };
             try emitEmbed(&ctx, page, m);
+        }
+        // Boris rejects oversized pages — cap the body, keep the record.
+        if (page.body.items.len > max_body_bytes) {
+            page.body.shrinkRetainingCapacity(fmClamp(page.body.items, max_body_bytes).len);
+            try eReview(&ctx, page.rkey, "body_too_large", try std.fmt.allocPrint(a, "body exceeded {d} bytes; truncated", .{max_body_bytes}));
         }
         if (page.parent != null) threads += 1;
         const fm = try atFrontmatter(a, page);
@@ -1230,8 +1410,13 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
     try prov.appendSlice(a, "\n  ]\n}\n");
     try stage.writeFile(io, .{ .sub_path = "provenance.json", .data = prov.items });
 
-    const json = try emitReportJson(a, opts.root_dir, car_path, sha, parsed.did, recs.len, emitted, threads, replies, review.items, assets.items, nsid_counts);
-    const md = try emitReportMd(a, opts.root_dir, car_path, sha, parsed.did, recs.len, emitted, threads, replies, review.items, assets.items, nsid_counts);
+    var blobs_missing: usize = 0;
+    for (assets.items) |asset| {
+        if (std.mem.eql(u8, asset.kind, "missing")) blobs_missing += 1;
+    }
+    const profile_records = nsid_counts.get("app.bsky.actor.profile") orelse 0;
+    const json = try emitReportJson(a, opts.root_dir, car_path, sha, parsed.did, recs.len, emitted, threads, replies, blobs_missing, profile_records, review.items, assets.items, nsid_counts);
+    const md = try emitReportMd(a, opts.root_dir, car_path, sha, parsed.did, recs.len, emitted, threads, replies, blobs_missing, profile_records, review.items, assets.items, nsid_counts);
     try stage.writeFile(io, .{ .sub_path = "report.json", .data = json });
     try stage.writeFile(io, .{ .sub_path = "REPORT.md", .data = md });
     try pub_.commit(io, a);
@@ -1244,7 +1429,7 @@ fn excerpt(a: std.mem.Allocator, text: []const u8) ![]const u8 {
     return try wordpress.excerptUtf8(a, text, 240);
 }
 
-fn emitReportJson(a: std.mem.Allocator, root: []const u8, car_path: []const u8, sha: []const u8, did: []const u8, records: usize, emitted: usize, threads: usize, replies: usize, review: []const EReviewItem, assets: []const EAsset, nsid_counts: std.StringArrayHashMapUnmanaged(usize)) ![]u8 {
+fn emitReportJson(a: std.mem.Allocator, root: []const u8, car_path: []const u8, sha: []const u8, did: []const u8, records: usize, emitted: usize, threads: usize, replies: usize, blobs_missing: usize, profile_records: usize, review: []const EReviewItem, assets: []const EAsset, nsid_counts: std.StringArrayHashMapUnmanaged(usize)) ![]u8 {
     var buf: std.ArrayList(u8) = .empty;
     try buf.appendSlice(a, "{\n  \"tool\": ");
     try jsonStr(&buf, a, format_id);
@@ -1256,7 +1441,7 @@ fn emitReportJson(a: std.mem.Allocator, root: []const u8, car_path: []const u8, 
     try jsonStr(&buf, a, sha);
     try buf.appendSlice(a, "\n  },\n  \"did\": ");
     try jsonStr(&buf, a, did);
-    try buf.print(a, ",\n  \"records\": {d},\n  \"emitted\": {d},\n  \"threads\": {d},\n  \"replies\": {d},\n", .{ records, emitted, threads, replies });
+    try buf.print(a, ",\n  \"records\": {d},\n  \"emitted\": {d},\n  \"threads\": {d},\n  \"replies\": {d},\n  \"blobs_missing\": {d},\n  \"profile_records\": {d},\n", .{ records, emitted, threads, replies, blobs_missing, profile_records });
     try buf.appendSlice(a, "  \"collections\": [");
     for (nsid_counts.keys(), nsid_counts.values(), 0..) |k, c, i| {
         if (i > 0) try buf.append(a, ',');
@@ -1292,26 +1477,39 @@ fn emitReportJson(a: std.mem.Allocator, root: []const u8, car_path: []const u8, 
     return try buf.toOwnedSlice(a);
 }
 
-fn emitReportMd(a: std.mem.Allocator, root: []const u8, car_path: []const u8, sha: []const u8, did: []const u8, records: usize, emitted: usize, threads: usize, replies: usize, review: []const EReviewItem, assets: []const EAsset, nsid_counts: std.StringArrayHashMapUnmanaged(usize)) ![]u8 {
+fn emitReportMd(a: std.mem.Allocator, root: []const u8, car_path: []const u8, sha: []const u8, did: []const u8, records: usize, emitted: usize, threads: usize, replies: usize, blobs_missing: usize, profile_records: usize, review: []const EReviewItem, assets: []const EAsset, nsid_counts: std.StringArrayHashMapUnmanaged(usize)) ![]u8 {
     var buf: std.ArrayList(u8) = .empty;
     try buf.appendSlice(a, "# AT Protocol repo emit report\n\n");
-    try buf.print(a, "- Source: `{s}`\n- repo.car: `{s}`\n- SHA-256: `{s}`\n- DID: `{s}`\n- Records scanned: {d}\n- Pages emitted: {d}\n- Self-thread replies: {d}\n\n", .{ root, car_path, sha, did, records, emitted, replies });
-    _ = threads;
+    try buf.print(a, "- Source: `{s}`\n- repo.car: `{s}`\n- SHA-256: `{s}`\n- DID: `{s}`\n- Records scanned: {d}\n- Pages emitted: {d}\n- Self-thread replies: {d}\n- Threads emitted: {d}\n- Blobs missing: {d}\n- Profile records: {d} (`app.bsky.actor.profile`; never a page)\n\n", .{ root, car_path, sha, did, records, emitted, replies, threads, blobs_missing, profile_records });
     try buf.appendSlice(a, "## Collections\n\n| NSID | Records | Emitted |\n|---|---|---|\n");
     for (nsid_counts.keys(), nsid_counts.values()) |k, c| {
         const is_emit = std.mem.eql(u8, k, "app.bsky.feed.post") or std.mem.eql(u8, k, "site.standard.document");
-        try buf.print(a, "| `{s}` | {d} | {s} |\n", .{ k, c, if (is_emit) "yes" else "no" });
+        try buf.appendSlice(a, "| `");
+        try mdCell(&buf, a, k);
+        try buf.print(a, "` | {d} | {s} |\n", .{ c, if (is_emit) "yes" else "no" });
     }
     if (review.len > 0) {
         try buf.appendSlice(a, "\n## Review rows\n\n| Source | Kind | Detail |\n|---|---|---|\n");
         for (review) |r| {
-            try buf.print(a, "| `{s}` | `{s}` | {s} |\n", .{ r.source_path, r.kind, r.detail });
+            try buf.appendSlice(a, "| `");
+            try mdCell(&buf, a, r.source_path);
+            try buf.appendSlice(a, "` | `");
+            try mdCell(&buf, a, r.kind);
+            try buf.appendSlice(a, "` | ");
+            try mdCell(&buf, a, r.detail);
+            try buf.appendSlice(a, " |\n");
         }
     }
     if (assets.len > 0) {
         try buf.appendSlice(a, "\n## Assets\n\n| Source | Dest | Status |\n|---|---|---|\n");
         for (assets) |r| {
-            try buf.print(a, "| `{s}` | `{s}` | {s} |\n", .{ r.source, r.dest, r.kind });
+            try buf.appendSlice(a, "| `");
+            try mdCell(&buf, a, r.source);
+            try buf.appendSlice(a, "` | `");
+            try mdCell(&buf, a, r.dest);
+            try buf.appendSlice(a, "` | ");
+            try mdCell(&buf, a, r.kind);
+            try buf.appendSlice(a, " |\n");
         }
     }
     try buf.appendSlice(a, "\nProvenance sidecar: `provenance.json`.\n");

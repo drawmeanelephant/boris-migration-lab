@@ -20,7 +20,6 @@
 //!   mkdocs-inventory — MkDocs mkdocs.yml + docs tree → inventory.json + INVENTORY.md
 //!   mkdocs     — MkDocs project → Boris Markdown (Trunk/Satellite nav) + reports
 //!   jekyll — Jekyll site source → Boris Markdown + provenance sidecars + review reports
-||||||| parent of da62478 (atproto: --mode=atproto emit (issue #1 slice 4))
 //!   atproto — AT Protocol repo.car + blobs/ → content/ + report.json + provenance.json
 //!   atproto-inventory — AT Protocol repo.car + blobs/ → inventory.json + INVENTORY.md
 //!
