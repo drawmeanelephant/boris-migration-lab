@@ -2005,7 +2005,14 @@ const RefIndex = struct {
 /// Normalize a ref/link target: strip leading `/`, trailing `/`, `.md`,
 /// `/index` suffixes; lowercase untouched (Hugo paths are case-sensitive but
 /// the fixture grammar is already normalized).
-fn normalizeTarget(a: std.mem.Allocator, raw: []const u8, ref_index: *const RefIndex) ![]const u8 {
+const NormTarget = struct {
+    key: []const u8,
+    /// Language named by a `.<lang>` filename suffix, when it matched a
+    /// known site language — the target requests that translation.
+    lang: ?[]const u8,
+};
+
+fn normalizeTarget(a: std.mem.Allocator, raw: []const u8, ref_index: *const RefIndex) !NormTarget {
     var t = trimSpace(raw);
     if (t.len >= 2 and t[0] == '<' and t[t.len - 1] == '>') t = trimSpace(t[1 .. t.len - 1]);
     // Strip any anchor/query.
@@ -2014,13 +2021,16 @@ fn normalizeTarget(a: std.mem.Allocator, raw: []const u8, ref_index: *const RefI
     while (t.len > 0 and t[t.len - 1] == '/') t = t[0 .. t.len - 1];
     if (std.mem.endsWith(u8, t, ".md")) t = t[0 .. t.len - 3];
     // Suffix-style translations: `about.fr`/`guides/_index.fr` → strip the
-    // `.<lang>` for any language present in the site (mirrors pageKey).
+    // `.<lang>` for any language present in the site (mirrors pageKey) but
+    // remember which translation was requested.
+    var lang: ?[]const u8 = null;
     var lit = ref_index.langs.keyIterator();
-    while (lit.next()) |lang| {
-        if (lang.*.len == 0) continue;
-        const suffix = try std.fmt.allocPrint(a, ".{s}", .{lang.*});
+    while (lit.next()) |l| {
+        if (l.*.len == 0) continue;
+        const suffix = try std.fmt.allocPrint(a, ".{s}", .{l.*});
         if (t.len > suffix.len and std.mem.endsWith(u8, t, suffix)) {
             t = t[0 .. t.len - suffix.len];
+            lang = l.*;
             break;
         }
     }
@@ -2030,7 +2040,7 @@ fn normalizeTarget(a: std.mem.Allocator, raw: []const u8, ref_index: *const RefI
             break;
         }
     }
-    return try a.dupe(u8, t);
+    return .{ .key = try a.dupe(u8, t), .lang = lang };
 }
 
 fn isExternalDest(dest: []const u8) bool {
@@ -2060,13 +2070,20 @@ const EmitCtx = struct {
 
 /// Resolve a `ref`/`relref` or site-absolute link target to an entity id.
 fn resolveEntity(ctx: *const EmitCtx, page: EmitPage, target: []const u8) !?[]const u8 {
-    const key = try normalizeTarget(ctx.a, target, ctx.ref_index);
-    if (key.len == 0) {
+    const nt = try normalizeTarget(ctx.a, target, ctx.ref_index);
+    if (nt.key.len == 0) {
         // Root ref → the language root trunk.
         if (ctx.ref_index.get(page.src.language, "")) |id| return id;
         return null;
     }
-    return ctx.ref_index.get(page.src.language, key);
+    // A `.<lang>` suffix is an explicit request for that translation — Hugo
+    // resolves it regardless of the linking page's language.
+    if (nt.lang) |lang| {
+        if (ctx.ref_index.langs.get(lang)) |m| {
+            if (m.get(nt.key)) |id| return id;
+        }
+    }
+    return ctx.ref_index.get(page.src.language, nt.key);
 }
 
 /// Absolute-ize a site-root-relative path against baseURL for links we could
@@ -2236,14 +2253,17 @@ fn rewriteLine(ctx: *const EmitCtx, page: EmitPage, line: []const u8, out: *std.
                 };
                 const text = line[text_start..bracket_close];
                 var dest = trimSpace(line[bracket_close + 2 .. paren_close]);
-                if (dest.len > 0 and dest[0] == '{') {
+                var sc_dest = dest;
+                if (sc_dest.len >= 2 and sc_dest[0] == '<' and sc_dest[sc_dest.len - 1] == '>') sc_dest = sc_dest[1 .. sc_dest.len - 1];
+                if (sc_dest.len > 0 and sc_dest[0] == '{') {
                     // A shortcode used as the link destination, e.g.
-                    // `[text]({{< ref "x.md" >}})`. Resolve ref/relref to a
+                    // `[text]({{< ref "x.md" >}})` or angle-wrapped
+                    // `[text](<{{< ref "x.md" >}}>)`. Resolve ref/relref to a
                     // wiki link; anything else stays verbatim + review.
                     const span = line[i .. paren_close + 1];
                     var handled = false;
-                    if (std.mem.startsWith(u8, dest, "{{<") and std.mem.endsWith(u8, dest, ">}}")) {
-                        const inner = trimSpace(dest[3 .. dest.len - 3]);
+                    if (std.mem.startsWith(u8, sc_dest, "{{<") and std.mem.endsWith(u8, sc_dest, ">}}")) {
+                        const inner = trimSpace(sc_dest[3 .. sc_dest.len - 3]);
                         var e: usize = 0;
                         while (e < inner.len and (std.ascii.isAlphanumeric(inner[e]) or inner[e] == '_' or inner[e] == '-')) e += 1;
                         const name = inner[0..e];
