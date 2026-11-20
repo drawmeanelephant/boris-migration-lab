@@ -599,7 +599,9 @@ fn resolveThreads(a: std.mem.Allocator, arch: *Archive) !void {
         s.thread_root = cur;
         s.depth = depth;
         s.role = if (arch.statuses[cur].visibility.emitted()) .satellite else .root_not_emitted;
-        if (arch.statuses[cur].visibility.emitted() and s.visibility.emitted()) {
+        // Keep a root's own reply role (missing target / other account) so
+        // its review and provenance survive gaining Satellites.
+        if (arch.statuses[cur].visibility.emitted() and s.visibility.emitted() and arch.statuses[cur].role == .standalone) {
             arch.statuses[cur].role = .thread_root;
         }
     }
@@ -1431,6 +1433,9 @@ const synthetic_outbox =
     \\ {"id":"https://example.com/users/u/statuses/7/activity","type":"Create","actor":"https://example.com/users/u",
     \\  "object":{"id":"https://example.com/users/u/statuses/7","type":"Note","content":"<p>reply to deleted</p>","published":"2024-01-07T00:00:00Z",
     \\  "inReplyTo":"https://example.com/users/u/statuses/999","to":["https://www.w3.org/ns/activitystreams#Public"],"cc":[]}},
+    \\ {"id":"https://example.com/users/u/statuses/10/activity","type":"Create","actor":"https://example.com/users/u",
+    \\  "object":{"id":"https://example.com/users/u/statuses/10","type":"Note","content":"<p>reply to orphan</p>","published":"2024-01-08T00:00:00Z",
+    \\  "inReplyTo":"https://example.com/users/u/statuses/7","to":["https://www.w3.org/ns/activitystreams#Public"],"cc":[]}},
     \\ {"id":"https://example.com/users/u/statuses/8/activity","type":"Like","actor":"https://example.com/users/u","object":"https://example.com/x"},
     \\ {"id":"https://example.com/users/u/statuses/9/activity","type":"Create","actor":"https://example.com/users/u",
     \\  "object":{"id":"https://example.com/users/u/statuses/9","type":"Article","content":"<p>article</p>"}}
@@ -1477,6 +1482,9 @@ test "mastodon: deep self-reply chains flatten; edge cases are reviewed" {
     defer gpa.free(p7);
     try expectMissing(p7, "parent:");
     try expectContains(p7, "status: draft");
+    const p10 = try readAllOut(io, gpa, dir, "content/mastodon/10.md");
+    defer gpa.free(p10);
+    try expectContains(p10, "parent: mastodon/7\n");
 
     const report = try readAllOut(io, gpa, dir, "report.json");
     defer gpa.free(report);
