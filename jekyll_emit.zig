@@ -143,14 +143,17 @@ fn withoutExt(path: []const u8) []const u8 {
 /// One Boris entity-id segment: ASCII lowercase, `[a-z0-9._-]` only.
 fn idSegment(a: std.mem.Allocator, raw: []const u8) ![]const u8 {
     const lower = try asset_filename.asciiLowerAlloc(a, raw);
-    const clean = try asset_filename.sanitizeSegment(a, lower);
-    // A trailing page extension would make Boris reject the id.
+    return try noPageExt(a, try asset_filename.sanitizeSegment(a, lower));
+}
+
+/// A trailing page extension would make Boris reject the id: `x.md` → `x-md`.
+fn noPageExt(a: std.mem.Allocator, id: []const u8) ![]const u8 {
     for ([_][]const u8{ ".md", ".markdown", ".mdx", ".textile", ".cook" }) |ext| {
-        if (std.mem.endsWith(u8, clean, ext) and clean.len > ext.len) {
-            return try std.fmt.allocPrint(a, "{s}-{s}", .{ clean[0 .. clean.len - ext.len], ext[1..] });
+        if (std.mem.endsWith(u8, id, ext) and id.len > ext.len) {
+            return try std.fmt.allocPrint(a, "{s}-{s}", .{ id[0 .. id.len - ext.len], ext[1..] });
         }
     }
-    return clean;
+    return id;
 }
 
 fn idPath(a: std.mem.Allocator, path: []const u8) ![]const u8 {
@@ -880,7 +883,7 @@ fn buildPlan(io: Io, a: std.mem.Allocator, root: Io.Dir, cfg: *jekyll.Config, al
         }
         if (base_id.len > max_id_base_bytes) {
             // Boris caps entity ids at 255 bytes; leave room for a `-N` suffix.
-            base_id = std.mem.trimEnd(u8, base_id[0..max_id_base_bytes], "/-.");
+            base_id = try noPageExt(a, std.mem.trimEnd(u8, base_id[0..max_id_base_bytes], "/-."));
             try page.flag(a, .human_review, "entity_id_truncated");
         }
         const r = try reserveId(a, &taken, base_id);
@@ -1542,6 +1545,8 @@ test "jekyll: emit frontmatter list forms" {
     try std.testing.expectEqualStrings("\"two words\"", (try tagToken(a, "two words")).?);
     try std.testing.expectEqualStrings("\"ab\"", (try tagToken(a, "a\"[b],")).?);
     try std.testing.expect((try tagToken(a, "\"\"")) == null);
+    try std.testing.expectEqualStrings("a/foo-md", try noPageExt(a, "a/foo.md"));
+    try std.testing.expectEqualStrings("a-mdx", try idSegment(a, "A.mdx"));
 }
 
 test "jekyll: emit body rewrite resolves post_url/link and keeps other Liquid" {
