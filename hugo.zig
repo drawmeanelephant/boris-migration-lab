@@ -2657,6 +2657,9 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const a = arena_state.allocator();
+    // A trailing '/' would place the stage dir inside the destination and the
+    // final move would fail.
+    const out_dir = std.mem.trimEnd(u8, opts.out_dir, "/");
 
     var root = try Io.Dir.cwd().openDir(io, opts.root_dir, .{ .iterate = true, .follow_symlinks = false });
     defer root.close(io);
@@ -2827,7 +2830,7 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
     }
 
     // Stage output.
-    var output = try publication.Publication.begin(io, a, opts.out_dir, &.{opts.root_dir}, format_id);
+    var output = try publication.Publication.begin(io, a, out_dir, &.{opts.root_dir}, format_id);
     defer {
         output.abandon(io, a);
         output.deinit(a);
@@ -2969,7 +2972,7 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
     try output.commit(io, a);
 
     if (!opts.quiet) {
-        std.debug.print("hugo: wrote {s}/content/, {s}/report.json, {s}/REPORT.md\n", .{ opts.out_dir, opts.out_dir, opts.out_dir });
+        std.debug.print("hugo: wrote {s}/content/, {s}/report.json, {s}/REPORT.md\n", .{ out_dir, out_dir, out_dir });
     }
 }
 
