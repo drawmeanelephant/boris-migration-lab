@@ -1607,7 +1607,8 @@ fn parseSource(a: std.mem.Allocator, text: []const u8) !ParsedSource {
     var no: usize = 0;
     while (it.next()) |raw| {
         no += 1;
-        try all.append(a, .{ .text = rtrim(raw), .no = no });
+        // Keep trailing spaces: two of them are a Markdown hard break.
+        try all.append(a, .{ .text = std.mem.trimEnd(u8, raw, "\r"), .no = no });
     }
     // A trailing newline yields one empty final element; drop it.
     if (all.items.len > 0 and all.items[all.items.len - 1].text.len == 0 and std.mem.endsWith(u8, text, "\n")) {
@@ -1616,10 +1617,10 @@ fn parseSource(a: std.mem.Allocator, text: []const u8) !ParsedSource {
 
     var out: ParsedSource = .{};
     var body_start: usize = 0;
-    if (all.items.len > 0 and std.mem.eql(u8, all.items[0].text, "---")) {
+    if (all.items.len > 0 and std.mem.eql(u8, rtrim(all.items[0].text), "---")) {
         var close: ?usize = null;
         for (all.items[1..], 1..) |l, i| {
-            if (std.mem.eql(u8, l.text, "---") or std.mem.eql(u8, l.text, "...")) {
+            if (std.mem.eql(u8, rtrim(l.text), "---") or std.mem.eql(u8, rtrim(l.text), "...")) {
                 close = i;
                 break;
             }
