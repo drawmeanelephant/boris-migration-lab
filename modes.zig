@@ -26,6 +26,7 @@ const link_audit = @import("link_audit.zig");
 const frontmatter_review = @import("frontmatter_review.zig");
 const astro_import_plan = @import("astro_import_plan.zig");
 const astro_import_apply = @import("astro_import_apply.zig");
+const mkdocs = @import("mkdocs.zig");
 
 pub const ExitCode = enum(u8) {
     success = 0,
@@ -56,6 +57,7 @@ pub const Mode = enum {
     wordpress_theme,
     link_audit,
     frontmatter_review,
+    mkdocs_inventory,
 
     pub fn parse(s: []const u8) ?Mode {
         for (table) |entry| {
@@ -156,6 +158,7 @@ pub const table = [_]Entry{
     .{ .tag = .theme_materialize, .names = &.{ "theme-materialize", "theme-materialise", "materialize" } },
     .{ .tag = .link_audit, .names = &.{ "link-audit", "links", "output-audit" } },
     .{ .tag = .frontmatter_review, .names = &.{ "frontmatter-review", "fm-review", "fmreview" } },
+    .{ .tag = .mkdocs_inventory, .names = &.{ "mkdocs-inventory", "mkdocs-inv" } },
 };
 
 const mode_list = blk: {
@@ -539,6 +542,25 @@ fn run_frontmatter_review(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
     return ExitCode.success.int();
 }
 
+fn run_mkdocs_inventory(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
+    mkdocs.run(io, gpa, .{
+        .root_dir = opts.root_dir,
+        .out_dir = opts.out_dir,
+        .quiet = opts.quiet,
+    }) catch |err| {
+        std.log.err("migration-lab (mkdocs-inventory) failed: {s}", .{@errorName(err)});
+        return switch (err) {
+            error.InvalidMkdocsInput,
+            error.InputOutputOverlap,
+            error.InputSymlink,
+            error.OutputSymlink,
+            => ExitCode.usage.int(),
+            else => ExitCode.io_error.int(),
+        };
+    };
+    return ExitCode.success.int();
+}
+
 pub fn printUsage() void {
     std.debug.print("{s}", .{usage_text});
 }
@@ -662,6 +684,15 @@ const usage_text =
     \\  Aliases: tinderbox-emit | tbx
     \\  Prototypes, the Prototypes container (unless stamped), agents, adornments, and aliases are not emitted as pages.
     \\
+    \\MkDocs inventory (read-only mkdocs.yml + docs tree scan):
+    \\  --mode=mkdocs-inventory  Parse nav:, links, admonitions, tabs, snippets
+    \\  --root=DIR         MkDocs project root containing mkdocs.yml (required;
+    \\                     never modified; content root is DIR/docs/ or docs_dir)
+    \\  Writes: inventory.json, INVENTORY.md
+    \\  Aliases: mkdocs-inv
+    \\  Python YAML tags are recorded as unsupported, never evaluated.
+    \\  No plugin/hook execution, no Markdown emit.
+    \\  \
     \\Notion mode:
     \\  --export=DIR       Unpacked Notion Markdown & CSV export root (required; never modified)
     \\  Writes: content/**/*.md, media/**, report.json, REPORT.md, media_manifest.json

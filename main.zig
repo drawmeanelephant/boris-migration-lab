@@ -15,6 +15,7 @@
 //!   theme-materialize — Ledger-driven safe static Boris theme materialization
 //!   wordpress-theme — Read-only classic WordPress PHP theme inventory → static prototype + review manifest
 //!   frontmatter-review — Scan a content tree for unsupported frontmatter keys → JSON + MD report
+//!   mkdocs-inventory — MkDocs mkdocs.yml + docs tree → inventory.json + INVENTORY.md
 //!
 //! Never rewrites inputs. Not part of the Boris product compiler pipeline.
 //!
@@ -56,6 +57,7 @@ const frontmatter_review = @import("frontmatter_review.zig");
 const publication = @import("publication.zig");
 const astro_import_plan = @import("astro_import_plan.zig");
 const astro_import_apply = @import("astro_import_apply.zig");
+const mkdocs = @import("mkdocs.zig");
 const modes = @import("modes.zig");
 
 pub const ExitCode = modes.ExitCode;
@@ -563,6 +565,7 @@ test {
     _ = astro_import_plan;
     _ = astro_import_apply;
     _ = link_audit;
+    _ = mkdocs;
 }
 
 test "parseOptions: defaults and astro flags" {
@@ -830,6 +833,20 @@ test "parseOptions: filed-scan flags" {
     try std.testing.expect(o.mode == .filed_scan);
     try std.testing.expectEqualStrings("fixtures/filed.fyi", o.root_dir);
     try std.testing.expectEqualStrings("outputs/filed-native-scan", o.out_dir);
+}
+
+test "parseOptions: mkdocs-inventory flags" {
+    const o = try parseOptions(&.{
+        "boris-migration-lab",
+        "--mode=mkdocs-inventory",
+        "--root=fixtures/mini-mkdocs",
+        "--out=outputs/mkdocs-inv",
+    });
+    try std.testing.expect(o.mode == .mkdocs_inventory);
+    try std.testing.expectEqualStrings("fixtures/mini-mkdocs", o.root_dir);
+    try std.testing.expectEqualStrings("outputs/mkdocs-inv", o.out_dir);
+    const o2 = try parseOptions(&.{ "boris-migration-lab", "--mode=mkdocs-inv", "--root=r", "--out=o" });
+    try std.testing.expect(o2.mode == .mkdocs_inventory);
 }
 
 test "parseOptions: unknown flag" {
