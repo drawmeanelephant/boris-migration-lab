@@ -1161,11 +1161,20 @@ fn emitCopyGhostImage(ctx: *const GhostEmitCtx, url_tail: []const u8) !?[]const 
     }
     if (rel.len == 0) return null;
     // An archive-held path must stay inside content/images/: no escaping
-    // segments, backslashes, or absolute/anchor forms, or local files
-    // outside the export could be copied into the output.
-    if (rel[0] == '/' or std.mem.indexOf(u8, rel, "..") != null or
-        std.mem.indexOfScalar(u8, rel, '\\') != null)
-    {
+    // `..` segments, backslashes, or absolute/anchor forms, or local files
+    // outside the export could be copied into the output. Dots inside a
+    // segment (photo..jpg) are ordinary characters.
+    var path_unsafe = rel[0] == '/' or std.mem.indexOfScalar(u8, rel, '\\') != null;
+    if (!path_unsafe) {
+        var seg_it = std.mem.splitScalar(u8, rel, '/');
+        while (seg_it.next()) |seg| {
+            if (std.mem.eql(u8, seg, "..")) {
+                path_unsafe = true;
+                break;
+            }
+        }
+    }
+    if (path_unsafe) {
         try ctx.review.append(ctx.a, .{ .source_path = ctx.post.slug, .kind = "asset_path_unsafe", .detail = try std.fmt.allocPrint(ctx.a, "image path '{s}' escapes content/images/; not copied", .{rel}) });
         return null;
     }
