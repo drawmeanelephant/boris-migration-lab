@@ -1960,7 +1960,9 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
     for (inv.ignored.items) |f| {
         if (isMd(f)) {
             const text = readFileAlloc(io, root, f, a) catch continue;
-            if (std.mem.startsWith(u8, text, "---")) continue;
+            // Front matter requires `---` alone on the first line — a file
+            // starting with a `----` rule is verbatim content.
+            if (std.mem.startsWith(u8, text, "---\n") or std.mem.startsWith(u8, text, "---\r\n")) continue;
         }
         if (emitIsPublicAssetPath(f, cfg.include_paths.items)) try static_set.put(f, {});
     }
