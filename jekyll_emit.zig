@@ -930,7 +930,9 @@ fn buildPlan(io: Io, a: std.mem.Allocator, root: Io.Dir, cfg: *jekyll.Config, al
             try plan.not_emitted.append(a, .{ .path = p, .reason = "plugin; never executed", .class = .unsupported });
             continue;
         }
-        if (top.len < p.len) {
+        // `collections.posts` only tunes the built-in posts collection.
+        const builtin_posts = std.mem.eql(u8, top, "_posts") or std.mem.eql(u8, top, "_drafts");
+        if (top.len < p.len and !builtin_posts) {
             if (jekyll.findCollection(cfg, top)) |col| {
                 if (!col.output) {
                     try plan.not_emitted.append(a, .{ .path = p, .reason = "collection with output: false; Jekyll writes no page", .class = .unsupported });
@@ -2074,7 +2076,7 @@ test "jekyll: emit honors excludes, skips rendered non-Markdown pages, finds nes
     const base = try std.fmt.allocPrint(a, ".zig-cache/tmp/{s}", .{tmp.sub_path});
     const fm_page = "---\ntitle: X\n---\n\nBody.\n";
     const files = [_][2][]const u8{
-        .{ "site/_config.yml", "title: Ex\nexclude: [secret, \"*.tmp.md\"]\ninclude:\n  - .well-known\n" },
+        .{ "site/_config.yml", "title: Ex\nexclude: [secret, \"*.tmp.md\"]\ninclude:\n  - .well-known\ncollections:\n  posts:\n    output: true\n" },
         .{ "site/secret/s.md", fm_page },
         .{ "site/draft.tmp.md", fm_page },
         .{ "site/node_modules/pkg/README.md", fm_page },
@@ -2087,6 +2089,7 @@ test "jekyll: emit honors excludes, skips rendered non-Markdown pages, finds nes
         .{ "site/blog.html", "---\nlayout: default\n---\n{{ content }}\n" },
         .{ "site/NOTES.md", "No front matter.\n" },
         .{ "site/index.md", "---\ntitle: Home\n---\n\n[Blog](/blog.html) [Notes](/NOTES.md) {% post_url blog/2024-03-01-nested %}\n" },
+        .{ "site/_posts/2024-04-01-top.md", "---\ntitle: Top\n---\n\nTop post.\n" },
         .{ "site/blog/_posts/2024-03-01-nested.md", "---\ntitle: Nested\nexcerpt: >-\n  Folded\n  excerpt\n---\n\nBody.\n" },
     };
     for (files) |f| {
@@ -2114,4 +2117,6 @@ test "jekyll: emit honors excludes, skips rendered non-Markdown pages, finds nes
     const nested = try readOut(io, a, out, "content/posts/nested.md");
     try expectContains(nested, "parent: posts\nstatus: published\npublished_at: 2024-03-01T00:00:00Z\nsummary: \"Folded excerpt\"");
     try expectContains(try readOut(io, a, out, "provenance/posts/nested.json"), "\"categories\": [\"blog\"]");
+    // `collections.posts` in _config.yml does not turn posts into a plain collection.
+    try expectContains(try readOut(io, a, out, "content/posts/top.md"), "parent: posts\nstatus: published\npublished_at: 2024-04-01T00:00:00Z\n");
 }
