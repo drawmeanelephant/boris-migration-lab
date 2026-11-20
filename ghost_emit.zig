@@ -175,6 +175,18 @@ fn calloutKind(emoji: []const u8) []const u8 {
     return "note";
 }
 
+/// True when raw HTML links (`href=`) a `__GHOST_URL__` route that is not media.
+fn ghostRouteHref(html: []const u8) bool {
+    var i: usize = 0;
+    while (std.mem.indexOfPos(u8, html, i, ghost.ghost_url)) |p| : (i = p + ghost.ghost_url.len) {
+        if (std.mem.startsWith(u8, html[p..], ghost.images_prefix)) continue;
+        var j = p;
+        while (j > 0 and (html[j - 1] == '"' or html[j - 1] == '\'' or html[j - 1] == '=' or std.ascii.isWhitespace(html[j - 1]))) j -= 1;
+        if (j >= 4 and std.ascii.eqlIgnoreCase(html[j - 4 .. j], "href")) return true;
+    }
+    return false;
+}
+
 fn htmlCardSafe(html: []const u8) bool {
     const banned = [_][]const u8{ "<script", "<style", "<iframe", "<object", "<embed", "<form", "javascript:", "-->", "<!--" };
     var lower_buf: std.ArrayList(u8) = .empty;
@@ -257,7 +269,11 @@ fn renderCard(ctx: *PageCtx, name: []const u8, payload: Value, out: *std.ArrayLi
         ctx.class = Class.worse(ctx.class, .transformed);
     } else if (std.mem.eql(u8, name, "html")) {
         const html = ghost.jsonGetString(payload, "html");
-        if (htmlCardSafe(html)) {
+        if (ghostRouteHref(html)) {
+            // Raw anchors cannot carry Boris wiki-links; convert so the link resolves.
+            try appendBlock(out, a, try htmlToMd(ctx, html));
+            try ctx.note("html_card_converted", .transformed, "html card links a __GHOST_URL__ route; converted to Markdown");
+        } else if (htmlCardSafe(html)) {
             try appendBlock(out, a, html);
             try ctx.note("html_card_inline", .transformed, "raw HTML card embedded inline");
         } else {
