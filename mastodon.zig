@@ -638,7 +638,7 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
             try mastoReviewOnce(&ctx, &review_dedup, "poll_as_list", "poll emitted as Markdown list; Boris has no poll widget");
             try body.appendSlice(a, try std.fmt.allocPrint(a, "{s}\n\n", .{try convHtml(&ctx, st.content)}));
             for (st.poll_options) |opt| {
-                try body.appendSlice(a, try std.fmt.allocPrint(a, "- {s} ({d} votes)\n", .{ try escapeWikiBrackets(a, opt.name), opt.votes }));
+                try body.appendSlice(a, try std.fmt.allocPrint(a, "- {s} ({d} votes)\n", .{ try escapeLabelText(a, opt.name), opt.votes }));
             }
             if (st.voters > 0) try body.appendSlice(a, try std.fmt.allocPrint(a, "\n{d} voters total.\n", .{st.voters}));
         } else {
@@ -648,7 +648,7 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
         for (st.tags) |tag| {
             if (std.mem.eql(u8, tag.type, "Mention") and tag.href.len > 0) {
                 if (std.mem.indexOf(u8, body.items, tag.href) == null) {
-                    try body.appendSlice(a, try std.fmt.allocPrint(a, "\n[{s}]({s})\n", .{ try escapeWikiBrackets(a, tag.name), tag.href }));
+                    try body.appendSlice(a, try std.fmt.allocPrint(a, "\n[{s}]({s})\n", .{ try escapeLabelText(a, tag.name), tag.href }));
                 }
             }
             if (std.mem.eql(u8, tag.type, "Emoji") and tag.icon_url.len > 0) {
@@ -658,7 +658,7 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
         // Attachments → image lines.
         for (st.attachments) |att| {
             if (try mastoCopyAsset(&ctx, att.url)) |dest| {
-                try body.appendSlice(a, try std.fmt.allocPrint(a, "\n![{s}]({s})\n", .{ try escapeWikiBrackets(a, att.name), dest }));
+                try body.appendSlice(a, try std.fmt.allocPrint(a, "\n![{s}]({s})\n", .{ try escapeLabelText(a, att.name), dest }));
             } else {
                 try mastoReviewOnce(&ctx, &review_dedup, "attachment_missing", try std.fmt.allocPrint(a, "attachment '{s}' not found in archive", .{att.url}));
             }
@@ -752,21 +752,60 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
 
 // Literal `[[…]]` in post text (people quote wiki syntax) must stay
 // literal — Boris parses it as a wiki link and errors when the target
-// is missing. Applies to body markdown AND raw JSON strings written into
-// body markdown (poll options, hashtag links, attachment alt text).
-fn escapeWikiBrackets(a: std.mem.Allocator, s: []const u8) ![]const u8 {
+// is missing. Code spans are copied verbatim: a backslash renders
+// literally inside them and `[[` is already inert there.
+fn escapeBrackets(a: std.mem.Allocator, s: []const u8, singles: bool) ![]const u8 {
     var out: std.ArrayList(u8) = .empty;
     var i: usize = 0;
     while (i < s.len) {
+        if (s[i] == '`') {
+            var n: usize = 1;
+            while (i + n < s.len and s[i + n] == '`') n += 1;
+            try out.appendSlice(a, s[i .. i + n]);
+            i += n;
+            while (i < s.len) {
+                if (s[i] == '`') {
+                    var m: usize = 1;
+                    while (i + m < s.len and s[i + m] == '`') m += 1;
+                    try out.appendSlice(a, s[i .. i + m]);
+                    i += m;
+                    if (m >= n) break;
+                } else {
+                    try out.append(a, s[i]);
+                    i += 1;
+                }
+            }
+            continue;
+        }
         if (i + 1 < s.len and s[i] == '[' and s[i + 1] == '[') {
             try out.appendSlice(a, "\\[\\[");
             i += 2;
+        } else if (i + 1 < s.len and s[i] == ']' and s[i + 1] == ']') {
+            // `]]` must escape too: in `![alt](src)` the first `]` would
+            // otherwise close the label and break the image.
+            try out.appendSlice(a, "\\]\\]");
+            i += 2;
+        } else if (singles and (s[i] == '[' or s[i] == ']')) {
+            // Raw JSON text (poll options, mention names, alt text): a
+            // lone bracket still breaks the surrounding label, so escape
+            // every one, not just wiki-link pairs.
+            try out.append(a, '\\');
+            try out.append(a, s[i]);
+            i += 1;
         } else {
             try out.append(a, s[i]);
             i += 1;
         }
     }
     return try out.toOwnedSlice(a);
+}
+
+fn escapeWikiBrackets(a: std.mem.Allocator, s: []const u8) ![]const u8 {
+    return try escapeBrackets(a, s, false);
+}
+
+fn escapeLabelText(a: std.mem.Allocator, s: []const u8) ![]const u8 {
+    return try escapeBrackets(a, s, true);
 }
 
 fn convHtml(ctx: *const MEmitCtx, html: []const u8) ![]const u8 {
