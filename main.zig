@@ -15,6 +15,7 @@
 //!   theme-materialize — Ledger-driven safe static Boris theme materialization
 //!   wordpress-theme — Read-only classic WordPress PHP theme inventory → static prototype + review manifest
 //!   frontmatter-review — Scan a content tree for unsupported frontmatter keys → JSON + MD report
+//!   hugo — Hugo project → Boris Markdown content/ + reports
 //!   hugo-inventory — Hugo project → inventory.json + INVENTORY.md (read-only)
 //!   mkdocs-inventory — MkDocs mkdocs.yml + docs tree → inventory.json + INVENTORY.md
 //!
@@ -33,6 +34,7 @@
 //!   zig build run -- --mode=starlight --root=./fixtures/mini-starlight --out=./.out-sl
 //!   zig build run -- --mode=frontmatter-review --content=./content --out=./.out-fmreview
 //!   zig build run -- --mode=hugo-inventory --root=./fixtures/mini-hugo --out=./.out-hugo-inv
+//!   zig build run -- --mode=hugo --root=./fixtures/mini-hugo --out=./.out-hugo
 //!   zig build test
 //!
 //! The black-box compile tests also need a pinned product `boris` binary
@@ -890,9 +892,20 @@ test "parseOptions: hugo-inventory flags" {
 
     const o2 = try parseOptions(&.{ "boris-migration-lab", "--mode=hugo-inv", "--root=./h", "--out=./o" });
     try std.testing.expect(o2.mode == .hugo_inventory);
+}
 
-    // Bare `hugo` is reserved for the emit slice and stays invalid.
-    try std.testing.expectError(error.InvalidValue, parseOptions(&.{ "x", "--mode=hugo" }));
+test "parseOptions: hugo flags" {
+    const o = try parseOptions(&.{
+        "boris-migration-lab",
+        "--mode=hugo",
+        "--root=fixtures/mini-hugo",
+        "--out=./.hugo-emit-out",
+    });
+    try std.testing.expect(o.mode == .hugo);
+    try std.testing.expectEqualStrings("fixtures/mini-hugo", o.root_dir);
+    try std.testing.expectEqualStrings("./.hugo-emit-out", o.out_dir);
+    const o2 = try parseOptions(&.{ "boris-migration-lab", "--mode=hugo-emit", "--root=./h", "--out=./o" });
+    try std.testing.expect(o2.mode == .hugo);
 }
 
 test "parseOptions: mkdocs-inventory flags" {
@@ -914,7 +927,7 @@ test "parseOptions: unknown flag" {
 }
 
 test "parseOptions: invalid mode" {
-    try std.testing.expectError(error.InvalidValue, parseOptions(&.{ "x", "--mode=hugo" }));
+    try std.testing.expectError(error.InvalidValue, parseOptions(&.{ "x", "--mode=not-a-mode" }));
 }
 
 test "astro: entity id proposal from content path" {
@@ -2375,6 +2388,71 @@ test "wordpress: generated content compiles with product Boris" {
     const pub_nested = try wordpress.readFileAlloc(io, html_root, "pages/nested-diagram.assets/2024/06/diagram.png", gpa);
     defer gpa.free(pub_nested);
     try std.testing.expect(pub_nested.len > 0);
+}
+
+test "hugo: generated content compiles with product Boris" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer cleanupTestTmpDir(io, &tmp);
+
+    const test_root = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}/hugo-compile", .{tmp.sub_path});
+    defer gpa.free(test_root);
+    const lab_out = try std.fmt.allocPrint(gpa, "{s}/converted", .{test_root});
+    defer gpa.free(lab_out);
+    const html_out = try std.fmt.allocPrint(gpa, "{s}/html", .{test_root});
+    defer gpa.free(html_out);
+
+    // Lab tests use cwd = tools/migration-lab. Boris validates layout paths without `..`
+    // and requires HTML output inside the workspace, so spawn with cwd = repo root.
+    try hugo.runEmit(io, gpa, .{
+        .root_dir = "fixtures/mini-hugo",
+        .out_dir = lab_out,
+        .quiet = true,
+    });
+
+    // The product `boris` binary is a pinned external prerequisite (BORIS_BIN
+    // or PATH); a missing binary here is a failure, never a skip.
+    const boris_bin = (try product_boris.resolve(io, gpa)) orelse
+        return error.MissingProductBorisBinary;
+
+    const content_from_lab = try std.fmt.allocPrint(gpa, "{s}/content", .{lab_out});
+    defer gpa.free(content_from_lab);
+    const layout_from_lab = "layouts/main.html";
+
+    const argv = [_][]const u8{
+        boris_bin,
+        "--input",
+        content_from_lab,
+        "--html-dir",
+        html_out,
+        "--html-layout",
+        layout_from_lab,
+    };
+    const result = try std.process.run(gpa, io, .{
+        .argv = &argv,
+        .stdout_limit = .limited(64 * 1024),
+        .stderr_limit = .limited(64 * 1024),
+    });
+    defer gpa.free(result.stdout);
+    defer gpa.free(result.stderr);
+
+    const code: u8 = switch (result.term) {
+        .exited => |c| c,
+        else => 255,
+    };
+    if (code != 0) {
+        std.debug.print("boris compile failed code={d} stderr={s} stdout={s}\n", .{ code, result.stderr, result.stdout });
+    }
+    try std.testing.expectEqual(@as(u8, 0), code);
+
+    // Page media published beside the page's route.
+    var html_root = try Io.Dir.cwd().openDir(io, html_out, .{});
+    defer html_root.close(io);
+    const pub_banner = try hugo.readFileAlloc(io, html_root, "en/posts/hello-bundle.assets/banner.png", gpa);
+    defer gpa.free(pub_banner);
+    try std.testing.expect(pub_banner.len > 0);
 }
 
 fn cleanupTestTmpDir(io: Io, tmp: *std.testing.TmpDir) void {

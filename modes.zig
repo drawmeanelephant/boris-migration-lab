@@ -60,6 +60,7 @@ pub const Mode = enum {
     wordpress_theme,
     link_audit,
     frontmatter_review,
+    hugo,
     hugo_inventory,
     jekyll_inventory,
     ghost_inventory,
@@ -164,8 +165,7 @@ pub const table = [_]Entry{
     .{ .tag = .theme_materialize, .names = &.{ "theme-materialize", "theme-materialise", "materialize" } },
     .{ .tag = .link_audit, .names = &.{ "link-audit", "links", "output-audit" } },
     .{ .tag = .frontmatter_review, .names = &.{ "frontmatter-review", "fm-review", "fmreview" } },
-    // Bare "hugo" stays unregistered on purpose: #38 owns it, and a
-    // parseOptions test uses --mode=hugo as an invalid mode.
+    .{ .tag = .hugo, .names = &.{ "hugo", "hugo-emit" } },
     .{ .tag = .hugo_inventory, .names = &.{ "hugo-inventory", "hugo-inv" } },
     .{ .tag = .jekyll_inventory, .names = &.{ "jekyll-inventory", "jekyll-inv", "jekyll-archaeology" } },
     .{ .tag = .ghost_inventory, .names = &.{ "ghost-inventory", "ghost-inv" } },
@@ -568,6 +568,21 @@ fn run_hugo_inventory(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
     return ExitCode.success.int();
 }
 
+fn run_hugo(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
+    hugo.runEmit(io, gpa, .{
+        .root_dir = opts.root_dir,
+        .out_dir = opts.out_dir,
+        .quiet = opts.quiet,
+    }) catch |err| {
+        std.log.err("migration-lab (hugo) failed: {s}", .{@errorName(err)});
+        return switch (err) {
+            error.InvalidHugoRoot, error.InputOutputOverlap, error.InputSymlink => ExitCode.usage.int(),
+            else => ExitCode.io_error.int(),
+        };
+    };
+    return ExitCode.success.int();
+}
+
 fn run_mkdocs_inventory(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
     mkdocs.run(io, gpa, .{
         .root_dir = opts.root_dir,
@@ -760,6 +775,17 @@ const usage_text =
     \\  No TOML parser: `+++` front matter and config use a bounded scanner;
     \\  anything unclassifiable is reported, never guessed. Fenced code blocks
     \\  are not shortcode usage. No Markdown emit, no template execution.
+    \\
+    \\Hugo emit (candidate Boris Markdown):
+    \\  --mode=hugo        Hugo project → content/ tree + conversion reports
+    \\  --root=DIR         Hugo project root (required; never modified)
+    \\  Writes: content/**, assets/**, report.json, REPORT.md
+    \\  Aliases: hugo-emit
+    \\  Sections → Trunks, leaf pages → Satellites under the nearest ancestor
+    \\  section; nested sections flatten to Trunks (reported). ref/relref/
+    \\  figure shortcodes resolve to [[ids]]/images; other shortcodes are
+    \\  preserved and reported. static/ → assets/; aliases+slug go to
+    \\  provenance + redirect report. No template execution, no network.
     \\
     \\MkDocs inventory (read-only mkdocs.yml + docs tree scan):
     \\  --mode=mkdocs-inventory  Parse nav:, links, admonitions, tabs, snippets

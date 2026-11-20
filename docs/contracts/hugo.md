@@ -65,7 +65,7 @@ frontmatter keys.
 | TOML (`+++`) front matter | transformed | Same mapping via bounded scanner |
 | JSON (`{ ... }`) front matter | transformed | Same mapping; counted in inventory |
 | `title` | exact | `title:` |
-| `date` / `publishDate` | transformed | `published_at:` |
+| `date` / `publishDate` | transformed | `published_at:` normalized to `YYYY-MM-DDTHH:MM:SSZ` (numeric offsets → UTC); unparseable dates omitted + `human_review` |
 | `draft: true` | transformed | `status: draft`; else `published` |
 | `tags` / `categories` | transformed | Merged into `tags: []` |
 | `slug`, `weight`, `aliases`, `layout`, `type`, `url` | unsupported | Lab provenance / report only; never frontmatter |
@@ -73,7 +73,7 @@ frontmatter keys.
 | Branch bundle `_index.md` (with resources) | transformed | Section page; resources land in `<stem>.assets/` |
 | Leaf bundle `index.md` + page resources | transformed | Page; resources copied to `<stem>.assets/`, refs rewritten |
 | Plain leaf `<name>.md` | exact | Candidate page; `title` from front matter or filename |
-| Nested section (depth > 1 under content root) | human_review | Two-level trunk/satellite graph cannot hold it; flatten or report |
+| Nested section (depth > 1 under content root) | human_review | Flattened to its own Trunk + `nested_section_flattened` report entry |
 | `{{< figure >}}` shortcode | transformed | Resource image syntax; `figure` attrs (src/alt/title) recorded |
 | `{{< ref >}}` / `{{< relref >}}` | transformed | `[[entity-id]]` when target emits; else human_review |
 | Custom shortcode `{{< name >}}` | human_review | Args inventoried; no Boris target by default |
@@ -83,6 +83,29 @@ frontmatter keys.
 | Multilingual `content/<lang>/` + `[languages.*]` config | transformed | Per-language page sets; language recorded in report |
 | `layouts/` / `themes/` | unsupported | Never executed; shortcode/layout names inventoried only |
 | `archetypes/`, `data/`, `i18n/`, `assets/` (piped) | unsupported | Inventoried if present; not emitted |
+
+## Emit mapping
+
+- Entity ids are path-derived: `<lang>/<content-rel-key>` (the
+  language root `_index.md` is `<lang>`; `index`/`_index` basenames
+  collapse to their directory). Segments sanitize to
+  `[A-Za-z0-9._-]+`; collisions get `-2`, `-3` suffixes.
+- Section pages (`_index.md`, with or without resources) emit as
+  Trunks. Leaf pages emit as Satellites whose `parent` is the nearest
+  ancestor section Trunk; leaves with no ancestor section become
+  Trunks themselves.
+- Output layout: `content/<entity-id>.md`; page resources land in
+  the sibling `content/<entity-id>.assets/` and references rewrite
+  to `<stem>.assets/<name>`.
+- `static/**` copies to `assets/**` verbatim with a manifest entry.
+- `ref`/`relref` targets and site-absolute Markdown links resolve to
+  `[[entity-id]]` / `[[entity-id|label]]`; unresolvable site-absolute
+  links absolutize via `baseURL`, else stay verbatim + `human_review`.
+- `aliases` and `slug` go to the provenance comment and the
+  `redirects` report; `weight`, `layout`, `type`, `url`, and any
+  other unmapped front-matter key land in `dropped_keys`.
+- `published_at` requires `summary`; when the source supplies none a
+  generic summary is synthesized so the date is kept.
 
 ## ConversionClass ranks
 
