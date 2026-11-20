@@ -67,6 +67,7 @@ const astro_import_plan = @import("astro_import_plan.zig");
 const astro_import_apply = @import("astro_import_apply.zig");
 const hugo = @import("hugo.zig");
 const ghost = @import("ghost.zig");
+const mastodon = @import("mastodon.zig");
 const mkdocs = @import("mkdocs.zig");
 const modes = @import("modes.zig");
 
@@ -578,6 +579,7 @@ test {
     _ = hugo;
     _ = jekyll;
     _ = ghost;
+    _ = mastodon;
     _ = mkdocs;
 }
 
@@ -2726,4 +2728,102 @@ test "ghost: generated content compiles with product Boris" {
     defer gpa.free(lexical);
     try std.testing.expect(std.mem.indexOf(u8, lexical, "status: draft") != null);
     try std.testing.expect(std.mem.indexOf(u8, lexical, "<Aside kind=\"note\">") != null);
+}
+
+test "parseOptions: mastodon flags" {
+    const o = try parseOptions(&.{
+        "boris-migration-lab",
+        "--mode=mastodon",
+        "--root=fixtures/mini-mastodon",
+        "--out=outputs/mastodon",
+    });
+    try std.testing.expect(o.mode == .mastodon);
+    try std.testing.expectEqualStrings("fixtures/mini-mastodon", o.root_dir);
+    const o2 = try parseOptions(&.{ "boris-migration-lab", "--mode=mastodon-emit", "--root=r", "--out=o" });
+    try std.testing.expect(o2.mode == .mastodon);
+}
+
+test "mastodon: generated content compiles with product Boris" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer cleanupTestTmpDir(io, &tmp);
+
+    const test_root = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}/mastodon-compile", .{tmp.sub_path});
+    defer gpa.free(test_root);
+    const lab_out = try std.fmt.allocPrint(gpa, "{s}/converted", .{test_root});
+    defer gpa.free(lab_out);
+    const html_out = try std.fmt.allocPrint(gpa, "{s}/html", .{test_root});
+    defer gpa.free(html_out);
+
+    try mastodon.runEmit(io, gpa, .{
+        .root_dir = "fixtures/mini-mastodon",
+        .out_dir = lab_out,
+        .quiet = true,
+    });
+
+    const boris_bin = (try product_boris.resolve(io, gpa)) orelse
+        return error.MissingProductBorisBinary;
+
+    const content_from_lab = try std.fmt.allocPrint(gpa, "{s}/content", .{lab_out});
+    defer gpa.free(content_from_lab);
+    const layout_from_lab = "layouts/main.html";
+
+    const argv = [_][]const u8{
+        boris_bin,
+        "--input",
+        content_from_lab,
+        "--html-dir",
+        html_out,
+        "--html-layout",
+        layout_from_lab,
+    };
+    const result = try std.process.run(gpa, io, .{
+        .argv = &argv,
+        .stdout_limit = .limited(64 * 1024),
+        .stderr_limit = .limited(64 * 1024),
+    });
+    defer gpa.free(result.stdout);
+    defer gpa.free(result.stderr);
+
+    const code: u8 = switch (result.term) {
+        .exited => |c| c,
+        else => 255,
+    };
+    if (code != 0) {
+        std.debug.print("boris compile failed code={d} stderr={s} stdout={s}\n", .{ code, result.stderr, result.stdout });
+    }
+    try std.testing.expectEqual(@as(u8, 0), code);
+
+    // Public post emits with tag/emoji/mention, attachment keeps alt text,
+    // followers-only and direct never become pages, CW lands in fm summary,
+    // and the boost/likes are counted in the report, not emitted.
+    var content_dir = try Io.Dir.cwd().openDir(io, content_from_lab, .{});
+    defer content_dir.close(io);
+    const pub_post = try wordpress.readFileAlloc(io, content_dir, "status-1001.md", gpa);
+    defer gpa.free(pub_post);
+    try std.testing.expect(std.mem.indexOf(u8, pub_post, "tags: [ExampleTag]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, pub_post, ":star:") != null);
+    try std.testing.expect(std.mem.indexOf(u8, pub_post, "[@friend@example.com]") != null);
+    const photo = try wordpress.readFileAlloc(io, content_dir, "status-1004.assets/photo1.png", gpa);
+    defer gpa.free(photo);
+    const cw = try wordpress.readFileAlloc(io, content_dir, "status-1006.md", gpa);
+    defer gpa.free(cw);
+    try std.testing.expect(std.mem.indexOf(u8, cw, "summary: Example spoiler topic") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cw, "status: draft") != null);
+    const poll = try wordpress.readFileAlloc(io, content_dir, "status-1005.md", gpa);
+    defer gpa.free(poll);
+    try std.testing.expect(std.mem.indexOf(u8, poll, "- Apple") != null);
+
+    // Followers-only (1002), direct (1003), and the followers-only thread
+    // replies (1009-1011) must not produce pages.
+    const missing = [_][]const u8{ "status-1002.md", "status-1003.md", "status-1009.md" };
+    for (missing) |name| {
+        const res = wordpress.readFileAlloc(io, content_dir, name, gpa);
+        if (res) |bytes| {
+            gpa.free(bytes);
+            return error.UnexpectedEmittedPage;
+        } else |_| {}
+    }
 }

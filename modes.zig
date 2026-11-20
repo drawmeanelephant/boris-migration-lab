@@ -29,6 +29,7 @@ const astro_import_plan = @import("astro_import_plan.zig");
 const astro_import_apply = @import("astro_import_apply.zig");
 const hugo = @import("hugo.zig");
 const ghost = @import("ghost.zig");
+const mastodon = @import("mastodon.zig");
 const mkdocs = @import("mkdocs.zig");
 
 pub const ExitCode = enum(u8) {
@@ -66,6 +67,7 @@ pub const Mode = enum {
     jekyll_inventory,
     ghost_inventory,
     ghost,
+    mastodon,
     mkdocs_inventory,
     mkdocs,
 
@@ -176,6 +178,7 @@ pub const table = [_]Entry{
     .{ .tag = .mkdocs_inventory, .names = &.{ "mkdocs-inventory", "mkdocs-inv" } },
     .{ .tag = .mkdocs, .names = &.{ "mkdocs", "mkdocs-emit" } },
     .{ .tag = .ghost, .names = &.{ "ghost", "ghost-emit" } },
+    .{ .tag = .mastodon, .names = &.{ "mastodon", "mastodon-emit" } },
 };
 
 const mode_list = blk: {
@@ -673,6 +676,21 @@ fn run_ghost(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
     return ExitCode.success.int();
 }
 
+fn run_mastodon(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
+    mastodon.runEmit(io, gpa, .{
+        .root_dir = opts.root_dir,
+        .out_dir = opts.out_dir,
+        .quiet = opts.quiet,
+    }) catch |err| {
+        std.log.err("migration-lab (mastodon) failed: {s}", .{@errorName(err)});
+        return switch (err) {
+            error.InvalidMastodonInput, error.InputOutputOverlap, error.InputSymlink, error.OutputSymlink => ExitCode.usage.int(),
+            else => ExitCode.io_error.int(),
+        };
+    };
+    return ExitCode.success.int();
+}
+
 fn run_ghost_inventory(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
     ghost.run(io, gpa, .{
         .root_dir = opts.root_dir,
@@ -892,6 +910,15 @@ const usage_text =
     \\  html/lexical/mobiledoc bodies → Markdown; __GHOST_URL__ links → [[id]];
     \\  local content/images/ copied to <id>.assets/; restricted visibility
     \\  and scheduled posts never emit as published.
+    \\
+    \\Mastodon emit (candidate Boris Markdown):
+    \\  --mode=mastodon    Unpacked Mastodon archive → content/ tree + reports
+    \\  --root=DIR         Archive root holding outbox.json, actor.json and
+    \\                    media_attachments/ (required; never modified)
+    \\  Aliases: mastodon-emit
+    \\  Public + unlisted statuses emit; followers-only and direct are counted
+    \\  only. Self-reply threads group under the first post; boosts and
+    \\  likes/bookmarks are counted, never emitted. CW → fm summary.
     \\
     \\Notion mode:
     \\  --export=DIR       Unpacked Notion Markdown & CSV export root (required; never modified)

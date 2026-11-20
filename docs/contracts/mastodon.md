@@ -1,8 +1,9 @@
 # Mastodon archive disposition (lab contract)
 
 **Status:** normative for `boris-migration-lab` Mastodon modes.
-**Modes:** `--mode=mastodon-inventory` (inventory/report only) and
-`--mode=mastodon` (inventory + emit).
+**Modes:** `--mode=mastodon` (alias `mastodon-emit`; inventory + emit —
+non-emitted activities land in the report counts, so a separate
+inventory-only mode adds nothing).
 **Format id:** `boris-mastodon-migration-lab`.
 **Input flag:** `--root=DIR` pointing at an unpacked Mastodon archive export —
 the same flag shared by astro, starlight, asset-filename, theme-archaeology,
@@ -104,3 +105,30 @@ published_at, summary}`.
 - Resolving boosted or replied-to remote objects beyond the archive
 - Reproducing Mastodon audience semantics in Boris (no federation model)
 - Calling the Boris product compiler except optional `--gate` on emitted Markdown
+
+## Emit mapping
+
+Concrete emit decisions the table above leaves open:
+
+- Page id `status-<n>`; a self-reply satellite gets `status-<root>/<n>`
+  with `parent: status-<root>` (Boris's two-level graph flattens deeper
+  chains — depth >2 replies still land under the root and the flattening
+  is reported).
+- Public → `status: published`; unlisted → `status: draft` plus an
+  `unlisted_as_draft` review row; followers-only and direct are never
+  written — a `skipped` page row records each with its visibility.
+- CW text lands in fm `summary:` (required non-empty when `published_at`
+  is present); the body behind it stays as the plain page body.
+- `Note.content` HTML converts via the shared `htmlToMarkdown` walker.
+- Attachment files copy to `content/<id>.assets/`; the Markdown image
+  references them page-relative (`<id>.assets/<name>`) and the
+  attachment `name` becomes the alt text.
+- `Emoji` icons copy to assets; `:shortcode:` stays in the body.
+- `Mention`/`Hashtag` tags already anchored in the HTML keep their
+  links; hashtags also land in `tags: []` without the `#`.
+- `Question` emits its `oneOf`/`anyOf` options as a body bullet list with
+  vote counts, plus a `poll_as_list` review row.
+- `updated` stays in provenance (`published_at` uses `published`); an
+  `edited_post` row records it.
+- `Announce`, `likes.json`, `bookmarks.json`, and any other activity
+  types appear only in report counts — never pages.
