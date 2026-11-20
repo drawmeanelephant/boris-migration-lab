@@ -101,27 +101,36 @@ const Decoder = struct {
                 self.depth += 1;
                 defer self.depth -= 1;
                 if (h.arg > self.data.len - self.pos) return error.TruncatedCbor;
-                const items = try self.a.alloc(Value, @intCast(h.arg));
-                for (items) |*it| it.* = try self.item();
-                return .{ .array = items };
+                // Grow as elements decode: the declared count only caps the
+                // loop, so a huge len can't pre-allocate len*sizeof(Value).
+                var items: std.ArrayList(Value) = .empty;
+                var n: u64 = 0;
+                while (n < h.arg) : (n += 1) {
+                    try items.append(self.a, try self.item());
+                }
+                return .{ .array = try items.toOwnedSlice(self.a) };
             },
             5 => {
                 if (self.depth >= max_depth) return error.UnsupportedCbor;
                 self.depth += 1;
                 defer self.depth -= 1;
                 if (h.arg > self.data.len - self.pos) return error.TruncatedCbor;
-                const entries = try self.a.alloc(MapEntry, @intCast(h.arg));
-                for (entries) |*e| {
+                var entries: std.ArrayList(MapEntry) = .empty;
+                var n: u64 = 0;
+                while (n < h.arg) : (n += 1) {
                     const k = try self.item();
-                    switch (k) {
-                        .text => |t| e.key = t,
+                    const key = switch (k) {
+                        .text => |t| t,
                         else => return error.UnsupportedCbor,
-                    }
-                    e.value = try self.item();
+                    };
+                    try entries.append(self.a, .{ .key = key, .value = try self.item() });
                 }
-                return .{ .map = entries };
+                return .{ .map = try entries.toOwnedSlice(self.a) };
             },
             6 => {
+                if (self.depth >= max_depth) return error.UnsupportedCbor;
+                self.depth += 1;
+                defer self.depth -= 1;
                 if (h.arg != 42) return error.UnsupportedCbor;
                 const inner = try self.item();
                 switch (inner) {
@@ -220,7 +229,9 @@ pub const Car = struct {
     pub fn records(self: *const Car, a: Allocator) ![]const Record {
         var out: std.ArrayList(Record) = .empty;
         var prev_key: std.ArrayList(u8) = .empty;
-        try walkMst(a, self, self.mst_root, &prev_key, &out, 0);
+        var visited: std.StringHashMap(void) = .init(a);
+        var last_key: std.ArrayList(u8) = .empty;
+        try walkMst(a, self, self.mst_root, &prev_key, &visited, &last_key, &out, 0);
         return try out.toOwnedSlice(a);
     }
 };
@@ -230,10 +241,16 @@ fn walkMst(
     car: *const Car,
     cid: []const u8,
     prev_key: *std.ArrayList(u8),
+    visited: *std.StringHashMap(void),
+    last_key: *std.ArrayList(u8),
     out: *std.ArrayList(Record),
     depth: usize,
 ) Error!void {
     if (depth > 64) return error.MalformedMst;
+    // A CID seen twice means shared subtrees — the walk would revisit them
+    // exponentially. MSTs are trees: each node appears once.
+    if (visited.contains(cid)) return error.MalformedMst;
+    try visited.put(cid, {});
     const node_bytes = car.blocks.get(cid) orelse return error.MissingBlock;
     const node = try decodeValue(a, node_bytes);
     const map = switch (node) {
@@ -242,7 +259,7 @@ fn walkMst(
     };
     if (mapGet(map, "l")) |lv| {
         switch (lv) {
-            .link => |l| try walkMst(a, car, l, prev_key, out, depth + 1),
+            .link => |l| try walkMst(a, car, l, prev_key, visited, last_key, out, depth + 1),
             .nil, .undefined_simple => {},
             else => return error.MalformedMst,
         }
@@ -282,6 +299,13 @@ fn walkMst(
         prev_key.shrinkRetainingCapacity(p);
         try prev_key.appendSlice(a, k);
         const key = try a.dupe(u8, prev_key.items);
+        // In-order walk must emit strictly increasing keys — a repeat or
+        // out-of-order key means a malformed or hostile tree.
+        if (last_key.items.len > 0 and std.mem.order(u8, key, last_key.items) != .gt) {
+            return error.MalformedMst;
+        }
+        last_key.clearRetainingCapacity();
+        try last_key.appendSlice(a, key);
         const record = car.blocks.get(v) orelse return error.MissingBlock;
         const sep = std.mem.indexOfScalar(u8, key, '/') orelse return error.MalformedMst;
         try out.append(a, .{
@@ -292,7 +316,7 @@ fn walkMst(
         });
         if (mapGet(em, "t")) |tv| {
             switch (tv) {
-                .link => |l| try walkMst(a, car, l, prev_key, out, depth + 1),
+                .link => |l| try walkMst(a, car, l, prev_key, visited, last_key, out, depth + 1),
                 .nil, .undefined_simple => {},
                 else => return error.MalformedMst,
             }
@@ -626,4 +650,62 @@ test "decoder: hostile inputs error instead of crashing" {
     try testing.expectError(error.InvalidCar, parse(a, @as([10]u8, @splat(0xFF)) ++ "\x01"));
     // Multihash length varint = u64 max → InvalidCid, not an overflow panic.
     try testing.expectError(error.InvalidCid, cidPrefixLen("\x01\x71\x12" ++ @as([9]u8, @splat(0xFF)) ++ "\x01pad"));
+}
+
+test "decoder: nested tag-42 respects the depth cap" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // 300 nested CID-link tags (D8 2A = tag 42) — must hit the same depth
+    // cap as arrays/maps, not segfault in `head`.
+    const deep = try a.alloc(u8, 602);
+    @memset(deep[0..600], 0xD8);
+    for (0..300) |i| deep[i * 2 + 1] = 0x2A;
+    deep[600] = 0x40; // innermost: empty bytes → InvalidCid at the cap boundary
+    deep[601] = 0x00;
+    try testing.expectError(error.UnsupportedCbor, decodeValue(a, deep));
+}
+
+test "walkMst: shared subtree is rejected, not revisited exponentially" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const cid_root = try acid(a, 0x01);
+    const cid_left = try acid(a, 0x02);
+    const cid_commit = try acid(a, 0xFF);
+    const cid_rec = try acid(a, 0x10);
+    // Root's `l` and its entry's `t` both point at the same subtree — the
+    // classic exponential re-visit shape.
+    const eb = try t_map(a, &.{ try kv(a, "k", try t_bytes(a, "b/2")), try kv(a, "p", try t_uint(a, 0)), try kv(a, "t", try t_link(a, cid_left)), try kv(a, "v", try t_link(a, cid_rec)) });
+    const root = try t_map(a, &.{ try kv(a, "e", try t_arr(a, &.{eb})), try kv(a, "l", try t_link(a, cid_left)) });
+    const ea = try t_map(a, &.{ try kv(a, "k", try t_bytes(a, "b/1")), try kv(a, "p", try t_uint(a, 0)), try kv(a, "t", "\xF6"), try kv(a, "v", try t_link(a, cid_rec)) });
+    const left = try t_map(a, &.{ try kv(a, "e", try t_arr(a, &.{ea})), try kv(a, "l", "\xF6") });
+    const commit = try t_map(a, &.{try kv(a, "data", try t_link(a, cid_root))});
+    var blocks = std.StringHashMap([]const u8).init(a);
+    try blocks.put(cid_root, root);
+    try blocks.put(cid_left, left);
+    try blocks.put(cid_commit, commit);
+    try blocks.put(cid_rec, try t_map(a, &.{try kv(a, "r", try t_uint(a, 0))}));
+    var car = Car{ .blocks = blocks, .mst_root = cid_root };
+    try testing.expectError(error.MalformedMst, car.records(a));
+}
+
+test "walkMst: non-increasing keys are rejected" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const cid_root = try acid(a, 0x01);
+    const cid_commit = try acid(a, 0xFF);
+    const cid_rec = try acid(a, 0x10);
+    // Two entries in one node whose resolved keys descend (b/2 then b/1).
+    const e1 = try t_map(a, &.{ try kv(a, "k", try t_bytes(a, "b/2")), try kv(a, "p", try t_uint(a, 0)), try kv(a, "t", "\xF6"), try kv(a, "v", try t_link(a, cid_rec)) });
+    const e2 = try t_map(a, &.{ try kv(a, "k", try t_bytes(a, "1")), try kv(a, "p", try t_uint(a, 1)), try kv(a, "t", "\xF6"), try kv(a, "v", try t_link(a, cid_rec)) });
+    const root = try t_map(a, &.{ try kv(a, "e", try t_arr(a, &.{ e1, e2 })), try kv(a, "l", "\xF6") });
+    const commit = try t_map(a, &.{try kv(a, "data", try t_link(a, cid_root))});
+    var blocks = std.StringHashMap([]const u8).init(a);
+    try blocks.put(cid_root, root);
+    try blocks.put(cid_commit, commit);
+    try blocks.put(cid_rec, try t_map(a, &.{try kv(a, "r", try t_uint(a, 0))}));
+    var car = Car{ .blocks = blocks, .mst_root = cid_root };
+    try testing.expectError(error.MalformedMst, car.records(a));
 }
