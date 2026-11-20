@@ -57,15 +57,18 @@ const Decoder = struct {
     data: []const u8,
     pos: usize = 0,
     a: Allocator,
+    depth: usize = 0,
+
+    const max_depth = 256;
 
     fn take(self: *Decoder, n: usize) Error![]const u8 {
-        if (self.pos + n > self.data.len) return error.TruncatedCbor;
+        if (n > self.data.len - self.pos) return error.TruncatedCbor;
         const s = self.data[self.pos .. self.pos + n];
         self.pos += n;
         return s;
     }
 
-    fn head(self: *Decoder) Error!struct { major: u8, arg: u64 } {
+    fn head(self: *Decoder) Error!struct { major: u8, addl: u8, arg: u64 } {
         const b = (try self.take(1))[0];
         const major = b >> 5;
         const addl = b & 0x1F;
@@ -77,7 +80,7 @@ const Decoder = struct {
             27 => std.mem.readInt(u64, (try self.take(8))[0..8], .big),
             else => return error.UnsupportedCbor, // 28-31 indefinite/reserved
         };
-        return .{ .major = major, .arg = arg };
+        return .{ .major = major, .addl = addl, .arg = arg };
     }
 
     fn item(self: *Decoder) Error!Value {
@@ -85,14 +88,28 @@ const Decoder = struct {
         switch (h.major) {
             0 => return .{ .uint = h.arg },
             1 => return .{ .nint = h.arg },
-            2 => return .{ .bytes = try self.take(@intCast(h.arg)) },
-            3 => return .{ .text = try self.take(@intCast(h.arg)) },
+            2 => {
+                if (h.arg > self.data.len - self.pos) return error.TruncatedCbor;
+                return .{ .bytes = try self.take(@intCast(h.arg)) };
+            },
+            3 => {
+                if (h.arg > self.data.len - self.pos) return error.TruncatedCbor;
+                return .{ .text = try self.take(@intCast(h.arg)) };
+            },
             4 => {
+                if (self.depth >= max_depth) return error.UnsupportedCbor;
+                self.depth += 1;
+                defer self.depth -= 1;
+                if (h.arg > self.data.len - self.pos) return error.TruncatedCbor;
                 const items = try self.a.alloc(Value, @intCast(h.arg));
                 for (items) |*it| it.* = try self.item();
                 return .{ .array = items };
             },
             5 => {
+                if (self.depth >= max_depth) return error.UnsupportedCbor;
+                self.depth += 1;
+                defer self.depth -= 1;
+                if (h.arg > self.data.len - self.pos) return error.TruncatedCbor;
                 const entries = try self.a.alloc(MapEntry, @intCast(h.arg));
                 for (entries) |*e| {
                     const k = try self.item();
@@ -115,12 +132,14 @@ const Decoder = struct {
                     else => return error.InvalidCid,
                 }
             },
-            7 => switch (h.arg) {
+            // addl (not arg) distinguishes simple values from float payloads:
+            // 20-23 are false/true/null/undefined; 24+ is simple(n)/float.
+            7 => switch (h.addl) {
                 20 => return .{ .boolean = false },
                 21 => return .{ .boolean = true },
                 22 => return .nil,
                 23 => return .undefined_simple,
-                else => return error.UnsupportedCbor, // floats + simple(n)
+                else => return error.UnsupportedCbor,
             },
             else => return error.UnsupportedCbor,
         }
@@ -138,14 +157,20 @@ pub fn decodeValue(a: Allocator, data: []const u8) Error!Value {
 fn readVarint(data: []const u8, pos: *usize) Error!u64 {
     var shift: u6 = 0;
     var out: u64 = 0;
+    var count: usize = 0;
     while (true) {
         if (pos.* >= data.len) return error.InvalidCar;
         const b = data[pos.*];
         pos.* += 1;
+        count += 1;
+        if (count == 10) {
+            // 10th byte of a u64 varint carries only bit 63.
+            if (b != 1) return error.InvalidCar;
+            return out | (@as(u64, 1) << 63);
+        }
         out |= @as(u64, b & 0x7F) << shift;
         if (b & 0x80 == 0) return out;
         shift += 7;
-        if (shift > 63) return error.InvalidCar;
     }
 }
 
@@ -163,8 +188,8 @@ fn cidPrefixLen(data: []const u8) Error!usize {
     _ = try readVarint(data, &pos); // codec
     _ = try readVarint(data, &pos); // multihash type
     const mh_len = try readVarint(data, &pos);
+    if (mh_len > 1024 or mh_len > data.len - pos) return error.InvalidCid;
     const end = pos + @as(usize, @intCast(mh_len));
-    if (end > data.len or end > 1024) return error.InvalidCid;
     return end;
 }
 
@@ -280,12 +305,19 @@ fn walkMst(
 pub fn parse(a: Allocator, data: []const u8) Error!Car {
     var pos: usize = 0;
     const header_len = try readVarint(data, &pos);
-    if (pos + header_len > data.len) return error.InvalidCar;
+    if (header_len > data.len - pos) return error.InvalidCar;
     const header = try decodeValue(a, try try_take(data, &pos, header_len));
     const hmap = switch (header) {
         .map => |m| m,
         else => return error.InvalidCar,
     };
+    const version = mapGet(hmap, "version") orelse return error.InvalidCar;
+    switch (version) {
+        .uint => |v| {
+            if (v != 1) return error.InvalidCar;
+        },
+        else => return error.InvalidCar,
+    }
     const roots = blk: {
         const rv = mapGet(hmap, "roots") orelse return error.InvalidCar;
         switch (rv) {
@@ -305,7 +337,7 @@ pub fn parse(a: Allocator, data: []const u8) Error!Car {
     };
     while (pos < data.len) {
         const slen = try readVarint(data, &pos);
-        if (pos + slen > data.len) return error.InvalidCar;
+        if (slen > data.len - pos) return error.InvalidCar;
         const section = data[pos .. pos + @as(usize, @intCast(slen))];
         pos += @intCast(slen);
         const cid_len = try cidPrefixLen(section);
@@ -342,8 +374,8 @@ pub fn parse(a: Allocator, data: []const u8) Error!Car {
 }
 
 fn try_take(data: []const u8, pos: *usize, n: u64) Error![]const u8 {
+    if (n > data.len - pos.*) return error.InvalidCar;
     const nn: usize = @intCast(n);
-    if (pos.* + nn > data.len) return error.InvalidCar;
     const s = data[pos.* .. pos.* + nn];
     pos.* += nn;
     return s;
@@ -569,4 +601,29 @@ test "parse: rejects truncated and rootless cars" {
     const hdr = try t_map(a, &.{ try kv(a, "roots", try t_arr(a, &.{})), try kv(a, "version", try t_uint(a, 1)) });
     const car_bytes = try std.fmt.allocPrint(a, "{s}{s}", .{ try t_varint(a, hdr.len), hdr });
     try testing.expectError(error.InvalidCar, parse(a, car_bytes));
+    // version != 1 rejected even with valid framing.
+    const hdr2 = try t_map(a, &.{ try kv(a, "roots", try t_arr(a, &.{})), try kv(a, "version", try t_uint(a, 2)) });
+    const car_bytes2 = try std.fmt.allocPrint(a, "{s}{s}", .{ try t_varint(a, hdr2.len), hdr2 });
+    try testing.expectError(error.InvalidCar, parse(a, car_bytes2));
+}
+
+test "decoder: hostile inputs error instead of crashing" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // Byte-string length = max u64 → TruncatedCbor, not an overflow panic.
+    try testing.expectError(error.TruncatedCbor, decodeValue(a, "\x5B" ++ @as([8]u8, @splat(0xFF))));
+    // Array length = max u64 → TruncatedCbor, not an overflow panic.
+    try testing.expectError(error.TruncatedCbor, decodeValue(a, "\x9B" ++ @as([8]u8, @splat(0xFF))));
+    // f16 whose bits (0x0015 = 21) collide with 'true' → UnsupportedCbor.
+    try testing.expectError(error.UnsupportedCbor, decodeValue(a, "\xF9\x00\x15"));
+    // 300 nested arrays exceed the depth cap → UnsupportedCbor, no stack overflow.
+    const deep = try a.alloc(u8, 301);
+    @memset(deep[0..300], 0x81);
+    deep[300] = '0';
+    try testing.expectError(error.UnsupportedCbor, decodeValue(a, deep));
+    // 10 continuation bytes → InvalidCar, not a shift overflow.
+    try testing.expectError(error.InvalidCar, parse(a, @as([10]u8, @splat(0xFF)) ++ "\x01"));
+    // Multihash length varint = u64 max → InvalidCid, not an overflow panic.
+    try testing.expectError(error.InvalidCid, cidPrefixLen("\x01\x71\x12" ++ @as([9]u8, @splat(0xFF)) ++ "\x01pad"));
 }
