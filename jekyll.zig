@@ -75,6 +75,9 @@ const Config = struct {
     baseurl: ?[]const u8 = null,
     permalink: ?[]const u8 = null,
     collections: std.ArrayList(Collection) = .empty,
+    /// `_config.yml` `include:` paths — Jekyll publishes these even though
+    /// their names would otherwise be excluded (e.g. `.well-known`).
+    include_paths: std.ArrayList([]const u8) = .empty,
 };
 
 const Inventory = struct {
@@ -490,6 +493,7 @@ fn recordFmKeys(a: std.mem.Allocator, inv: *Inventory, fm: archaeology.Frontmatt
 fn parseConfig(a: std.mem.Allocator, source: []const u8) !Config {
     var cfg: Config = .{};
     var in_collections = false;
+    var in_include = false;
     var current: ?*Collection = null;
     var it = std.mem.splitScalar(u8, source, '\n');
     while (it.next()) |line_crlf| {
@@ -505,17 +509,39 @@ fn parseConfig(a: std.mem.Allocator, source: []const u8) !Config {
             const value = stripQuotes(trimSpace(line[colon + 1 ..]));
             if (std.mem.eql(u8, key, "collections")) {
                 in_collections = true;
+                in_include = false;
                 continue;
             }
             in_collections = false;
+            in_include = false;
             if (std.mem.eql(u8, key, "title")) {
                 cfg.title = try a.dupe(u8, value);
             } else if (std.mem.eql(u8, key, "baseurl")) {
                 cfg.baseurl = try a.dupe(u8, value);
             } else if (std.mem.eql(u8, key, "permalink")) {
                 cfg.permalink = try a.dupe(u8, value);
+            } else if (std.mem.eql(u8, key, "include")) {
+                // `include: [a, b]`, `include: a`, or a `- item` block list.
+                in_include = true;
+                var v = trimSpace(value);
+                if (v.len >= 2 and v[0] == '[' and v[v.len - 1] == ']') {
+                    var it2 = std.mem.splitScalar(u8, v[1 .. v.len - 1], ',');
+                    while (it2.next()) |item| {
+                        const entry = stripQuotes(trimSpace(item));
+                        if (entry.len > 0) try cfg.include_paths.append(a, try a.dupe(u8, entry));
+                    }
+                } else if (v.len > 0) {
+                    try cfg.include_paths.append(a, try a.dupe(u8, v));
+                }
             }
             continue;
+        }
+        if (in_include) {
+            if (line[0] == '-') {
+                const entry = stripQuotes(trimSpace(line[1..]));
+                if (entry.len > 0) try cfg.include_paths.append(a, try a.dupe(u8, entry));
+            } else in_include = false;
+            if (in_include) continue;
         }
         if (!in_collections) continue;
         if (indent >= 4) {
@@ -1350,6 +1376,9 @@ fn emitNormalizeDate(a: std.mem.Allocator, raw0: []const u8) !?[]const u8 {
     var off_sign: i64 = 0;
     var off_min: i64 = 0;
     var rest = trimSpace(raw[10..]);
+    // YAML inline comment (`-05:00 # local time`) is not part of the value.
+    if (std.mem.indexOf(u8, rest, " #")) |ci| rest = trimSpace(rest[0..ci]);
+    if (rest.len > 0 and rest[0] == '#') rest = "";
     if (rest.len > 0 and (rest[0] == 'T' or rest[0] == ' ')) rest = trimSpace(rest[1..]);
     var ri: usize = 0;
     while (ri < rest.len and (isDigit(rest[ri]) or rest[ri] == ':')) ri += 1;
@@ -1424,6 +1453,10 @@ const EmitCtx = struct {
     path_index: std.StringHashMap([]const u8),
     /// static file paths present under the root
     static_set: std.StringHashMap(void),
+    /// `_config.yml` include paths
+    includes: []const []const u8,
+    /// non-Markdown collection member src → copied `content/`-relative dest
+    member_assets: *std.StringHashMap([]const u8),
     baseurl: []const u8,
     review: *std.ArrayList(ReviewItem),
     links: *std.ArrayList(EmitLink),
@@ -1456,32 +1489,48 @@ fn emitWikiLink(out: *std.ArrayList(u8), a: std.mem.Allocator, id: []const u8, t
     try out.appendSlice(a, "]]");
 }
 
-/// Resolve a `{% post_url %}` / `{% link %}` target to an entity id.
-fn emitResolveTagTarget(ctx: *EmitCtx, tag_name: []const u8, arg: []const u8) ?[]const u8 {
+/// What a `{% post_url %}`/`{% link %}` target resolves to: an emitted
+/// entity or a copied non-Markdown collection member asset.
+const EmitTarget = union(enum) {
+    entity: []const u8,
+    /// `content/`-root-relative dest (`docs.assets/logo.png`); links emit
+    /// root-relative so any page resolves it.
+    asset: []const u8,
+};
+
+/// Resolve a `{% post_url %}` / `{% link %}` target.
+fn emitResolveTagTarget(ctx: *EmitCtx, tag_name: []const u8, arg: []const u8) ?EmitTarget {
     const t = stripQuotes(trimSpace(arg));
     if (t.len == 0) return null;
     if (std.mem.eql(u8, tag_name, "post_url")) {
         var stem = t;
         if (std.mem.startsWith(u8, stem, "_posts/")) stem = stem["_posts/".len..];
         if (isMd(stem)) stem = stem[0 .. stem.len - 3];
-        return ctx.post_index.get(stem);
+        if (ctx.post_index.get(stem)) |id| return .{ .entity = id };
+        return null;
     }
     // {% link %}: site-relative source path.
     var p = t;
     while (p.len > 0 and p[0] == '/') p = p[1..];
-    if (ctx.path_index.get(p)) |id| return id;
+    if (ctx.path_index.get(p)) |id| return .{ .entity = id };
     if (isMd(p)) {
-        if (ctx.path_index.get(p[0 .. p.len - 3])) |id| return id;
+        if (ctx.path_index.get(p[0 .. p.len - 3])) |id| return .{ .entity = id };
     } else {
         const with_md = std.fmt.allocPrint(ctx.a, "{s}.md", .{p}) catch return null;
-        if (ctx.path_index.get(with_md)) |id| return id;
+        if (ctx.path_index.get(with_md)) |id| return .{ .entity = id };
     }
+    if (ctx.member_assets.get(p)) |dest| return .{ .asset = dest };
     return null;
 }
 
 /// Jekyll only publishes files whose every path component avoids a leading
-/// `.`, `_`, `#`, or `~` — dotfiles and private dirs are never copied out.
-fn emitIsPublicAssetPath(path: []const u8) bool {
+/// `.`, `_`, `#`, or `~` — dotfiles and private dirs are never copied out —
+/// unless the path sits under a `_config.yml` `include:` entry.
+fn emitIsPublicAssetPath(path: []const u8, includes: []const []const u8) bool {
+    for (includes) |inc| {
+        if (std.mem.startsWith(u8, path, inc) and
+            (path.len == inc.len or path[inc.len] == '/')) return true;
+    }
     var it = std.mem.splitScalar(u8, path, '/');
     while (it.next()) |seg| {
         if (seg.len == 0) continue;
@@ -1494,7 +1543,7 @@ fn emitIsPublicAssetPath(path: []const u8) bool {
 /// per page — two pages sharing one static file each get a sibling copy.
 fn emitCopyAsset(ctx: *EmitCtx, io: Io, src_root: Io.Dir, stage: Io.Dir, rel_src: []const u8) !?[]const u8 {
     const a = ctx.a;
-    if (!emitIsPublicAssetPath(rel_src)) return null;
+    if (!emitIsPublicAssetPath(rel_src, ctx.includes)) return null;
     const key = try std.fmt.allocPrint(a, "{s}|{s}", .{ ctx.page.id, rel_src });
     if (ctx.copied.get(key)) |dest| return dest;
     const base = std.fs.path.basename(rel_src);
@@ -1622,9 +1671,18 @@ fn emitTransformBody(ctx: *EmitCtx, io: Io, src_root: Io.Dir, stage: Io.Dir, bod
                 if (std.mem.eql(u8, name, "raw")) {
                     in_raw = true;
                 } else if (std.mem.eql(u8, name, "post_url") or std.mem.eql(u8, name, "link")) {
-                    if (emitResolveTagTarget(ctx, name, arg)) |id| {
-                        try ctx.links.append(a, .{ .source_path = ctx.page.source_path, .target = span, .result = id });
-                        try emitWikiLink(&out, a, id, null);
+                    if (emitResolveTagTarget(ctx, name, arg)) |tgt| {
+                        switch (tgt) {
+                            .entity => |id| {
+                                try ctx.links.append(a, .{ .source_path = ctx.page.source_path, .target = span, .result = id });
+                                try emitWikiLink(&out, a, id, null);
+                            },
+                            .asset => |dest| {
+                                try ctx.links.append(a, .{ .source_path = ctx.page.source_path, .target = span, .result = dest });
+                                const label = std.fs.path.basename(arg);
+                                try out.appendSlice(a, try std.fmt.allocPrint(a, "[{s}](/{s})", .{ label, dest }));
+                            },
+                        }
                     } else {
                         try out.appendSlice(a, span);
                         try emitReportOnce(ctx, try std.fmt.allocPrint(a, "tag/{s}:{s}", .{ name, arg }), "unresolved_ref", try std.fmt.allocPrint(a, "{s} kept verbatim; target not emitted", .{span}));
@@ -1663,9 +1721,18 @@ fn emitTransformBody(ctx: *EmitCtx, io: Io, src_root: Io.Dir, stage: Io.Dir, bod
                     const name = inner[0..name_end];
                     const arg = trimSpace(inner[name_end..]);
                     if (std.mem.eql(u8, name, "post_url") or std.mem.eql(u8, name, "link")) {
-                        if (emitResolveTagTarget(ctx, name, arg)) |id| {
-                            try ctx.links.append(a, .{ .source_path = ctx.page.source_path, .target = span, .result = id });
-                            try emitWikiLink(&out, a, id, if (is_img) null else text);
+                        if (emitResolveTagTarget(ctx, name, arg)) |tgt| {
+                            switch (tgt) {
+                                .entity => |id| {
+                                    try ctx.links.append(a, .{ .source_path = ctx.page.source_path, .target = span, .result = id });
+                                    try emitWikiLink(&out, a, id, if (is_img) null else text);
+                                },
+                                .asset => |adest| {
+                                    try ctx.links.append(a, .{ .source_path = ctx.page.source_path, .target = span, .result = adest });
+                                    if (is_img) try out.append(a, '!');
+                                    try out.appendSlice(a, try std.fmt.allocPrint(a, "[{s}](/{s})", .{ text, adest }));
+                                },
+                            }
                         } else {
                             try out.appendSlice(a, span);
                             try emitReportOnce(ctx, try std.fmt.allocPrint(a, "tag/{s}:{s}", .{ name, arg }), "unresolved_ref", try std.fmt.allocPrint(a, "{s} kept verbatim; target not emitted", .{span}));
@@ -1692,8 +1759,13 @@ fn emitTransformBody(ctx: *EmitCtx, io: Io, src_root: Io.Dir, stage: Io.Dir, bod
                 }
                 var rel = dest;
                 // A non-empty baseurl is a prefix of every site path — strip
-                // it before resolving against the source tree.
-                if (ctx.baseurl.len > 0 and std.mem.startsWith(u8, rel, ctx.baseurl)) rel = rel[ctx.baseurl.len..];
+                // it at a path boundary only, so `/blog` does not eat
+                // `/blogger/...`.
+                if (ctx.baseurl.len > 0 and std.mem.startsWith(u8, rel, ctx.baseurl) and
+                    (rel.len == ctx.baseurl.len or rel[ctx.baseurl.len] == '/'))
+                {
+                    rel = rel[ctx.baseurl.len..];
+                }
                 while (rel.len > 0 and rel[0] == '/') rel = rel[1..];
                 if (std.mem.indexOfAny(u8, rel, "#?")) |cut| {
                     rel = rel[0..cut];
@@ -1721,7 +1793,16 @@ fn emitTransformBody(ctx: *EmitCtx, io: Io, src_root: Io.Dir, stage: Io.Dir, bod
                         continue;
                     }
                 }
+                // Non-Markdown collection member copied as an asset →
+                // root-relative markdown link.
                 if (rel.len > 0) {
+                    if (ctx.member_assets.get(rel)) |mdest| {
+                        if (is_img) try out.append(a, '!');
+                        try out.appendSlice(a, try std.fmt.allocPrint(a, "[{s}](/{s})", .{ text, mdest }));
+                        try ctx.links.append(a, .{ .source_path = ctx.page.source_path, .target = dest, .result = mdest });
+                        i = paren_close + 1;
+                        continue;
+                    }
                     try out.appendSlice(a, span);
                     try emitReportOnce(ctx, try std.fmt.allocPrint(a, "link/{s}", .{dest}), "unresolved_link", try std.fmt.allocPrint(a, "link {s} kept verbatim; target not found", .{dest}));
                     i = paren_close + 1;
@@ -1812,13 +1893,15 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
     var path_index = std.StringHashMap([]const u8).init(a);
     var static_set = std.StringHashMap(void).init(a);
     for (inv.static_files.items) |f| {
-        if (!emitIsPublicAssetPath(f)) continue;
+        if (!emitIsPublicAssetPath(f, cfg.include_paths.items)) continue;
         try static_set.put(f, {});
     }
 
     var epages: std.ArrayList(EmitPage) = .empty;
     var id_used = std.StringHashMap(void).init(a);
     var pending_member_copies: std.ArrayList(PendingMemberCopy) = .empty;
+    var member_assets = std.StringHashMap([]const u8).init(a);
+    var member_asset_dests = std.StringHashMap(void).init(a);
 
     // posts → satellites of a generated `posts` trunk.
     const have_posts = inv.posts.items.len > 0;
@@ -1954,7 +2037,17 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
                 // Non-Markdown member (image, etc.): Jekyll copies it out; the
                 // lab copies it beside the collection trunk and reports.
                 const base = try emitSanitizeSegment(a, std.fs.path.basename(m));
-                const dest = try std.fmt.allocPrint(a, "content/{s}.assets/{s}", .{ try emitSanitizeSegment(a, col.name), base });
+                var dest_name = base;
+                var dest = try std.fmt.allocPrint(a, "content/{s}.assets/{s}", .{ try emitSanitizeSegment(a, col.name), dest_name });
+                var mn: usize = 2;
+                while (member_asset_dests.contains(dest) or copied.contains(dest)) : (mn += 1) {
+                    dest_name = try std.fmt.allocPrint(a, "{d}-{s}", .{ mn, base });
+                    dest = try std.fmt.allocPrint(a, "content/{s}.assets/{s}", .{ try emitSanitizeSegment(a, col.name), dest_name });
+                }
+                try member_asset_dests.put(dest, {});
+                // `{% link %}` / markdown destinations resolve to the copied
+                // asset (`content/` prefix dropped for root-relative links).
+                try member_assets.put(m, dest["content/".len..]);
                 const data = readFileAlloc(io, root, m, a) catch |err| {
                     try review.append(a, .{ .source_path = m, .kind = "member_copy_failed", .detail = try std.fmt.allocPrint(a, "static collection member could not be read: {s}", .{@errorName(err)}) });
                     continue;
@@ -2133,6 +2226,8 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
             .post_index = post_index,
             .path_index = path_index,
             .static_set = static_set,
+            .includes = cfg.include_paths.items,
+            .member_assets = &member_assets,
             .baseurl = baseurl,
             .review = &review,
             .links = &links,
