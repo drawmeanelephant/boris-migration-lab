@@ -372,7 +372,7 @@ fn yamlAliases(a: std.mem.Allocator, source: []const u8, fm_end: usize, unclassi
         const value = trimSpace(t[colon + 1 ..]);
         in_aliases = value.len == 0;
         if (value.len > 0) {
-            if (value[0] == '[') {
+            if (value.len >= 2 and value[0] == '[' and value[value.len - 1] == ']') {
                 var items: std.ArrayList([]const u8) = .empty;
                 try splitTomlArray(a, value[1 .. value.len - 1], &items, unclassified, context);
                 out = items;
@@ -445,15 +445,15 @@ fn scanShortcodes(a: std.mem.Allocator, body: []const u8, counts: *std.ArrayList
             }
             if (is_close) continue;
             const delim: []const u8 = if (delim_c == '<') "{{<" else "{{%";
-            var found = false;
+            var merged = false;
             for (counts.items) |*sc| {
-                if (std.mem.eql(u8, sc.name, name)) {
+                if (std.mem.eql(u8, sc.name, name) and std.mem.eql(u8, sc.delimiter, delim)) {
                     sc.count += 1;
-                    found = true;
+                    merged = true;
                     break;
                 }
             }
-            if (!found) {
+            if (!merged) {
                 try counts.append(a, .{ .name = try a.dupe(u8, name), .delimiter = delim, .count = 1 });
             }
         }
@@ -543,7 +543,13 @@ fn scanConfig(io: Io, a: std.mem.Allocator, root: Io.Dir, unclassified: *std.Arr
     var lang_index = std.StringHashMap(usize).init(a);
     for (texts.items) |t| {
         const pairs = try scanToml(a, t.text, unclassified);
-        for (pairs) |p| {
+        for (pairs) |p_raw| {
+            // A split `config/_default/languages.toml` uses bare `[en]`-style
+            // tables; its filename supplies the `languages.` namespace.
+            const p = if (std.mem.endsWith(u8, t.name, "languages.toml") and !std.mem.startsWith(u8, p_raw.key, "languages."))
+                TomlPair{ .key = try std.fmt.allocPrint(a, "languages.{s}", .{p_raw.key}), .value = p_raw.value }
+            else
+                p_raw;
             if (std.mem.eql(u8, p.key, "baseURL")) {
                 cfg.base_url = stripQuotes(p.value);
             } else if (std.mem.eql(u8, p.key, "title")) {
@@ -552,7 +558,9 @@ fn scanConfig(io: Io, a: std.mem.Allocator, root: Io.Dir, unclassified: *std.Arr
                 cfg.default_language = stripQuotes(p.value);
             } else if (std.mem.startsWith(u8, p.key, "languages.")) {
                 const rest = p.key["languages.".len..];
-                const dot = std.mem.lastIndexOfScalar(u8, rest, '.') orelse continue;
+                // First dot splits code from field so `[languages.en.params]`
+                // attaches `params.*` to `en`, not a fictitious `en.params` code.
+                const dot = std.mem.indexOfScalar(u8, rest, '.') orelse continue;
                 const code = rest[0..dot];
                 const field = rest[dot + 1 ..];
                 const idx = lang_index.get(code) orelse blk: {
@@ -764,13 +772,23 @@ fn scanSite(io: Io, a: std.mem.Allocator, root: Io.Dir) !Inventory {
     var content_scanned = false;
     if (cfg.languages.len > 0) {
         for (cfg.languages) |lang| {
-            if (lang.content_dir.len == 0) continue;
-            if (!dirExists(io, root, lang.content_dir)) {
-                try unclassified.append(a, try std.fmt.allocPrint(a, "languages.{s}.contentDir {s} missing", .{ lang.code, lang.content_dir }));
+            // No explicit contentDir: Hugo falls back to content/<lang>.
+            const content_dir = if (lang.content_dir.len > 0)
+                lang.content_dir
+            else
+                try std.fmt.allocPrint(a, "content/{s}", .{lang.code});
+            if (!dirExists(io, root, content_dir)) {
+                try unclassified.append(a, try std.fmt.allocPrint(a, "languages.{s} content dir {s} missing", .{ lang.code, content_dir }));
                 continue;
             }
             content_scanned = true;
-            try scanContentDir(io, ctx, root, lang.content_dir, "", lang.code, 0);
+            try scanContentDir(io, ctx, root, content_dir, "", lang.code, 0);
+        }
+        // A multilingual site can also keep a shared default tree under
+        // content/ when no language declares a directory for it.
+        if (!content_scanned and dirExists(io, root, "content")) {
+            content_scanned = true;
+            try scanContentDir(io, ctx, root, "content", "", cfg.default_language orelse "", 0);
         }
     } else if (dirExists(io, root, "content")) {
         content_scanned = true;
@@ -1266,6 +1284,126 @@ test "hugo: TOML front matter extracts keys and aliases" {
     try std.testing.expectEqual(@as(usize, 2), fm.aliases.len);
     try std.testing.expectEqualStrings("/old/", fm.aliases[0]);
     try std.testing.expectEqualStrings("Body text.", std.mem.trim(u8, src[fm.body_offset..], "\n"));
+}
+
+test "hugo: unclosed inline aliases value is unclassified, not a crash" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var unclassified: std.ArrayList([]const u8) = .empty;
+    const src =
+        \\---
+        \\title: "X"
+        \\aliases: [
+        \\---
+        \\Body.
+    ;
+    const lite = try archaeology.parseFrontmatterLite(a, src);
+    const aliases = try yamlAliases(a, src, lite.body_offset, &unclassified, "test");
+    try std.testing.expectEqual(@as(usize, 0), aliases.len);
+    try std.testing.expect(unclassified.items.len >= 1);
+}
+
+test "hugo: same shortcode under both delimiters counts separately" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var counts: std.ArrayList(ShortcodeCount) = .empty;
+    var fenced: std.ArrayList([]const u8) = .empty;
+    const body =
+        \\{{< callout >}}
+        \\{{% callout %}}
+    ;
+    try scanShortcodes(a, body, &counts, &fenced);
+    try std.testing.expectEqual(@as(usize, 2), counts.items.len);
+}
+
+test "hugo: nested [languages.en.params] does not invent languages" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var unclassified: std.ArrayList([]const u8) = .empty;
+    const text =
+        \\[languages.en]
+        \\weight = 1
+        \\
+        \\[languages.en.params]
+        \\author = "x"
+        \\
+    ;
+    const pairs = try scanToml(a, text, &unclassified);
+    var tmp = std.testing.tmpDir(.{});
+    const io = std.testing.io;
+    defer {
+        tmp.dir.close(io);
+        tmp.parent_dir.deleteTree(io, &tmp.sub_path) catch {};
+        tmp.parent_dir.close(io);
+    }
+    const root = try tmpBase(a, &tmp, "nested-lang");
+    try Io.Dir.cwd().createDirPath(io, root);
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fmt.allocPrint(a, "{s}/config.toml", .{root}), .data = text });
+    var dir = try Io.Dir.cwd().openDir(io, root, .{ .iterate = true });
+    defer dir.close(io);
+    const cfg = try scanConfig(io, a, dir, &unclassified);
+    _ = pairs;
+    try std.testing.expectEqual(@as(usize, 1), cfg.languages.len);
+    try std.testing.expectEqualStrings("en", cfg.languages[0].code);
+}
+
+test "hugo: split config/_default/languages.toml uses bare language tables" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer {
+        tmp.dir.close(io);
+        tmp.parent_dir.deleteTree(io, &tmp.sub_path) catch {};
+        tmp.parent_dir.close(io);
+    }
+    const root = try tmpBase(a, &tmp, "split-lang");
+    try Io.Dir.cwd().createDirPath(io, try std.fmt.allocPrint(a, "{s}/config/_default", .{root}));
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fmt.allocPrint(a, "{s}/config/_default/languages.toml", .{root}), .data =
+        \\[en]
+        \\languageName = "English"
+        \\contentDir = "content/en"
+        \\weight = 1
+        \\
+    });
+    var unclassified: std.ArrayList([]const u8) = .empty;
+    var dir = try Io.Dir.cwd().openDir(io, root, .{ .iterate = true });
+    defer dir.close(io);
+    const cfg = try scanConfig(io, a, dir, &unclassified);
+    try std.testing.expectEqual(@as(usize, 1), cfg.languages.len);
+    try std.testing.expectEqualStrings("content/en", cfg.languages[0].content_dir);
+}
+
+test "hugo: language without contentDir falls back to content/<lang>" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer {
+        tmp.dir.close(io);
+        tmp.parent_dir.deleteTree(io, &tmp.sub_path) catch {};
+        tmp.parent_dir.close(io);
+    }
+    const root = try tmpBase(a, &tmp, "implicit-langdir");
+    try Io.Dir.cwd().createDirPath(io, try std.fmt.allocPrint(a, "{s}/content/en", .{root}));
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fmt.allocPrint(a, "{s}/config.toml", .{root}), .data =
+        \\[languages.en]
+        \\languageName = "English"
+        \\
+    });
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fmt.allocPrint(a, "{s}/content/en/page.md", .{root}), .data = "hi\n" });
+    const out = try std.fmt.allocPrint(a, "{s}-out", .{root});
+    try run(io, a, .{ .root_dir = root, .out_dir = out, .quiet = true });
+    var o = try Io.Dir.cwd().openDir(io, out, .{});
+    defer o.close(io);
+    const json = try readFileAlloc(io, o, "inventory.json", a);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"path\": \"content/en/page.md\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"language\": \"en\"") != null);
 }
 
 test "hugo: fixture inventory determinism + golden counts" {
