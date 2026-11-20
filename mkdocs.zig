@@ -3245,6 +3245,10 @@ fn writeHostileProject(io: Io, a: std.mem.Allocator, root: []const u8) !void {
         .{ "docs/img/2-a-b.png/c.png", "C" },
         .{ "docs/titled.md", "# Titled\n\n[t](edge.md \"a (b\") then [u](edge.md).\n![c](img/2-a-b.png/c.png) ![a](img/a%20b.png) ![b](img/a-b.png)\n" },
         .{ "docs/sec/README.md", "# Sec readme\n" },
+        .{ "docs/img/q-r", "Q" },
+        .{ "docs/img/q r/z.png", "Z" },
+        .{ "docs/img/it's a.png", "I" },
+        .{ "docs/paren.md", "# Paren\n\n[e](edge.md \"a \\\"(b)\\\" c\") tail ![x](img/q-r) ![y](img/q%20r/z.png) ![s](<img/it's a.png>)\n" },
         .{ "docs/sec/inner.md", "# Inner\n" },
     };
     for (files) |f| {
@@ -3405,8 +3409,11 @@ test "mkdocs: emit handles hostile nav, links, and literals" {
     try runEmit(io, gpa, .{ .root_dir = root, .out_dir = out, .quiet = true });
     const titled = try readOutFile(io, out, "content/titled.md", a);
     try std.testing.expect(std.mem.indexOf(u8, titled, "[[edge|t]] then [[edge|u]].") != null);
-    try std.testing.expect(std.mem.indexOf(u8, titled, "titled.assets/img/2-a-b.png/c.png) ![a](titled.assets/img/a-b.png) ![b](titled.assets/img/3-a-b.png)") != null);
-    try std.testing.expectEqualStrings("B", try readOutFile(io, out, "content/titled.assets/img/3-a-b.png", a));
+    try std.testing.expect(std.mem.indexOf(u8, titled, "titled.assets/img/2-a-b.png/c.png) ![a](titled.assets/img/a-b.png) ![b](titled.assets/3-img/a-b.png)") != null);
+    try std.testing.expectEqualStrings("B", try readOutFile(io, out, "content/titled.assets/3-img/a-b.png", a));
+    const paren = try readOutFile(io, out, "content/paren.md", a);
+    try std.testing.expect(std.mem.indexOf(u8, paren, "[[edge|e]] tail ![x](paren.assets/img/q-r) ![y](paren.assets/2-img/q-r/z.png) ![s](paren.assets/img/it-s-a.png)\n") != null);
+    try std.testing.expectEqualStrings("Z", try readOutFile(io, out, "content/paren.assets/2-img/q-r/z.png", a));
     const edge = try readOutFile(io, out, "content/edge.md", a);
     try std.testing.expect(std.mem.indexOf(u8, edge, "Hard break  \nnext. [[setup-v2|v2]]\n") != null);
     try std.testing.expect(std.mem.indexOf(u8, edge, "![a](edge.assets/img/a-b.png) ![b](edge.assets/img/2-a-b.png)") != null);
