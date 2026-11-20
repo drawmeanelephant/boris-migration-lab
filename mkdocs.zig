@@ -304,6 +304,41 @@ fn headingSlug(a: std.mem.Allocator, text: []const u8) ![]u8 {
 // mkdocs.yml bounded parse
 // ---------------------------------------------------------------------------
 
+fn stripTrailingSlashes(s: []const u8) []const u8 {
+    var end = s.len;
+    while (end > 0 and s[end - 1] == '/') end -= 1;
+    return s[0..end];
+}
+
+fn stripYamlComment(s: []const u8) []const u8 {
+    var quote: u8 = 0;
+    for (s, 0..) |c, i| {
+        if (quote != 0) {
+            if (c == quote) quote = 0;
+        } else if (c == '\'' or c == '"') {
+            quote = c;
+        } else if (c == '#' and (i == 0 or s[i - 1] == ' ' or s[i - 1] == '\t')) {
+            return rtrim(s[0..i]);
+        }
+    }
+    return s;
+}
+
+// First `:` followed by a space, ignoring colons inside single/double quotes.
+fn findEntryColon(body: []const u8) ?usize {
+    var quote: u8 = 0;
+    for (body, 0..) |c, i| {
+        if (quote != 0) {
+            if (c == quote) quote = 0;
+        } else if (c == '\'' or c == '"') {
+            quote = c;
+        } else if (c == ':' and i + 1 < body.len and body[i + 1] == ' ') {
+            return i;
+        }
+    }
+    return null;
+}
+
 fn parseConfigYaml(a: std.mem.Allocator, yaml: []const u8) !Config {
     var cfg: Config = .{
         .top_keys = &.{},
@@ -331,8 +366,9 @@ fn parseConfigYaml(a: std.mem.Allocator, yaml: []const u8) !Config {
         const line = rtrim(raw_line);
         if (line.len == 0) continue;
         const indent = lineIndent(line);
-        const content = trim(line);
+        const content = trim(stripYamlComment(line[indent..]));
         if (content.len == 0) continue;
+        const is_dash_item = content[0] == '-' and (content.len == 1 or content[1] == ' ');
 
         // Record (never interpret) Python YAML tags anywhere in the file.
         var scan: usize = 0;
@@ -345,7 +381,7 @@ fn parseConfigYaml(a: std.mem.Allocator, yaml: []const u8) !Config {
 
         if (content[0] == '#') continue;
 
-        if (indent == 0) {
+        if (indent == 0 and !(is_dash_item and (in_nav or in_list_key != null))) {
             in_nav = false;
             in_list_key = null;
             section_stack.clearRetainingCapacity();
@@ -362,13 +398,15 @@ fn parseConfigYaml(a: std.mem.Allocator, yaml: []const u8) !Config {
             } else if (std.mem.eql(u8, key, "markdown_extensions")) {
                 in_list_key = "markdown_extensions";
             } else if (std.mem.eql(u8, key, "docs_dir") and value.len > 0) {
-                cfg.docs_dir = try a.dupe(u8, std.mem.trim(u8, value, "'\""));
+                var dd = std.mem.trim(u8, value, "'\"");
+                dd = stripTrailingSlashes(dd);
+                if (dd.len > 0) cfg.docs_dir = try a.dupe(u8, dd);
             }
             continue;
         }
 
-        if (in_nav and indent > nav_indent) {
-            if (!std.mem.startsWith(u8, content, "-")) continue;
+        if (in_nav and indent >= nav_indent) {
+            if (!is_dash_item) continue;
             const body = trim(content[1..]);
             if (body.len == 0) continue;
             while (section_stack.items.len > 0 and section_stack.items[section_stack.items.len - 1] >= indent) {
@@ -415,7 +453,7 @@ fn parseConfigYaml(a: std.mem.Allocator, yaml: []const u8) !Config {
         }
 
         if (in_list_key) |which| {
-            if (std.mem.startsWith(u8, content, "-")) {
+            if (is_dash_item) {
                 const body = trim(content[1..]);
                 const name_end = std.mem.indexOfAny(u8, body, ": {") orelse body.len;
                 const name = try a.dupe(u8, std.mem.trim(u8, trim(body[0..name_end]), "'\""));
