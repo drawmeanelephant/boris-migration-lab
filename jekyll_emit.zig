@@ -463,8 +463,11 @@ const Rewriter = struct {
     /// tag verbatim).
     fn wikiRef(self: *Rewriter, body: []const u8, after: *usize, id: []const u8) !bool {
         const out = self.out.items;
-        const in_link = std.mem.endsWith(u8, out, "](") and after.* < body.len and body[after.*] == ')';
-        if (!in_link) {
+        const in_dest = std.mem.endsWith(u8, out, "](");
+        // A fragment, title, or other suffix inside the destination has no
+        // wiki-link form that is safe to guess.
+        if (in_dest and (after.* >= body.len or body[after.*] != ')')) return false;
+        if (!in_dest) {
             try self.out.print(self.a, "[[{s}]]", .{id});
             return true;
         }
@@ -1535,6 +1538,7 @@ test "jekyll: emit body rewrite resolves post_url/link and keeps other Liquid" {
         \\{% post_url 1999-01-01-gone %} {% link nope.md %} {% assign x = 1 %} {{ page.title }}
         \\{{ site.baseurl }}/assets/a b.png {{ site.baseurl }}/nowhere
         \\{% raw %}{% post_url 2024-01-02-x %}{% endraw %}
+        \\[Frag]({% link _docs/g.md %}#sec) [T]({% post_url 2024-01-02-x %} "title")
         \\```
         \\{% post_url 2024-01-02-x %}
         \\```
@@ -1547,10 +1551,11 @@ test "jekyll: emit body rewrite resolves post_url/link and keeps other Liquid" {
     try expectContains(out, "{% raw %}{% post_url 2024-01-02-x %}{% endraw %}");
     try expectContains(out, "```\n{% post_url 2024-01-02-x %}\n```");
     try expectContains(out, "{{ site.baseurl }}/nowhere");
+    try expectContains(out, "[Frag]({% link _docs/g.md %}#sec) [T]({% post_url 2024-01-02-x %} \"title\")");
     // `assets/a b.png` stops at the space, so it does not resolve; the
     // baseurl stays verbatim and is a review item.
     try std.testing.expect(page.class == .human_review);
-    for ([_][]const u8{ "post_url_unresolved", "link_unresolved", "liquid_unsupported", "baseurl_unresolved", "link_label_unrepresentable" }) |code| {
+    for ([_][]const u8{ "post_url_unresolved", "link_unresolved", "liquid_unsupported", "baseurl_unresolved", "link_label_unrepresentable", "post_url_label_unrepresentable" }) |code| {
         try std.testing.expect(containsStr(page.review.items, code));
     }
 }
