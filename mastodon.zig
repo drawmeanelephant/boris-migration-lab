@@ -155,7 +155,10 @@ fn statusNum(uri: []const u8) []const u8 {
 }
 
 fn isSelfReply(actor_uri: []const u8, in_reply_to: []const u8) bool {
-    return std.mem.indexOf(u8, in_reply_to, actor_uri) != null;
+    // Exact URI or URI + '/': a bare substring match would treat
+    // /users/alice2/… as a self-reply of /users/alice.
+    return std.mem.startsWith(u8, in_reply_to, actor_uri) and
+        (in_reply_to.len == actor_uri.len or in_reply_to[actor_uri.len] == '/');
 }
 
 fn parseStatus(a: std.mem.Allocator, note: std.json.Value) !Status {
@@ -371,27 +374,34 @@ fn mastoSlug(a: std.mem.Allocator, num: []const u8) ![]const u8 {
 }
 
 /// Copy an attachment or emoji icon into `content/<id>.assets/<name>`;
-/// returns the page-relative link path or null when missing.
+/// returns the page-relative link path or null when missing. Streams via
+/// `Io.Dir.copyFile` so large archives never buffer a whole file.
 fn mastoCopyAsset(ctx: *const MEmitCtx, url: []const u8) !?[]const u8 {
     var rel = url;
     if (std.mem.indexOf(u8, rel, "media_attachments/")) |idx| {
         rel = rel[idx..];
     }
     if (!std.mem.startsWith(u8, rel, "media_attachments/")) return null;
+    // Archive-held paths must stay under media_attachments/: reject any
+    // `..` segment, backslash, or anchor that would read outside --root.
+    var seg_it = std.mem.splitScalar(u8, rel, '/');
+    while (seg_it.next()) |seg| {
+        if (std.mem.eql(u8, seg, "..")) return null;
+    }
+    if (std.mem.indexOfScalar(u8, rel, '\\') != null) return null;
     const name = try asset_filename.sanitizeSegment(ctx.a, std.fs.path.basename(rel));
     const dest_rel = try std.fmt.allocPrint(ctx.a, "{s}.assets/{s}", .{ ctx.page.id, name });
     const link_rel = try std.fmt.allocPrint(ctx.a, "{s}.assets/{s}", .{ std.fs.path.basename(ctx.page.id), name });
     const full_src = try std.fmt.allocPrint(ctx.a, "{s}/{s}", .{ ctx.root_dir, rel });
     if (!ctx.assets_seen.contains(dest_rel)) {
         try ctx.assets_seen.put(dest_rel, {});
-        const bytes = readFileAlloc(ctx.io, Io.Dir.cwd(), full_src, ctx.a) catch |err| switch (err) {
+        Io.Dir.cwd().copyFile(full_src, ctx.stage, try std.fmt.allocPrint(ctx.a, "content/{s}", .{dest_rel}), ctx.io, .{ .make_path = true }) catch |err| switch (err) {
             error.FileNotFound => {
                 try ctx.assets.append(ctx.a, .{ .source_path = ctx.page.num, .source = full_src, .dest = dest_rel, .kind = "missing" });
                 return null;
             },
             else => return err,
         };
-        try writeBytes(ctx.io, ctx.stage, try std.fmt.allocPrint(ctx.a, "content/{s}", .{dest_rel}), bytes);
         try ctx.assets.append(ctx.a, .{ .source_path = ctx.page.num, .source = full_src, .dest = dest_rel, .kind = "copied" });
     }
     return link_rel;
@@ -441,6 +451,15 @@ fn mastoFrontmatter(
     return try buf.toOwnedSlice(a);
 }
 
+/// Truncate at a byte limit, backing off to a UTF-8 character boundary so
+/// the emitted frontmatter never holds a truncated multi-byte sequence.
+fn fmClamp(s: []const u8, max: usize) []const u8 {
+    if (s.len <= max) return s;
+    var end = max;
+    while (end > 0 and (s[end] & 0xC0) == 0x80) end -= 1;
+    return s[0..end];
+}
+
 fn mastoTitle(st: Status) []const u8 {
     if (st.summary) |s| {
         if (s.len > 0) return s;
@@ -483,6 +502,16 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
 
     // status URI → thread root num (self-reply chains only).
     var thread_root: std.StringHashMap([]const u8) = .init(a);
+    // Emittable status URIs — a satellite's root must itself be emitted.
+    var emitted_uris: std.StringHashMap(void) = .init(a);
+    // Self-replies whose root is not emittable (standalone, no parent edge).
+    var orphaned_replies: std.StringHashMap(void) = .init(a);
+    for (outbox.activities) |act| {
+        const st = act.status orelse continue;
+        if (st.visibility == .public_ or st.visibility == .unlisted) {
+            try emitted_uris.put(try a.dupe(u8, st.id), {});
+        }
+    }
     for (outbox.activities) |act| {
         const st = act.status orelse continue;
         const irt = st.in_reply_to orelse continue;
@@ -526,7 +555,9 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
                     .num = st.num,
                     .id = "",
                     .parent = null,
-                    .title = title,
+                    // Skipped posts are never written: keep the CW/summary
+                    // text out of the report title too (private content).
+                    .title = try a.dupe(u8, st.num),
                     .visibility = mVisibilityName(vis),
                     .status = st.type,
                     .kind = "skipped",
@@ -538,10 +569,17 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
             var id: []const u8 = undefined;
             var parent: ?[]const u8 = null;
             if (root) |r| {
-                const rnum = statusNum(r);
-                const root_slug = try mastoSlug(a, rnum);
-                id = try std.fmt.allocPrint(a, "{s}/{s}", .{ root_slug, st.num });
-                parent = root_slug;
+                if (emitted_uris.contains(r)) {
+                    const rnum = statusNum(r);
+                    const root_slug = try mastoSlug(a, rnum);
+                    id = try std.fmt.allocPrint(a, "{s}/{s}", .{ root_slug, st.num });
+                    parent = root_slug;
+                } else {
+                    // Root is not emittable (followers-only/direct) — emit
+                    // standalone rather than writing a dangling parent edge.
+                    try orphaned_replies.put(try a.dupe(u8, st.num), {});
+                    id = try mastoSlug(a, st.num);
+                }
             } else {
                 id = try mastoSlug(a, st.num);
             }
@@ -591,6 +629,9 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
         };
         const review_start = review.items.len;
 
+        if (orphaned_replies.contains(st.num)) {
+            try mastoReviewOnce(&ctx, &review_dedup, "orphaned_reply", "thread root not emittable; emitted standalone instead of as satellite");
+        }
         // Body.
         var body: std.ArrayList(u8) = .empty;
         if (std.mem.eql(u8, st.type, "Question")) {
@@ -636,11 +677,19 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
         }
 
         var hashtags: std.ArrayList([]const u8) = .empty;
+        var clamped = false;
         for (st.tags) |tag| {
             if (std.mem.eql(u8, tag.type, "Hashtag")) {
                 var name = tag.name;
                 if (std.mem.startsWith(u8, name, "#")) name = name[1..];
-                if (name.len > 0) try hashtags.append(a, name);
+                if (name.len > 0) {
+                    if (hashtags.items.len >= 32) {
+                        clamped = true;
+                        continue;
+                    }
+                    if (fmClamp(name, 64).len != name.len) clamped = true;
+                    try hashtags.append(a, fmClamp(name, 64));
+                }
             }
         }
         const boris_status: []const u8 = if (st.visibility == .public_) "published" else "draft";
@@ -649,10 +698,23 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
             try mastoReviewOnce(&ctx, &review_dedup, "published_at_dropped", try std.fmt.allocPrint(a, "published '{s}' not a Boris timestamp; provenance only", .{st.published}));
         }
         // Content warning → summary; otherwise a summary is still required
-        // when published_at is present (title fallback).
+        // when published_at is present (title fallback). Boris bounds title
+        // ≤512 B, summary ≤1024 B, ≤32 tags of ≤64 B — clamp, don't fail.
         const cw: ?[]const u8 = if (st.summary) |s| if (s.len > 0) s else null else null;
-        const summary = cw orelse (if (fm_published != null) gp.title else "");
-        const fm = try mastoFrontmatter(a, gp.id, gp.title, gp.parent, boris_status, hashtags.items, fm_published, if (summary.len > 0) summary else null);
+        var summary = cw orelse (if (fm_published != null) gp.title else "");
+        var title = gp.title;
+        if (fmClamp(title, 512).len != title.len) {
+            title = fmClamp(title, 512);
+            clamped = true;
+        }
+        if (fmClamp(summary, 1024).len != summary.len) {
+            summary = fmClamp(summary, 1024);
+            clamped = true;
+        }
+        if (clamped) {
+            try mastoReviewOnce(&ctx, &review_dedup, "fm_limit_clamped", "frontmatter value(s) exceeded Boris bounds; truncated/counted");
+        }
+        const fm = try mastoFrontmatter(a, gp.id, title, gp.parent, boris_status, hashtags.items, fm_published, if (summary.len > 0) summary else null);
 
         var prov: std.ArrayList(u8) = .empty;
         try prov.appendSlice(a, "<!-- boris-migration-lab provenance\n");
@@ -690,7 +752,21 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
 
 fn convHtml(ctx: *const MEmitCtx, html: []const u8) ![]const u8 {
     const conv = try wordpress.htmlToMarkdown(ctx.a, html);
-    return conv[0];
+    // Literal `[[…]]` in post text (people quote wiki syntax) must stay
+    // literal — Boris parses it as a wiki link and errors when the target
+    // is missing.
+    var out: std.ArrayList(u8) = .empty;
+    var i: usize = 0;
+    while (i < conv[0].len) {
+        if (i + 1 < conv[0].len and conv[0][i] == '[' and conv[0][i + 1] == '[') {
+            try out.appendSlice(ctx.a, "\\[\\[");
+            i += 2;
+        } else {
+            try out.append(ctx.a, conv[0][i]);
+            i += 1;
+        }
+    }
+    return try out.toOwnedSlice(ctx.a);
 }
 
 fn jsonEscapeAppend(buf: *std.ArrayList(u8), gpa: std.mem.Allocator, s: []const u8) !void {
