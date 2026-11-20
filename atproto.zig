@@ -716,6 +716,11 @@ const EPage = struct {
     collection: []const u8,
     rkey: []const u8,
     record: []const u8, // raw DAG-CBOR record bytes
+    // Reply references as authored — provenance only, never Boris edges.
+    reply_parent_uri: ?[]const u8 = null,
+    reply_root_uri: ?[]const u8 = null,
+    // Non-ISO timestamps dropped from fm land here instead.
+    published_at_dropped: ?[]const u8 = null,
 };
 
 const ECtx = struct {
@@ -738,13 +743,23 @@ fn eReview(ctx: *const ECtx, key: []const u8, kind: []const u8, detail: []const 
     try ctx.review.append(ctx.a, .{ .source_path = key, .kind = kind, .detail = detail });
 }
 
-/// Boris `published_at` needs `YYYY-MM-DDTHH:MM:SSZ`: pass matching
-/// shapes, normalize a trailing fraction or `+00:00`, else null.
+/// Boris `published_at` needs `YYYY-MM-DDTHH:MM:SSZ`: pass a trailing
+/// `Z`, normalize a trailing fraction or `+00:00` (both after the
+/// fraction), else null — a non-UTC offset can never be stamped `Z`.
 fn atPublishedAt(a: std.mem.Allocator, raw: []const u8) !?[]const u8 {
-    if (raw.len < 19) return null;
+    if (raw.len < 20) return null;
     if (!(raw[4] == '-' and raw[7] == '-' and raw[10] == 'T' and raw[13] == ':' and raw[16] == ':')) return null;
-    if (raw.len >= 20 and raw[19] == 'Z') return try a.dupe(u8, raw[0..20]);
-    if (raw.len > 19 and (raw[19] == '.' or std.mem.eql(u8, raw[19..@min(raw.len, 25)], "+00:00"))) {
+    if (raw[19] == 'Z') return try a.dupe(u8, raw[0..20]);
+    if (raw[19] == '.') {
+        var i: usize = 20;
+        while (i < raw.len and raw[i] >= '0' and raw[i] <= '9') i += 1;
+        if (i < raw.len and raw[i] == 'Z') return try std.fmt.allocPrint(a, "{s}Z", .{raw[0..19]});
+        if (raw.len - i == 6 and std.mem.eql(u8, raw[i..], "+00:00")) {
+            return try std.fmt.allocPrint(a, "{s}Z", .{raw[0..19]});
+        }
+        return null;
+    }
+    if (raw.len >= 25 and std.mem.eql(u8, raw[19..25], "+00:00")) {
         return try std.fmt.allocPrint(a, "{s}Z", .{raw[0..19]});
     }
     return null;
@@ -758,7 +773,9 @@ fn fmClamp(s: []const u8, max: usize) []const u8 {
 }
 
 /// Copy `blobs/<cid>` into `content/<id>.assets/<cid>.<ext>`; returns the
-/// page-relative link, or null with a `blob_missing` review row.
+/// page-relative link, or null with a `blob_missing` review row. The blob
+/// file is opened without following symlinks so an untrusted export can
+/// never leak a local file into publication assets.
 fn atCopyBlob(ctx: *const ECtx, page: *const EPage, cid: []const u8, mime: []const u8) !?[]const u8 {
     const ext: []const u8 = if (std.mem.indexOfScalar(u8, mime, '/')) |s| mime[s + 1 ..] else "bin";
     const clean_ext = try asset_filename.sanitizeSegment(ctx.a, ext);
@@ -768,14 +785,32 @@ fn atCopyBlob(ctx: *const ECtx, page: *const EPage, cid: []const u8, mime: []con
     const full_src = try std.fmt.allocPrint(ctx.a, "{s}/blobs/{s}", .{ ctx.root_dir, cid });
     if (!ctx.assets_seen.contains(dest_rel)) {
         try ctx.assets_seen.put(dest_rel, {});
-        Io.Dir.cwd().copyFile(full_src, ctx.stage, try std.fmt.allocPrint(ctx.a, "content/{s}", .{dest_rel}), ctx.io, .{ .make_path = true }) catch |err| switch (err) {
+        const bytes = blk: {
+            var blobs_dir = Io.Dir.cwd().openDir(ctx.io, try std.fmt.allocPrint(ctx.a, "{s}/blobs", .{ctx.root_dir}), .{
+                .follow_symlinks = false,
+            }) catch |err| switch (err) {
+                error.FileNotFound => break :blk error.FileNotFound,
+                else => return err,
+            };
+            defer blobs_dir.close(ctx.io);
+            var src_file = blobs_dir.openFile(ctx.io, cid, .{ .follow_symlinks = false }) catch |err| switch (err) {
+                error.FileNotFound => break :blk error.FileNotFound,
+                error.SymLinkLoop => break :blk error.FileNotFound, // symlinked blob: treat as missing, review row below
+                else => return err,
+            };
+            defer src_file.close(ctx.io);
+            var fr = src_file.reader(ctx.io, &.{});
+            break :blk try fr.interface.allocRemaining(ctx.a, .limited(512 << 20));
+        } catch |err| switch (err) {
             error.FileNotFound => {
                 try ctx.assets.append(ctx.a, .{ .source_path = page.rkey, .source = full_src, .dest = dest_rel, .kind = "missing" });
-                try eReview(ctx, page.rkey, "blob_missing", try std.fmt.allocPrint(ctx.a, "blob {s} referenced but absent under blobs/", .{cid}));
+                try eReview(ctx, page.rkey, "blob_missing", try std.fmt.allocPrint(ctx.a, "blob {s} referenced but absent under blobs/ (or symlinked)", .{cid}));
                 return null;
             },
-            else => return err,
+            else => |e| return e,
         };
+        try ctx.stage.createDirPath(ctx.io, try std.fmt.allocPrint(ctx.a, "content/{s}.assets", .{page.id}));
+        try ctx.stage.writeFile(ctx.io, .{ .sub_path = try std.fmt.allocPrint(ctx.a, "content/{s}", .{dest_rel}), .data = bytes });
         try ctx.assets.append(ctx.a, .{ .source_path = page.rkey, .source = full_src, .dest = dest_rel, .kind = "copied" });
     }
     return link_rel;
@@ -808,7 +843,10 @@ fn emitEmbedValue(ctx: *const ECtx, page: *EPage, em: []const car.MapEntry) !voi
                 else => continue,
             };
             const alt = textOf(car.mapGet(img, "alt")) orelse "";
-            const cid = blobCid(ctx.a, blob_m) orelse continue;
+            const cid = blobCid(ctx.a, blob_m) orelse {
+                try eReview(ctx, page.rkey, "blob_invalid", "embed image ref missing or not a CID string");
+                continue;
+            };
             const mime = textOf(car.mapGet(blob_m, "mimeType")) orelse "";
             if (try atCopyBlob(ctx, page, cid, mime)) |link| {
                 try page.body.print(ctx.a, "![{s}]({s})\n\n", .{ alt, link });
@@ -854,13 +892,22 @@ fn emitEmbedValue(ctx: *const ECtx, page: *EPage, em: []const car.MapEntry) !voi
 }
 
 /// `$type: "blob"` map → cid string, from either CID-link or `$link` map.
+/// `$link` text is attacker-controlled: it must look like a CID (short,
+/// alphanumeric) so it can never be a `blobs/` traversal or an unsafe
+/// asset filename.
 fn blobCid(a: std.mem.Allocator, blob_m: []const car.MapEntry) ?[]const u8 {
     const ref_v = car.mapGet(blob_m, "ref") orelse return null;
-    return switch (ref_v) {
+    const cid: ?[]const u8 = switch (ref_v) {
         .map => |rm| textOf(car.mapGet(rm, "$link")),
         .link => |l| cidToString(a, l),
         else => null,
     };
+    const c = cid orelse return null;
+    if (c.len == 0 or c.len > 128) return null;
+    for (c) |ch| {
+        if (!((ch >= '0' and ch <= '9') or (ch >= 'A' and ch <= 'Z') or (ch >= 'a' and ch <= 'z'))) return null;
+    }
+    return c;
 }
 
 fn emitQuoteRef(ctx: *const ECtx, page: *EPage, rec_m: []const car.MapEntry) !void {
@@ -872,12 +919,22 @@ fn emitQuoteRef(ctx: *const ECtx, page: *EPage, rec_m: []const car.MapEntry) !vo
         try eReview(ctx, page.rkey, "quote_unresolved", uri);
         return;
     };
-    const id = try std.fmt.allocPrint(ctx.a, "bsky-{s}", .{parts.rkey});
-    if (ctx.emitted_ids.contains(id)) {
-        try page.body.print(ctx.a, "> quoted: [[{s}]]\n\n", .{id});
-    } else {
-        try eReview(ctx, page.rkey, "quote_unresolved", try std.fmt.allocPrint(ctx.a, "quoted {s} not in this repo's emitted set", .{uri}));
+    // Quotes resolve only inside this repo's export: the DID must be the
+    // repo's own and the collection must map to an emitted page kind.
+    const prefix: ?[]const u8 = if (std.mem.eql(u8, parts.collection, "app.bsky.feed.post"))
+        "bsky"
+    else if (std.mem.eql(u8, parts.collection, "site.standard.document"))
+        "std"
+    else
+        null;
+    if (prefix != null and std.mem.eql(u8, parts.did, ctx.did)) {
+        const id = try std.fmt.allocPrint(ctx.a, "{s}-{s}", .{ prefix.?, parts.rkey });
+        if (ctx.emitted_ids.contains(id)) {
+            try page.body.print(ctx.a, "> quoted: [[{s}]]\n\n", .{id});
+            return;
+        }
     }
+    try eReview(ctx, page.rkey, "quote_unresolved", try std.fmt.allocPrint(ctx.a, "quoted {s} not in this repo's emitted set", .{uri}));
 }
 
 /// Hashtag names from `facets[]` `#tag` features.
@@ -956,8 +1013,37 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
     var parsed = car.parse(a, bytes) catch return error.InvalidAtprotoInput;
     const recs = parsed.records(a) catch return error.InvalidAtprotoInput;
 
-    // Pass 1: classify — which records emit, and under which id/parent.
+    var review: std.ArrayList(EReviewItem) = .empty;
+    var assets: std.ArrayList(EAsset) = .empty;
+    var assets_seen: std.StringHashMap(void) = .init(a);
+    var review_dedup: std.StringHashMap(void) = .init(a);
+
+    const out_dir = std.mem.trimEnd(u8, opts.out_dir, "/");
+    if (out_dir.len == 0) return error.InvalidAtprotoInput;
+    const inputs = [_][]const u8{opts.root_dir};
+    var pub_ = try publication.Publication.begin(io, a, out_dir, &inputs, format_id);
+    defer {
+        pub_.abandon(io, a);
+        pub_.deinit(a);
+    }
+    var stage = try Io.Dir.cwd().openDir(io, pub_.stage_path, .{});
+    defer stage.close(io);
+
     var emitted_ids: std.StringHashMap(void) = .init(a);
+    var ctx = ECtx{
+        .a = a,
+        .io = io,
+        .stage = stage,
+        .root_dir = opts.root_dir,
+        .did = parsed.did,
+        .review = &review,
+        .assets = &assets,
+        .assets_seen = &assets_seen,
+        .emitted_ids = &emitted_ids,
+        .review_dedup = &review_dedup,
+    };
+
+    // Pass 1: classify — which records emit, and under which id/parent.
     var pages: std.ArrayList(EPage) = .empty;
     var nsid_counts: std.StringArrayHashMapUnmanaged(usize) = .empty;
     var threads: usize = 0;
@@ -970,7 +1056,7 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
         const is_doc = std.mem.eql(u8, rec.collection, "site.standard.document");
         if (!is_post and !is_doc) continue;
         const id = try std.fmt.allocPrint(a, "{s}-{s}", .{ if (is_post) "bsky" else "std", rec.rkey });
-        try emitted_ids.put(id, {});
+        try ctx.emitted_ids.put(id, {});
     }
     for (recs) |rec| {
         const is_post = std.mem.eql(u8, rec.collection, "app.bsky.feed.post");
@@ -1004,7 +1090,13 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
                     else => {},
                 }
             }
-            page.published_at = if (textOf(car.mapGet(m, "publishedAt"))) |raw| try atPublishedAt(a, raw) else null;
+            if (textOf(car.mapGet(m, "publishedAt"))) |raw| {
+                page.published_at = try atPublishedAt(a, raw);
+                if (page.published_at == null) {
+                    page.published_at_dropped = raw;
+                    try eReview(&ctx, rec.rkey, "published_at_dropped", try std.fmt.allocPrint(a, "publishedAt '{s}' not a Boris UTC timestamp; provenance only", .{raw}));
+                }
+            }
             const text = textOf(car.mapGet(m, "text")) orelse "";
             page.summary = if (text.len > 0) fmClamp(try excerpt(a, text), 1024) else page.title;
             try page.body.appendSlice(a, text);
@@ -1020,14 +1112,39 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
                 .self_reply => try std.fmt.allocPrint(a, "Post {s} (reply)", .{rec.rkey}),
                 .external_reply => try std.fmt.allocPrint(a, "Post {s} (external reply)", .{rec.rkey}),
             };
+            if (car.mapGet(m, "reply")) |rv| {
+                switch (rv) {
+                    .map => |rm| {
+                        if (car.mapGet(rm, "parent")) |pv| {
+                            switch (pv) {
+                                .map => |pm| page.reply_parent_uri = textOf(car.mapGet(pm, "uri")),
+                                else => {},
+                            }
+                        }
+                        if (car.mapGet(rm, "root")) |rv2| {
+                            switch (rv2) {
+                                .map => |rm2| page.reply_root_uri = textOf(car.mapGet(rm2, "uri")),
+                                else => {},
+                            }
+                        }
+                    },
+                    else => {},
+                }
+            }
             if (shape == .self_reply) {
                 replies += 1;
                 if (threadRootRkey(m, parsed.did)) |root| {
                     page.parent = try std.fmt.allocPrint(a, "bsky-{s}", .{root});
-                    if (!emitted_ids.contains(page.parent.?)) page.parent = null;
+                    if (!ctx.emitted_ids.contains(page.parent.?)) page.parent = null;
                 }
             }
-            page.published_at = if (textOf(car.mapGet(m, "createdAt"))) |raw| try atPublishedAt(a, raw) else null;
+            if (textOf(car.mapGet(m, "createdAt"))) |raw| {
+                page.published_at = try atPublishedAt(a, raw);
+                if (page.published_at == null) {
+                    page.published_at_dropped = raw;
+                    try eReview(&ctx, rec.rkey, "published_at_dropped", try std.fmt.allocPrint(a, "createdAt '{s}' not a Boris UTC timestamp; provenance only", .{raw}));
+                }
+            }
             page.summary = if (text.len > 0) fmClamp(try excerpt(a, text), 1024) else page.title;
             try page.body.appendSlice(a, text);
             try page.body.appendSlice(a, "\n\n");
@@ -1035,34 +1152,7 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
         try pages.append(a, page);
     }
 
-    var review: std.ArrayList(EReviewItem) = .empty;
-    var assets: std.ArrayList(EAsset) = .empty;
-    var assets_seen: std.StringHashMap(void) = .init(a);
-    var review_dedup: std.StringHashMap(void) = .init(a);
-
-    const out_dir = std.mem.trimEnd(u8, opts.out_dir, "/");
-    if (out_dir.len == 0) return error.InvalidAtprotoInput;
-    const inputs = [_][]const u8{opts.root_dir};
-    var pub_ = try publication.Publication.begin(io, a, out_dir, &inputs, format_id);
-    defer {
-        pub_.abandon(io, a);
-        pub_.deinit(a);
-    }
-    var stage = try Io.Dir.cwd().openDir(io, pub_.stage_path, .{});
-    defer stage.close(io);
-
-    var ctx = ECtx{
-        .a = a,
-        .io = io,
-        .stage = stage,
-        .root_dir = opts.root_dir,
-        .did = parsed.did,
-        .review = &review,
-        .assets = &assets,
-        .assets_seen = &assets_seen,
-        .emitted_ids = &emitted_ids,
-        .review_dedup = &review_dedup,
-    };
+    try stage.createDirPath(io, "content");
 
     var prov: std.ArrayList(u8) = .empty;
     try prov.appendSlice(a, "{\n  \"format\": \"boris-atproto-migration-lab-provenance\",\n  \"repo_car_sha256\": ");
@@ -1100,12 +1190,21 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
         try jsonStr(&prov, a, page.collection);
         try prov.appendSlice(a, ", \"rkey\": ");
         try jsonStr(&prov, a, page.rkey);
-        try prov.appendSlice(a, ", \"parent_at_uri\": ");
-        if (page.parent != null) {
-            const parent_rkey = page.parent.?["bsky-".len..];
-            try jsonStr(&prov, a, try std.fmt.allocPrint(a, "at://{s}/app.bsky.feed.post/{s}", .{ parsed.did, parent_rkey }));
+        try prov.appendSlice(a, ", \"reply_parent_uri\": ");
+        if (page.reply_parent_uri) |u| {
+            try jsonStr(&prov, a, u);
         } else {
             try prov.appendSlice(a, "null");
+        }
+        try prov.appendSlice(a, ", \"reply_root_uri\": ");
+        if (page.reply_root_uri) |u| {
+            try jsonStr(&prov, a, u);
+        } else {
+            try prov.appendSlice(a, "null");
+        }
+        if (page.published_at_dropped) |d| {
+            try prov.appendSlice(a, ", \"published_at_dropped\": ");
+            try jsonStr(&prov, a, d);
         }
         try prov.appendSlice(a, "}");
     }
