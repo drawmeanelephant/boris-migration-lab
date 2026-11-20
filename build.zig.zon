@@ -40,6 +40,8 @@
         "layouts",
         "link_audit.zig",
         "frontmatter_review.zig",
+        "jekyll.zig",
+        "ghost.zig",
         "mkdocs.zig",
         "migration_semantics.zig",
         "publication.zig",
