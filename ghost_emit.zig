@@ -129,7 +129,7 @@ fn codeSpan(a: std.mem.Allocator, raw: []const u8) ![]const u8 {
     var longest: usize = 0;
     var streak: usize = 0;
     for (raw) |c| {
-        run = if (c == '`') run + 1 else 0;
+        streak = if (c == '`') streak + 1 else 0;
         longest = @max(longest, streak);
     }
     const fence = try a.alloc(u8, longest + 1);
@@ -1453,6 +1453,7 @@ test "ghost: html card handler and route detection" {
     try std.testing.expect(!htmlCardSafe("<img src=x\tonerror=alert(1)>"));
     try std.testing.expect(!htmlCardSafe("<svg/onload=alert(1)>"));
     try std.testing.expect(!htmlCardSafe("<a href=\"x\"onclick=\"y\">z</a>"));
+    try std.testing.expect(htmlCardSafe("<pre>const one = 1;</pre>"));
     try std.testing.expect(ghostRouteHref("<a href=\"__GHOST_URL__/about/\">About</a>"));
     try std.testing.expect(!ghostRouteHref("<img src=\"__GHOST_URL__/content/images/a.png\">"));
 }
@@ -1552,4 +1553,35 @@ test "ghost: identity findings feed the page conversion class" {
     const report = try ghost.readFileAlloc(io, od, "report.json", gpa);
     defer gpa.free(report);
     try std.testing.expect(std.mem.indexOf(u8, report, "\"entity_id\": \"posts/odd\", \"output\": \"content/posts/odd.md\", \"ghost_status\": \"draft\", \"boris_status\": \"draft\", \"visibility\": \"public\", \"body_format\": \"html\", \"conversion\": \"human_review\"") != null);
+}
+
+test "ghost: unsafe html card linking a ghost route is still withheld" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var slug_map: std.StringArrayHashMapUnmanaged([]const u8) = .empty;
+    var findings: std.ArrayList(Finding) = .empty;
+    var assets: std.ArrayList(AssetCopy) = .empty;
+    var ctx = testCtx(a, &slug_map, &findings, &assets);
+    const md = try lexicalToMarkdown(&ctx,
+        \\{"root":{"children":[{"type":"html","html":"<a href=\"__GHOST_URL__/about/\">x</a><script>alert(1)</script>"}]}}
+    );
+    try std.testing.expect(std.mem.indexOf(u8, md, "<script") == null);
+    try std.testing.expect(hasFinding(findings.items, "html_card_withheld"));
+}
+
+test "ghost: code spans keep content verbatim" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    try std.testing.expectEqualStrings("```a``b```", try codeSpan(a, "a``b"));
+    try std.testing.expectEqualStrings("`` `x ``", try codeSpan(a, "`x"));
+    var slug_map: std.StringArrayHashMapUnmanaged([]const u8) = .empty;
+    var findings: std.ArrayList(Finding) = .empty;
+    var assets: std.ArrayList(AssetCopy) = .empty;
+    var ctx = testCtx(a, &slug_map, &findings, &assets);
+    const mob = try mobiledocToMarkdown(&ctx,
+        \\{"markups":[["code"]],"atoms":[],"cards":[],"sections":[[1,"p",[[0,[0],1,"a_b"],[0,[],0," c_d"]]]]}
+    );
+    try std.testing.expectEqualStrings("`a_b` c\\_d", mob);
 }
