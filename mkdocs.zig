@@ -516,7 +516,8 @@ fn scanPage(a: std.mem.Allocator, page_path: []const u8, body: []const u8) !Scan
     }
 
     var in_fence = false;
-    var fence_marker: []const u8 = "";
+    var fence_char: u8 = 0;
+    var fence_len: usize = 0;
     var line_no: usize = 0;
     var lines = std.mem.splitScalar(u8, body, '\n');
     if (in_fm) {
@@ -548,14 +549,21 @@ fn scanPage(a: std.mem.Allocator, page_path: []const u8, body: []const u8) !Scan
             continue;
         }
 
-        if (std.mem.startsWith(u8, stripped, "```") or std.mem.startsWith(u8, stripped, "~~~")) {
-            if (!in_fence) {
-                in_fence = true;
-                fence_marker = stripped[0..3];
-            } else if (std.mem.startsWith(u8, stripped, fence_marker)) {
-                in_fence = false;
+        if (stripped.len >= 3 and (stripped[0] == '`' or stripped[0] == '~')) {
+            var run_len: usize = 0;
+            while (run_len < stripped.len and stripped[run_len] == stripped[0]) run_len += 1;
+            if (run_len >= 3) {
+                if (!in_fence) {
+                    in_fence = true;
+                    fence_char = stripped[0];
+                    fence_len = run_len;
+                    continue;
+                }
+                if (stripped[0] == fence_char and run_len >= fence_len and trim(stripped[run_len..]).len == 0) {
+                    in_fence = false;
+                    continue;
+                }
             }
-            continue;
         }
         if (in_fence) continue;
 
