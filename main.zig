@@ -18,6 +18,7 @@
 //!   hugo-inventory — Hugo project → inventory.json + INVENTORY.md (read-only)
 //!   hugo — Hugo project → Boris content/ + provenance, redirects, review reports
 //!   mkdocs-inventory — MkDocs mkdocs.yml + docs tree → inventory.json + INVENTORY.md
+//!   mkdocs     — MkDocs project → Boris Markdown (Trunk/Satellite nav) + reports
 //!
 //! Never rewrites inputs. Not part of the Boris product compiler pipeline.
 //!
@@ -946,6 +947,15 @@ test "parseOptions: mkdocs-inventory flags" {
     try std.testing.expectEqualStrings("outputs/mkdocs-inv", o.out_dir);
     const o2 = try parseOptions(&.{ "boris-migration-lab", "--mode=mkdocs-inv", "--root=r", "--out=o" });
     try std.testing.expect(o2.mode == .mkdocs_inventory);
+}
+
+test "parseOptions: mkdocs emit flags" {
+    const o = try parseOptions(&.{ "boris-migration-lab", "--mode=mkdocs", "--root=fixtures/mini-mkdocs", "--out=outputs/mkdocs" });
+    try std.testing.expect(o.mode == .mkdocs);
+    try std.testing.expectEqualStrings("fixtures/mini-mkdocs", o.root_dir);
+    try std.testing.expectEqualStrings("outputs/mkdocs", o.out_dir);
+    const o2 = try parseOptions(&.{ "boris-migration-lab", "--mode=mkdocs-emit", "--root=r", "--out=o" });
+    try std.testing.expect(o2.mode == .mkdocs);
 }
 
 test "parseOptions: unknown flag" {
