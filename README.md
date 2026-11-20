@@ -20,6 +20,7 @@ Standalone **migration laboratory** for bringing existing sites into Boris.
 | **theme-materialize** | Theme source tree + `adaptation_ledger.json` | Safe Boris theme draft + materialization, manifest, provenance, and review reports |
 | **wordpress-theme** | Classic WordPress theme source tree | Deterministic PHP/template inventory + static Boris prototype + manual-review manifest (read-only) |
 | **link-audit** | Generated static HTML tree | Missing local routes/fragments report; external links are left out of scope |
+| **hugo-inventory** | Hugo project root (`config.toml`/`hugo.toml` + `content/`) | Read-only `inventory.json` + `INVENTORY.md` |
 | **jekyll-inventory** | Jekyll site source tree | Read-only `inventory.json` + `INVENTORY.md` (posts, drafts, collections, Liquid, `_data` refs) |
 | **ghost-inventory** | Unpacked Ghost 5 export root (`ghost-export.json` + `content/images/`) | Read-only `inventory.json` + `INVENTORY.md` |
 | **mkdocs-inventory** | MkDocs project root (`mkdocs.yml` + `docs/`) | Read-only `inventory.json` + `INVENTORY.md` |
@@ -47,10 +48,11 @@ repository.
 | Starlight format id | `boris-starlight-migration-lab` |
 | Asset-filename format id | `boris-asset-filename-lab` |
 | Theme-archaeology format id | `boris-theme-archaeology-lab` |
+| Hugo format id | `boris-hugo-migration-lab` |
 | Jekyll format id | `boris-jekyll-migration-lab` |
 | Ghost format id | `boris-ghost-migration-lab` |
 | MkDocs format id | `boris-mkdocs-migration-lab` |
-| Schema | Instagram **`2`**; Astro/Obsidian/Notion/Filed/Starlight/Asset-filename/Theme-archaeology/Theme-materialize/Tinderbox/Jekyll/Ghost/MkDocs `1`; WordPress **`3`** |
+| Schema | Instagram **`2`**; Astro/Obsidian/Notion/Filed/Starlight/Asset-filename/Theme-archaeology/Theme-materialize/Tinderbox/Hugo/Jekyll/Ghost/MkDocs `1`; WordPress **`3`** |
 
 Companion author guide: [`docs/MIGRATION.md`](docs/MIGRATION.md).
 
@@ -210,6 +212,11 @@ zig build run -- --mode=link-audit \
   --root=./dist \
   --out=./.link-audit-report
 
+# Inventory a Hugo project (read-only)
+zig build run -- --mode=hugo-inventory \
+  --root=./fixtures/mini-hugo \
+  --out=./.hugo-inventory-report
+
 # Read-only Jekyll site inventory (no Markdown emit)
 zig build run -- --mode=jekyll-inventory \
   --root=./fixtures/mini-jekyll \
@@ -240,8 +247,9 @@ zig build test   # with BORIS_BIN exported or `boris` on PATH (see Boris pins)
 |------|---------|---------|
 | `-h`, `--help` | | Print usage; exit 0 |
 | `-q`, `--quiet` | off | Suppress progress lines |
-| `--mode=MODE` | `astro` | `astro`, `astro-import-plan`, `astro-import-apply`, `wordpress` (`wp` / `wxr`), `wordpress-theme` (`wp-theme` / `kubrick-theme`), `instagram` (`ig` / `takeout`), `obsidian` (`obs` / `vault`), `tinderbox-inventory` (`tbx-inventory` / `tinderbox-inv`), `tinderbox` (`tinderbox-emit` / `tbx`), `notion` (`md-csv` / `notion-export`), `filed` (`filed-fyi`), `filed-scan`, `starlight` (`sl` / `evcc`), `asset-filename` (`assets` / `asset-compat` / `filename-compat`), `theme-archaeology` (`theme` / `theme-arch` / `theme-inventory`), `theme-materialize` (`materialize` / `theme-materialise`), `link-audit` (`links` / `output-audit`), `frontmatter-review` (`fm-review` / `fmreview`), `jekyll-inventory` (`jekyll-inv` / `jekyll-archaeology`), `ghost-inventory` (`ghost-inv`), or `mkdocs-inventory` (`mkdocs-inv`) |
+| `--mode=MODE` | `astro` | `astro`, `astro-import-plan`, `astro-import-apply`, `wordpress` (`wp` / `wxr`), `wordpress-theme` (`wp-theme` / `kubrick-theme`), `instagram` (`ig` / `takeout`), `obsidian` (`obs` / `vault`), `tinderbox-inventory` (`tbx-inventory` / `tinderbox-inv`), `tinderbox` (`tinderbox-emit` / `tbx`), `notion` (`md-csv` / `notion-export`), `filed` (`filed-fyi`), `filed-scan`, `starlight` (`sl` / `evcc`), `asset-filename` (`assets` / `asset-compat` / `filename-compat`), `theme-archaeology` (`theme` / `theme-arch` / `theme-inventory`), `theme-materialize` (`materialize` / `theme-materialise`), `link-audit` (`links` / `output-audit`), `frontmatter-review` (`fm-review` / `fmreview`), `hugo-inventory` (`hugo-inv`), `jekyll-inventory` (`jekyll-inv` / `jekyll-archaeology`), `ghost-inventory` (`ghost-inv`), or `mkdocs-inventory` (`mkdocs-inv`) |
 | `--out=DIR` | `migration-report` | Output directory (**must differ from inputs**); must be explicit for `astro-import-plan` |
+| `--root=DIR` | `.` | Astro archaeology root, Starlight project root, asset-filename content tree, theme scan root, Hugo project root, or generated HTML tree for `link-audit`; must be explicit for `astro-import-plan` |
 | `--root=DIR` | `.` | Astro archaeology root, Starlight project root, asset-filename content tree, theme scan root, Jekyll site source root, generated HTML tree for `link-audit`, MkDocs project root for `mkdocs-inventory`, or unpacked Ghost export root for `ghost-inventory`; must be explicit for `astro-import-plan` |
 | `--content-root=RELATIVE_DIR` | | Required by `astro-import-plan` and `astro-import-apply`; approved plain-Markdown root relative to `--root` |
 | `--project-id=ID` | | Required by `astro-import-plan` and `astro-import-apply`; stable importer identity namespace |
@@ -316,17 +324,23 @@ Exit codes: **0** success, **2** usage, **3** I/O error.
 16. **Astro import schemas** — Ajv is a test-only locked dependency under
    `schema-validation/`; it is not linked into Boris, shipped in product
    artifacts, or required by ordinary compiler execution.
-17. **Jekyll** — source-tree inventory only (writes under `--out`). Never
+17. **Hugo** — never mutates the project root, never executes templates or
+   shortcode bodies (they are scanned as text), never fetches themes or the
+   network. Front matter and `config.toml` are read by bounded scanners;
+   anything unclassifiable is reported, never guessed. Shortcodes inside
+   fenced code blocks are not counted. See
+   [`docs/contracts/hugo.md`](docs/contracts/hugo.md).
+18. **Jekyll** — source-tree inventory only (writes under `--out`). Never
     executes Liquid, Ruby, `_plugins/*.rb`, or `jekyll build`; Liquid inside
     `{% raw %}…{% endraw %}` and fenced code blocks is inert text, and
     `_config.yml` is read only for `collections:`, `baseurl`,
     `permalink`, and `title` via a bounded line scanner (no YAML parser). See
     [`jekyll.md`](docs/contracts/jekyll.md).
-18. **Ghost** — read-only inventory of an unpacked Ghost 5 Admin export. Never
+19. **Ghost** — read-only inventory of an unpacked Ghost 5 Admin export. Never
     mutates `ghost-export.json` or `content/images/`, never calls the Ghost API
     or the network, and never copies `users` emails, password hashes, or tokens
     into the inventory. See [`docs/contracts/ghost.md`](docs/contracts/ghost.md).
-19. **MkDocs** — `mkdocs.yml` is inventory only. The `nav:` block is parsed
+20. **MkDocs** — `mkdocs.yml` is inventory only. The `nav:` block is parsed
     by a bounded indentation parser; `!!python/...` YAML tags are recorded as
     `unsupported` and never evaluated. No plugin, macro, hook, theme, or
     Python runtime is executed, and no Markdown is emitted. See
