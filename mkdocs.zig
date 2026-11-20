@@ -1801,6 +1801,8 @@ fn emitEntityId(a: std.mem.Allocator, raw: []const u8) ![]const u8 {
 
 /// Docs-relative page path → entity id: `a/b/c.md` → `a/b/c`;
 /// `a/index.md`/`a/README.md` → `a`; `index.md` → `index`.
+/// A top-level `includes` segment is remapped: `content/includes/` is
+/// Boris's fragment-only directory, not a page tree.
 fn emitPageId(a: std.mem.Allocator, path: []const u8) ![]const u8 {
     var stem = path;
     if (isMarkdownName(stem)) stem = stem[0 .. stem.len - std.fs.path.extension(stem).len];
@@ -1808,7 +1810,11 @@ fn emitPageId(a: std.mem.Allocator, path: []const u8) ![]const u8 {
     if (std.ascii.eqlIgnoreCase(base, "index") or std.ascii.eqlIgnoreCase(base, "readme")) {
         stem = std.fs.path.dirname(stem) orelse "index";
     }
-    return try emitEntityId(a, stem);
+    const id = try emitEntityId(a, stem);
+    if (std.mem.eql(u8, id, "includes") or std.mem.startsWith(u8, id, "includes/")) {
+        return try std.fmt.allocPrint(a, "includes-src{s}", .{id["includes".len..]});
+    }
+    return id;
 }
 
 fn emitAppendQuotedScalar(buf: *std.ArrayList(u8), a: std.mem.Allocator, value: []const u8) !void {
@@ -2036,11 +2042,12 @@ fn emitCopyAsset(ctx: *EmitCtx, io: Io, docs: Io.Dir, stage: Io.Dir, rel_src: []
     if (ctx.copied.get(key)) |dest| return dest;
     const base = try emitSanitizeFilename(a, std.fs.path.basename(rel_src));
     var dest_name = base;
-    var dest = try std.fmt.allocPrint(a, "content/{s}.assets/{s}", .{ stem, dest_name });
+    // Page-side dir follows the entity path: guide/setup → content/guide/setup.assets/.
+    var dest = try std.fmt.allocPrint(a, "content/{s}.assets/{s}", .{ ctx.page.id, dest_name });
     var n: usize = 2;
     while (ctx.copied.contains(dest)) : (n += 1) {
         dest_name = try std.fmt.allocPrint(a, "{d}-{s}", .{ n, base });
-        dest = try std.fmt.allocPrint(a, "content/{s}.assets/{s}", .{ stem, dest_name });
+        dest = try std.fmt.allocPrint(a, "content/{s}.assets/{s}", .{ ctx.page.id, dest_name });
     }
     const data = try readFileAlloc(io, docs, rel_src, a);
     try writeEmitBytes(io, stage, dest, data);
@@ -2113,6 +2120,14 @@ fn emitTransformInline(
         const text = line[bracket + 1 .. open - 1];
         var dest = trim(line[open + 1 .. close]);
         pos = close + 1;
+        if (span_start < last) {
+            // Nested span (e.g. [![img](a)](b)) overlaps text already
+            // rewritten — a wiki link can't wrap markup; keep verbatim.
+            try out.appendSlice(a, line[last .. close + 1]);
+            last = pos;
+            try emitReportOnce(ctx, review_dedup, try std.fmt.allocPrint(a, "link/{s}", .{dest}), "unresolved_link", try std.fmt.allocPrint(a, "nested link to '{s}' kept verbatim (wiki link cannot wrap markup)", .{dest}));
+            continue;
+        }
         if (emitDestIsExternal(dest)) continue;
         // Angle-wrapped dest and title tail.
         if (dest.len >= 2 and dest[0] == '<' and dest[dest.len - 1] == '>') dest = dest[1 .. dest.len - 1];
@@ -2421,14 +2436,18 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
         }
         switch (e.kind) {
             .section => {
-                // Own page: direct child page named index.md/README.md.
+                // Own page: direct child page named index.md/README.md that
+                // actually exists — a missing index means the section has no
+                // page and gets a generated trunk instead.
                 var own_target: ?[]const u8 = null;
                 var j = ei + 1;
                 while (j < inv.config.nav.len and inv.config.nav[j].depth > e.depth) : (j += 1) {
                     if (inv.config.nav[j].depth != e.depth + 1) continue;
                     if (inv.config.nav[j].kind != .page or inv.config.nav[j].target == null) continue;
                     const base = std.fs.path.basename(inv.config.nav[j].target.?);
-                    if (std.ascii.eqlIgnoreCase(base, "index.md") or std.ascii.eqlIgnoreCase(base, "readme.md")) {
+                    if ((std.ascii.eqlIgnoreCase(base, "index.md") or std.ascii.eqlIgnoreCase(base, "readme.md")) and
+                        inv.config.nav[j].resolved and page_ids.contains(inv.config.nav[j].target.?))
+                    {
                         own_target = inv.config.nav[j].target.?;
                     }
                     break;
@@ -2443,19 +2462,26 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
                         try std.fmt.allocPrint(a, "{s}/{s}", .{ stack.items[stack.items.len - 1].id, slug })
                     else
                         slug;
-                    if (!id_used.contains(sec_id)) {
-                        try id_used.put(sec_id, {});
-                        try gen_trunks.append(a, .{
-                            .source_path = "(generated)",
-                            .id = sec_id,
-                            .parent = null,
-                            .title = try a.dupe(u8, e.title orelse slug),
-                            .kind = "generated_trunk",
-                            .in_nav = true,
-                            .class = .exact,
-                            .dropped = &.{},
-                        });
+                    // A child page can already own the section's slug —
+                    // the generated trunk still needs a real (fresh) id or
+                    // descendants would parent to that page or to nothing.
+                    var t = sec_id;
+                    var n: usize = 2;
+                    while (id_used.contains(t)) : (n += 1) {
+                        t = try std.fmt.allocPrint(a, "{s}-{d}", .{ sec_id, n });
                     }
+                    sec_id = t;
+                    try id_used.put(sec_id, {});
+                    try gen_trunks.append(a, .{
+                        .source_path = "(generated)",
+                        .id = sec_id,
+                        .parent = null,
+                        .title = try a.dupe(u8, e.title orelse slug),
+                        .kind = "generated_trunk",
+                        .in_nav = true,
+                        .class = .exact,
+                        .dropped = &.{},
+                    });
                 }
                 try stack.append(a, .{ .depth = e.depth, .id = sec_id });
             },
