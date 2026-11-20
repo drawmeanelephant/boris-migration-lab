@@ -109,6 +109,10 @@ From the repository root (Zig **0.17+**):
 zig build
 zig build test
 
+# Only tests whose names contain a substring (repeatable):
+zig build test -Dtest-filter=obsidian
+zig build test -Dtest-filter=obsidian -Dtest-filter=tinderbox
+
 # Real Draft 2020-12 contract matrix (test-only Ajv; no Boris runtime dependency)
 npm --prefix schema-validation ci --ignore-scripts
 zig build schema-test

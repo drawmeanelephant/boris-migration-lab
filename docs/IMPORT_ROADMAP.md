@@ -83,7 +83,11 @@ Rules that keep Free-mode sessions efficient:
 - **Dependencies are explicit.** An issue lists `Blocked by #N`; pick only
   issues whose blockers are closed.
 - **Fast checks first.** `zig fmt --check *.zig` and the target's own tests
-  before the full `zig build test` (see #27).
+  before the full `zig build test`: `zig build test
+  -Dtest-filter=<target>` runs only tests whose names contain the
+  substring (most modes prefix their tests, e.g. `"wordpress: ..."`;
+  repeatable for several filters). Instagram's tests are not in the
+  pull-in block, so `-Dtest-filter=instagram` selects few or none.
 - **Never commit real exports.** Real data stays under ignored `raw-local/`
   or `/tmp`.
 
