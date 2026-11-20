@@ -50,6 +50,8 @@ const Inventory = struct {
     embeds: []const NsidCount,
     blobs: []const BlobRef,
     blobs_dir_present: bool,
+    /// Records whose CBOR failed to decode (counted, not fatal).
+    unparseable: usize = 0,
 };
 
 const NsidCount = struct {
@@ -202,11 +204,38 @@ fn collectEmbedTypes(a: std.mem.Allocator, m: []const car.MapEntry, embeds: *std
     }
 }
 
-fn fileExists(io: Io, dir_path: []const u8, name: []const u8) bool {
-    var dir = Io.Dir.cwd().openDir(io, dir_path, .{}) catch return false;
-    defer dir.close(io);
-    dir.access(io, name, .{}) catch return false;
+/// CID text allowed in blob filenames: the base32/base58 alphabets only.
+/// Anything else (absolute paths, `..`, separators, `.`) must never reach
+/// a filesystem call — record text is attacker-controlled.
+fn isCidShape(cid: []const u8) bool {
+    if (cid.len == 0 or cid.len > 128) return false;
+    for (cid) |c| {
+        if (!((c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or (c >= '0' and c <= '9'))) return false;
+    }
     return true;
+}
+
+/// Regular-file check that follows no symlinks: a symlinked entry under
+/// `blobs/` reports absent rather than probing outside `--root`.
+fn fileExists(io: Io, dir_path: []const u8, name: []const u8) bool {
+    if (!isCidShape(name)) return false;
+    var dir = Io.Dir.cwd().openDir(io, dir_path, .{ .follow_symlinks = false }) catch return false;
+    defer dir.close(io);
+    const stat = dir.statFile(io, name, .{ .follow_symlinks = false }) catch return false;
+    return stat.kind == .file;
+}
+
+/// Escape a value for a Markdown table cell: `|` breaks the row and a
+/// backtick breaks code spans.
+fn mdCell(io_buf: *std.ArrayList(u8), a: std.mem.Allocator, s: []const u8) !void {
+    for (s) |c| {
+        switch (c) {
+            '|' => try io_buf.appendSlice(a, "\\|"),
+            '`' => try io_buf.appendSlice(a, "\\`"),
+            '\n', '\r' => try io_buf.append(a, ' '),
+            else => try io_buf.append(a, c),
+        }
+    }
 }
 
 fn analyze(io: Io, a: std.mem.Allocator, root_dir: []const u8, parsed: *const car.Car, recs: []const car.Record) !Inventory {
@@ -233,9 +262,14 @@ fn analyze(io: Io, a: std.mem.Allocator, root_dir: []const u8, parsed: *const ca
         // Blob refs live in non-post records too (profile avatar/banner),
         // so decode + scan every record, not just posts.
         const value = car.decodeValue(a, rec.record) catch |err| switch (err) {
-            else => return error.InvalidAtprotoInput,
+            error.OutOfMemory => return error.OutOfMemory,
+            // One undecodable record must not abort the scan — count it.
+            else => {
+                inv.unparseable += 1;
+                continue;
+            },
         };
-        try collectBlobs(value, rec.rkey, &blobs, a);
+        try collectBlobs(value, rec.key, &blobs, a);
         if (!std.mem.eql(u8, rec.collection, "app.bsky.feed.post")) continue;
         inv.posts_total += 1;
         const m = switch (value) {
@@ -281,9 +315,9 @@ fn analyze(io: Io, a: std.mem.Allocator, root_dir: []const u8, parsed: *const ca
 }
 
 fn dirExists(io: Io, dir_path: []const u8, name: []const u8) bool {
-    var dir = Io.Dir.cwd().openDir(io, dir_path, .{}) catch return false;
+    var dir = Io.Dir.cwd().openDir(io, dir_path, .{ .follow_symlinks = false }) catch return false;
     defer dir.close(io);
-    var d = dir.openDir(io, name, .{}) catch return false;
+    var d = dir.openDir(io, name, .{ .follow_symlinks = false }) catch return false;
     d.close(io);
     return true;
 }
@@ -293,11 +327,14 @@ fn classifyPost(m: []const car.MapEntry, did: []const u8) PostShape {
         .map => |r| r,
         else => return .top_level,
     };
-    const parent_m = switch (car.mapGet(reply_m, "parent") orelse return .top_level) {
-        .map => |p| p,
-        else => return .top_level,
+    // Self-thread is defined by the thread ROOT being ours (per the
+    // contract), not the immediate parent — a reply to our post inside a
+    // foreign thread is still an external reply.
+    const root_m = switch (car.mapGet(reply_m, "root") orelse return .external_reply) {
+        .map => |r| r,
+        else => return .external_reply,
     };
-    const uri = textOf(car.mapGet(parent_m, "uri")) orelse return .top_level;
+    const uri = textOf(car.mapGet(root_m, "uri")) orelse return .external_reply;
     const parts = parseAtUri(uri) orelse return .external_reply;
     if (std.mem.eql(u8, parts.did, did)) return .self_reply;
     return .external_reply;
@@ -331,7 +368,7 @@ fn threadLess(_: void, x: ThreadRow, y: ThreadRow) bool {
 }
 
 fn readFileAlloc(io: Io, dir: Io.Dir, path: []const u8, a: std.mem.Allocator) ![]u8 {
-    var file = try dir.openFile(io, path, .{});
+    var file = try dir.openFile(io, path, .{ .follow_symlinks = false });
     defer file.close(io);
     var reader = file.reader(io, &.{});
     return try reader.interface.allocRemaining(a, .unlimited);
@@ -384,7 +421,7 @@ fn emitJson(io: Io, a: std.mem.Allocator, root_dir: []const u8, car_path: []cons
     try jsonStr(&buf, a, inv.did);
     try buf.appendSlice(a, ",\n    \"rev\": ");
     try jsonStr(&buf, a, inv.rev);
-    try buf.print(a, ",\n    \"records\": {d},\n    \"blocks\": {d}\n  }},\n", .{ inv.records, inv.blocks });
+    try buf.print(a, ",\n    \"records\": {d},\n    \"blocks\": {d},\n    \"unparseable\": {d}\n  }},\n", .{ inv.records, inv.blocks, inv.unparseable });
     try buf.appendSlice(a, "  \"collections\": [");
     for (inv.collections, 0..) |c, i| {
         if (i > 0) try buf.append(a, ',');
@@ -414,6 +451,8 @@ fn emitJson(io: Io, a: std.mem.Allocator, root_dir: []const u8, car_path: []cons
         try jsonStr(&buf, a, b.cid);
         try buf.appendSlice(a, ", \"mimeType\": ");
         try jsonStr(&buf, a, b.mime_type);
+        try buf.appendSlice(a, ", \"cid_valid\": ");
+        try buf.appendSlice(a, if (isCidShape(b.cid)) "true" else "false");
         try buf.appendSlice(a, ", \"present\": ");
         try buf.appendSlice(a, if (fileExists(io, blobs_path, b.cid)) "true" else "false");
         try buf.appendSlice(a, ", \"used_by\": [");
@@ -433,20 +472,28 @@ fn emitMd(io: Io, a: std.mem.Allocator, root_dir: []const u8, car_path: []const 
     try buf.print(a, "- Source: `{s}`\n- repo.car: `{s}`\n- SHA-256: `{s}`\n- DID: `{s}`\n- Revision: `{s}`\n- Records: {d} across {d} collections ({d} CAR blocks)\n\n", .{ root_dir, car_path, sha, inv.did, inv.rev, inv.records, inv.collections.len, inv.blocks });
     try buf.appendSlice(a, "## Collections\n\n| NSID | Records |\n|---|---|\n");
     for (inv.collections) |c| {
-        try buf.print(a, "| `{s}` | {d} |\n", .{ c.nsid, c.count });
+        try buf.appendSlice(a, "| `");
+        try mdCell(&buf, a, c.nsid);
+        try buf.print(a, "` | {d} |\n", .{c.count});
     }
-    try buf.print(a, "\n## Posts\n\n- Total `app.bsky.feed.post`: {d}\n- Top level: {d}\n- Self-replies (own threads): {d}\n- Replies to other accounts: {d}\n\n", .{ inv.posts_total, inv.top_level, inv.self_replies, inv.external_replies });
+    try buf.print(a, "\n## Posts\n\n- Total `app.bsky.feed.post`: {d}\n- Top level: {d}\n- Self-replies (own threads): {d}\n- Replies to other accounts: {d}\n", .{ inv.posts_total, inv.top_level, inv.self_replies, inv.external_replies });
+    if (inv.unparseable > 0) try buf.print(a, "- Undecodable records (skipped): {d}\n", .{inv.unparseable});
+    try buf.appendSlice(a, "\n");
     if (inv.threads.len > 0) {
         try buf.appendSlice(a, "### Self-threads\n\n| Root rkey | Replies |\n|---|---|\n");
         for (inv.threads) |t| {
-            try buf.print(a, "| `{s}` | {d} |\n", .{ t.root, t.replies });
+            try buf.appendSlice(a, "| `");
+            try mdCell(&buf, a, t.root);
+            try buf.print(a, "` | {d} |\n", .{t.replies});
         }
         try buf.appendSlice(a, "\nEmit shape: each root becomes a Trunk page and every reply a flat Satellite (Boris Satellites cannot parent Satellites).\n\n");
     }
     if (inv.embeds.len > 0) {
         try buf.appendSlice(a, "## Embed types\n\n| `$type` | Count |\n|---|---|\n");
         for (inv.embeds) |e| {
-            try buf.print(a, "| `{s}` | {d} |\n", .{ e.nsid, e.count });
+            try buf.appendSlice(a, "| `");
+            try mdCell(&buf, a, e.nsid);
+            try buf.print(a, "` | {d} |\n", .{e.count});
         }
         try buf.appendSlice(a, "\n");
     }
@@ -456,10 +503,20 @@ fn emitMd(io: Io, a: std.mem.Allocator, root_dir: []const u8, car_path: []const 
     } else {
         try buf.appendSlice(a, "| CID | MIME | File present | Used by |\n|---|---|---|---|\n");
         for (inv.blobs) |b| {
-            try buf.print(a, "| `{s}` | `{s}` | {s} | ", .{ b.cid, b.mime_type, if (fileExists(io, blobs_path, b.cid)) "yes" else "**no**" });
+            try buf.appendSlice(a, "| `");
+            try mdCell(&buf, a, b.cid);
+            try buf.appendSlice(a, "` | `");
+            try mdCell(&buf, a, b.mime_type);
+            if (!isCidShape(b.cid)) {
+                try buf.appendSlice(a, "` | **invalid CID** | ");
+            } else {
+                try buf.print(a, "` | {s} | ", .{if (fileExists(io, blobs_path, b.cid)) "yes" else "**no**"});
+            }
             for (b.used_by.items, 0..) |u, j| {
                 if (j > 0) try buf.appendSlice(a, ", ");
-                try buf.print(a, "`{s}`", .{u});
+                try buf.append(a, '`');
+                try mdCell(&buf, a, u);
+                try buf.append(a, '`');
             }
             try buf.appendSlice(a, " |\n");
         }
@@ -474,14 +531,30 @@ pub fn run(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
     defer arena_state.deinit();
     const a = arena_state.allocator();
 
-    const car_path = try std.fmt.allocPrint(a, "{s}/repo.car", .{opts.root_dir});
-    const bytes = readFileAlloc(io, Io.Dir.cwd(), car_path, a) catch |err| switch (err) {
+    // Refuse symlinked inputs like hugo.zig: a --root or repo.car symlink
+    // pointing outside the export must not be followed.
+    var root = Io.Dir.cwd().openDir(io, opts.root_dir, .{ .follow_symlinks = false }) catch |err| switch (err) {
         error.FileNotFound => return error.InvalidAtprotoInput,
+        error.SymLinkLoop => return error.InputSymlink,
+        else => return err,
+    };
+    defer root.close(io);
+    const car_path = try std.fmt.allocPrint(a, "{s}/repo.car", .{opts.root_dir});
+    const bytes = readFileAlloc(io, root, "repo.car", a) catch |err| switch (err) {
+        error.FileNotFound => return error.InvalidAtprotoInput,
+        error.SymLinkLoop => return error.InputSymlink,
+        error.OutOfMemory => return error.OutOfMemory,
         else => return err,
     };
     const sha = try sha256Hex(a, bytes);
-    var parsed = car.parse(a, bytes) catch return error.InvalidAtprotoInput;
-    const recs = parsed.records(a) catch return error.InvalidAtprotoInput;
+    var parsed = car.parse(a, bytes) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return error.InvalidAtprotoInput,
+    };
+    const recs = parsed.records(a) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return error.InvalidAtprotoInput,
+    };
     const inv = try analyze(io, a, opts.root_dir, &parsed, recs);
     const blobs_path = try std.fmt.allocPrint(a, "{s}/blobs", .{opts.root_dir});
     const json = try emitJson(io, a, opts.root_dir, car_path, sha, inv, blobs_path);
@@ -586,4 +659,40 @@ test "cidToString: CIDv0 base58btc" {
         "QmRN6wdp1S2A5EtjW9A3M1vKSBuQQGcgvuhoMUoEz4iiT5",
         cidToString(a, &cid).?,
     );
+}
+
+test "isCidShape: rejects paths, accepts CID strings" {
+    try testing.expect(!isCidShape("/etc/passwd"));
+    try testing.expect(!isCidShape("../escape"));
+    try testing.expect(!isCidShape("bafy../x"));
+    try testing.expect(!isCidShape(""));
+    try testing.expect(!isCidShape("." ++ "x"));
+    try testing.expect(isCidShape("bafkreihrk5ppkq4vxde55sk3ifbfxzdxjh5if5xy4wveghx3hsds2cn2hi"));
+    try testing.expect(isCidShape("QmRN6wfrhzxumS3uKcXfATJXaxc14Tn5kFUvs2LiXkM7vU"));
+}
+
+test "fileExists: CID text never probes outside blobs/" {
+    const io = testing.io;
+    // Absolute path and traversal → absent, never an actual access().
+    try testing.expect(!fileExists(io, "fixtures/mini-atproto/blobs", "/etc/passwd"));
+    try testing.expect(!fileExists(io, "fixtures/mini-atproto/blobs", "../repo.car"));
+    // Present CID file still reports.
+    try testing.expect(fileExists(io, "fixtures/mini-atproto/blobs", "bafkreihrkbmxuxok3r5o6kkglaboi6cnadhghziqmvhcvlpsevvpydn2hi"));
+}
+
+test "run: symlinked repo.car is refused" {
+    const io = testing.io;
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // Build a root whose repo.car is a symlink to the fixture's real file.
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.symLink(io, "../../../fixtures/mini-atproto/repo.car", "repo.car", .{});
+    const root_path = try std.fmt.allocPrint(a, ".zig-cache/tmp/{s}", .{tmp.sub_path});
+    try testing.expectError(error.InputSymlink, run(io, a, .{
+        .root_dir = root_path,
+        .out_dir = "unused-out",
+        .quiet = true,
+    }));
 }
