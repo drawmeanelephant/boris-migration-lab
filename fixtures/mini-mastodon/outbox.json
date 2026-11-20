@@ -18,8 +18,8 @@
       "type": "Create",
       "actor": "https://example.com/users/testuser",
       "published": "2024-03-12T12:00:00Z",
-      "to": ["https://example.com/users/friend"],
-      "cc": [],
+      "to": ["https://www.w3.org/ns/activitystreams#Public"],
+      "cc": ["https://example.com/users/testuser/followers", "https://example.com/users/friend"],
       "object": {
         "id": "https://example.com/users/testuser/statuses/1012",
         "type": "Note",
@@ -27,8 +27,8 @@
         "inReplyTo": "https://example.com/users/friend/statuses/9001",
         "content": "<p><span class=\"h-card\"><a href=\"https://example.com/@friend\">@friend</a></span> Replying to your question with an example.</p>",
         "published": "2024-03-12T12:00:00Z",
-        "to": ["https://example.com/users/friend"],
-        "cc": [],
+        "to": ["https://www.w3.org/ns/activitystreams#Public"],
+        "cc": ["https://example.com/users/testuser/followers", "https://example.com/users/friend"],
         "tag": [
           {
             "type": "Mention",
@@ -62,7 +62,7 @@
       "actor": "https://example.com/users/testuser",
       "published": "2024-03-10T12:00:00Z",
       "to": ["https://example.com/users/testuser/followers"],
-      "cc": [],
+      "cc": ["https://www.w3.org/ns/activitystreams#Public"],
       "object": {
         "id": "https://example.com/users/testuser/statuses/1010",
         "type": "Note",
@@ -71,7 +71,7 @@
         "content": "<p>Second self-reply in the thread.</p>",
         "published": "2024-03-10T12:00:00Z",
         "to": ["https://example.com/users/testuser/followers"],
-        "cc": []
+        "cc": ["https://www.w3.org/ns/activitystreams#Public"]
       }
     },
     {
@@ -79,8 +79,8 @@
       "type": "Create",
       "actor": "https://example.com/users/testuser",
       "published": "2024-03-09T12:00:00Z",
-      "to": ["https://example.com/users/testuser/followers"],
-      "cc": [],
+      "to": ["https://www.w3.org/ns/activitystreams#Public"],
+      "cc": ["https://example.com/users/testuser/followers"],
       "object": {
         "id": "https://example.com/users/testuser/statuses/1009",
         "type": "Note",
@@ -88,8 +88,8 @@
         "inReplyTo": "https://example.com/users/testuser/statuses/1008",
         "content": "<p>First self-reply in the thread.</p>",
         "published": "2024-03-09T12:00:00Z",
-        "to": ["https://example.com/users/testuser/followers"],
-        "cc": []
+        "to": ["https://www.w3.org/ns/activitystreams#Public"],
+        "cc": ["https://example.com/users/testuser/followers"]
       }
     },
     {
