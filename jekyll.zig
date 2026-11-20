@@ -232,8 +232,19 @@ fn parsePostName(name: []const u8) ?[]const u8 {
     return stem;
 }
 
+/// Jekyll's front-matter opener: `---` on the first line up to trailing
+/// spaces/tabs (`--- ` is a header; `----` is a horizontal rule, not fm).
+fn hasYamlHeader(source: []const u8) bool {
+    if (!std.mem.startsWith(u8, source, "---")) return false;
+    var i: usize = 3;
+    while (i < source.len and (source[i] == ' ' or source[i] == '\t')) i += 1;
+    if (i >= source.len) return false;
+    if (source[i] == '\r') i += 1;
+    return i < source.len and source[i] == '\n';
+}
+
 fn frontmatterScalar(source: []const u8, key: []const u8) ?[]const u8 {
-    if (!std.mem.startsWith(u8, source, "---\n") and !std.mem.startsWith(u8, source, "---\r\n")) return null;
+    if (!hasYamlHeader(source)) return null;
     var it = std.mem.splitScalar(u8, source, '\n');
     _ = it.next(); // opening ---
     while (it.next()) |line_raw| {
@@ -1319,7 +1330,7 @@ fn emitProvenanceComment(
 /// `key:` + `- item` rows, or a scalar split on `,` (Jekyll allows
 /// space-separated `tags:`/`categories:` too).
 fn emitFrontmatterList(a: std.mem.Allocator, source: []const u8, key: []const u8) !?[]const []const u8 {
-    if (!std.mem.startsWith(u8, source, "---\n") and !std.mem.startsWith(u8, source, "---\r\n")) return null;
+    if (!hasYamlHeader(source)) return null;
     var it = std.mem.splitScalar(u8, source, '\n');
     _ = it.next();
     var items: std.ArrayList([]const u8) = .empty;
@@ -1960,9 +1971,9 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
     for (inv.ignored.items) |f| {
         if (isMd(f)) {
             const text = readFileAlloc(io, root, f, a) catch continue;
-            // Front matter requires `---` alone on the first line — a file
-            // starting with a `----` rule is verbatim content.
-            if (std.mem.startsWith(u8, text, "---\n") or std.mem.startsWith(u8, text, "---\r\n")) continue;
+            // Front matter is `---` alone on the first line (trailing
+            // whitespace allowed) — a `----` rule is verbatim content.
+            if (hasYamlHeader(text)) continue;
         }
         if (emitIsPublicAssetPath(f, cfg.include_paths.items)) try static_set.put(f, {});
     }
