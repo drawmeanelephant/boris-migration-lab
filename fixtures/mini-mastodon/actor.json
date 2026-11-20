@@ -1,0 +1,25 @@
+{
+  "@context": [
+    "https://www.w3.org/ns/activitystreams",
+    "https://w3id.org/security/v1"
+  ],
+  "id": "https://example.com/users/testuser",
+  "type": "Person",
+  "preferredUsername": "testuser",
+  "name": "Test User",
+  "summary": "<p>Synthetic account for fixture tests.</p>",
+  "url": "https://example.com/@testuser",
+  "published": "2024-01-01T00:00:00Z",
+  "manuallyApprovesFollowers": false,
+  "publicKey": {
+    "id": "https://example.com/users/testuser#main-key",
+    "owner": "https://example.com/users/testuser",
+    "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwAAAAAAAAAAAAAAAAAAA\nAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\nAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\nAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\nAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\nAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\nAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQIDAQAB\n-----END PUBLIC KEY-----\n"
+  },
+  "attachment": [],
+  "endpoints": {
+    "sharedInbox": "https://example.com/inbox"
+  },
+  "followers": "https://example.com/users/testuser/followers",
+  "following": "https://example.com/users/testuser/following"
+}
