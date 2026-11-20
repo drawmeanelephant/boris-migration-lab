@@ -2100,6 +2100,10 @@ fn closingParen(line: []const u8, start: usize) ?usize {
     var k = start;
     while (k < line.len) : (k += 1) {
         switch (line[k]) {
+            // A quoted link title after whitespace is opaque.
+            '"', '\'' => if (k > start and (line[k - 1] == ' ' or line[k - 1] == '\t')) {
+                k = std.mem.indexOfScalarPos(u8, line, k + 1, line[k]) orelse return null;
+            },
             '(' => depth += 1,
             ')' => {
                 if (depth == 0) return k;
