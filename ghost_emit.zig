@@ -300,16 +300,16 @@ fn renderCard(ctx: *PageCtx, name: []const u8, payload: Value, out: *std.ArrayLi
         ctx.class = Class.worse(ctx.class, .transformed);
     } else if (std.mem.eql(u8, name, "html")) {
         const html = ghost.jsonGetString(payload, "html");
-        if (ghostRouteHref(html)) {
+        if (!htmlCardSafe(html)) {
+            try appendBlock(out, a, try reviewMarker(a, "Ghost html card withheld (unsafe); payload in report.json"));
+            try ctx.note("html_card_withheld", .human_review, try std.json.Stringify.valueAlloc(a, payload, .{}));
+        } else if (ghostRouteHref(html)) {
             // Raw anchors cannot carry Boris wiki-links; convert so the link resolves.
             try appendBlock(out, a, try htmlToMd(ctx, html));
             try ctx.note("html_card_converted", .transformed, "html card links a __GHOST_URL__ route; converted to Markdown");
-        } else if (htmlCardSafe(html)) {
+        } else {
             try appendBlock(out, a, html);
             try ctx.note("html_card_inline", .transformed, "raw HTML card embedded inline");
-        } else {
-            try appendBlock(out, a, try reviewMarker(a, "Ghost html card withheld (unsafe); payload in report.json"));
-            try ctx.note("html_card_withheld", .human_review, try std.json.Stringify.valueAlloc(a, payload, .{}));
         }
     } else if (std.mem.eql(u8, name, "callout")) {
         const emoji = ghost.jsonGetString(payload, "calloutEmoji");
