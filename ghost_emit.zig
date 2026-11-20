@@ -246,9 +246,19 @@ fn htmlCardSafe(html: []const u8) bool {
     var i: usize = 0;
     var in_tag = false;
     var scanned: usize = 0;
+    var quote: u8 = 0; // open attribute quote inside a tag; `>` there does not close it
     while (std.mem.indexOfPos(u8, lower, i, "on")) |p| : (i = p + 2) {
         while (scanned < p) : (scanned += 1) {
-            if (lower[scanned] == '<') in_tag = true else if (lower[scanned] == '>') in_tag = false;
+            const c = lower[scanned];
+            if (quote != 0) {
+                if (c == quote) quote = 0;
+            } else if (c == '<') {
+                in_tag = true;
+            } else if (in_tag and (c == '"' or c == '\'')) {
+                quote = c;
+            } else if (c == '>') {
+                in_tag = false;
+            }
         }
         if (!in_tag or p == 0) continue;
         const before = lower[p - 1];
@@ -1454,6 +1464,8 @@ test "ghost: html card handler and route detection" {
     try std.testing.expect(!htmlCardSafe("<svg/onload=alert(1)>"));
     try std.testing.expect(!htmlCardSafe("<a href=\"x\"onclick=\"y\">z</a>"));
     try std.testing.expect(htmlCardSafe("<pre>const one = 1;</pre>"));
+    try std.testing.expect(!htmlCardSafe("<img src=x alt=\">\" onerror=\"alert(1)\">"));
+    try std.testing.expect(!htmlCardSafe("<img alt='>' onerror=alert(1)>"));
     try std.testing.expect(ghostRouteHref("<a href=\"__GHOST_URL__/about/\">About</a>"));
     try std.testing.expect(!ghostRouteHref("<img src=\"__GHOST_URL__/content/images/a.png\">"));
 }
