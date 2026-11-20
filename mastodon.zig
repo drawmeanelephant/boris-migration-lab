@@ -812,8 +812,51 @@ fn escapeLabelText(a: std.mem.Allocator, s: []const u8) ![]const u8 {
     return try escapeBrackets(a, s, true);
 }
 
+/// Escape `[`/`]`/`(`/`)` in HTML *text* so post text that mentions code
+/// like `handlers[groups[i]](request)` cannot turn into a Markdown link
+/// after conversion. Delimiters emitted by tag conversion stay unescaped,
+/// so real `<a>` links still work. Inside <code>/<pre> nothing is escaped —
+/// a backslash would render literally there.
+fn escapeHtmlTextBrackets(a: std.mem.Allocator, html: []const u8) ![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    var i: usize = 0;
+    var in_code = false;
+    while (i < html.len) {
+        if (html[i] == '<') {
+            if (std.mem.startsWith(u8, html[i..], "<!--")) {
+                if (std.mem.indexOf(u8, html[i..], "-->")) |end| {
+                    try out.appendSlice(a, html[i .. i + end + 3]);
+                    i += end + 3;
+                    continue;
+                }
+            }
+            if (std.mem.indexOfScalarPos(u8, html, i, '>')) |gt| {
+                var t = html[i + 1 .. gt];
+                const closing = t.len > 0 and t[0] == '/';
+                if (closing) t = t[1..];
+                var ne: usize = 0;
+                while (ne < t.len and std.ascii.isAlphanumeric(t[ne])) ne += 1;
+                const nm = t[0..ne];
+                if (std.ascii.eqlIgnoreCase(nm, "code") or std.ascii.eqlIgnoreCase(nm, "pre")) {
+                    in_code = !closing;
+                }
+                try out.appendSlice(a, html[i .. gt + 1]);
+                i = gt + 1;
+                continue;
+            }
+        }
+        if (!in_code and (html[i] == '[' or html[i] == ']' or html[i] == '(' or html[i] == ')')) {
+            try out.append(a, '\\');
+        }
+        try out.append(a, html[i]);
+        i += 1;
+    }
+    return try out.toOwnedSlice(a);
+}
+
 fn convHtml(ctx: *const MEmitCtx, html: []const u8) ![]const u8 {
-    const conv = try wordpress.htmlToMarkdown(ctx.a, html);
+    const escaped = try escapeHtmlTextBrackets(ctx.a, html);
+    const conv = try wordpress.htmlToMarkdown(ctx.a, escaped);
     return try escapeWikiBrackets(ctx.a, conv[0]);
 }
 
@@ -948,4 +991,18 @@ fn mastoReportMd(
         try out.appendSlice(a, try std.fmt.allocPrint(a, "| {s} | {s} | {s} |\n", .{ r.source_path, r.kind, r.detail }));
     }
     return try out.toOwnedSlice(a);
+}
+
+const testing = std.testing;
+
+test "convHtml escapes plain-text link syntax but keeps real links" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const html = "<p>call handlers[groups[i]](request) see <a href=\"https://e.test/x\">a [b] link</a> <code>fn[x](y)</code></p>";
+    const conv = try wordpress.htmlToMarkdown(a, try escapeHtmlTextBrackets(a, html));
+    const out = try escapeWikiBrackets(a, conv[0]);
+    try testing.expect(std.mem.indexOf(u8, out, "handlers\\[groups\\[i\\]\\]\\(request\\)") != null);
+    try testing.expect(std.mem.indexOf(u8, out, "[a \\[b\\] link](https://e.test/x)") != null);
+    try testing.expect(std.mem.indexOf(u8, out, "`fn[x](y)`") != null);
 }
