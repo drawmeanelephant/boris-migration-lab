@@ -1047,6 +1047,10 @@ fn emitPage(io: Io, site: *Site, root: Io.Dir, stage: Io.Dir, p: *EmitPage) !voi
                 try p.provenance_fields.append(a, f);
             } else if (!inList(&mapped_keys, f.key)) {
                 try p.dropped_keys.append(a, f.key);
+            } else if (f.value == .nested) {
+                try p.dropped_keys.append(a, f.key);
+                p.class = Class.worse(p.class, .human_review);
+                try p.notes.append(a, try std.fmt.allocPrint(a, "{s} is a block or nested value; not a bounded scalar, so it was not mapped", .{f.key}));
             }
         }
 
@@ -1830,6 +1834,8 @@ test "hugo: synthesized landings, JSON/YAML lists, link-form refs, unresolved re
         \\---
         \\title: Guide
         \\description: The guide.
+        \\summary: >
+        \\  Folded block summary.
         \\url: /legacy.html
         \\aliases:
         \\  - /docs/legacy-guide/
@@ -1899,7 +1905,8 @@ test "hugo: synthesized landings, JSON/YAML lists, link-form refs, unresolved re
     try expectContains(prov, "\"class\": \"human_review\"");
     const gprov = try hugo.readFileAlloc(io, od, "provenance/docs/guide.json", a);
     defer a.free(gprov);
-    try expectContains(gprov, "\"dropped_keys\": [\"menu\"]");
+    try expectContains(gprov, "\"dropped_keys\": [\"summary\", \"menu\"]");
+    try expectContains(gprov, "summary is a block or nested value");
     try expectContains(gprov, "youtube");
 }
 
