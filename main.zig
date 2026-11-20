@@ -16,6 +16,7 @@
 //!   wordpress-theme — Read-only classic WordPress PHP theme inventory → static prototype + review manifest
 //!   frontmatter-review — Scan a content tree for unsupported frontmatter keys → JSON + MD report
 //!   hugo-inventory — Hugo project → inventory.json + INVENTORY.md (read-only)
+//!   mkdocs-inventory — MkDocs mkdocs.yml + docs tree → inventory.json + INVENTORY.md
 //!
 //! Never rewrites inputs. Not part of the Boris product compiler pipeline.
 //!
@@ -55,11 +56,13 @@ const theme_materialize = @import("theme_materialize.zig");
 const wordpress_theme = @import("wordpress_theme.zig");
 const link_audit = @import("link_audit.zig");
 const frontmatter_review = @import("frontmatter_review.zig");
+const jekyll = @import("jekyll.zig");
 const publication = @import("publication.zig");
 const astro_import_plan = @import("astro_import_plan.zig");
 const astro_import_apply = @import("astro_import_apply.zig");
 const hugo = @import("hugo.zig");
 const ghost = @import("ghost.zig");
+const mkdocs = @import("mkdocs.zig");
 const modes = @import("modes.zig");
 
 pub const ExitCode = modes.ExitCode;
@@ -568,7 +571,9 @@ test {
     _ = astro_import_apply;
     _ = link_audit;
     _ = hugo;
+    _ = jekyll;
     _ = ghost;
+    _ = mkdocs;
 }
 
 test "parseOptions: defaults and astro flags" {
@@ -841,6 +846,25 @@ test "parseOptions: frontmatter-review flags" {
     try std.testing.expect(o4.mode == .frontmatter_review);
 }
 
+test "parseOptions: jekyll-inventory flags" {
+    const o = try parseOptions(&.{
+        "boris-migration-lab",
+        "--mode=jekyll-inventory",
+        "--root=fixtures/mini-jekyll",
+        "--out=./.jekyll-inv",
+    });
+    try std.testing.expect(o.mode == .jekyll_inventory);
+    try std.testing.expect(o.mode_explicit);
+    try std.testing.expectEqualStrings("fixtures/mini-jekyll", o.root_dir);
+    try std.testing.expectEqualStrings("./.jekyll-inv", o.out_dir);
+
+    const o2 = try parseOptions(&.{ "boris-migration-lab", "--mode=jekyll-inv", "--root=./j" });
+    try std.testing.expect(o2.mode == .jekyll_inventory);
+
+    const o3 = try parseOptions(&.{ "boris-migration-lab", "--mode=jekyll-archaeology", "--root=./j" });
+    try std.testing.expect(o3.mode == .jekyll_inventory);
+}
+
 test "parseOptions: filed-scan flags" {
     const o = try parseOptions(&.{
         "boris-migration-lab",
@@ -869,6 +893,20 @@ test "parseOptions: hugo-inventory flags" {
 
     // Bare `hugo` is reserved for the emit slice and stays invalid.
     try std.testing.expectError(error.InvalidValue, parseOptions(&.{ "x", "--mode=hugo" }));
+}
+
+test "parseOptions: mkdocs-inventory flags" {
+    const o = try parseOptions(&.{
+        "boris-migration-lab",
+        "--mode=mkdocs-inventory",
+        "--root=fixtures/mini-mkdocs",
+        "--out=outputs/mkdocs-inv",
+    });
+    try std.testing.expect(o.mode == .mkdocs_inventory);
+    try std.testing.expectEqualStrings("fixtures/mini-mkdocs", o.root_dir);
+    try std.testing.expectEqualStrings("outputs/mkdocs-inv", o.out_dir);
+    const o2 = try parseOptions(&.{ "boris-migration-lab", "--mode=mkdocs-inv", "--root=r", "--out=o" });
+    try std.testing.expect(o2.mode == .mkdocs_inventory);
 }
 
 test "parseOptions: unknown flag" {
