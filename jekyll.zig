@@ -488,6 +488,24 @@ fn recordFmKeys(a: std.mem.Allocator, inv: *Inventory, fm: archaeology.Frontmatt
     }
 }
 
+/// Scalar value after a YAML key: quoted values keep their contents verbatim
+/// (a `#` inside quotes is data); otherwise ` #` starts a comment; a `[...]`
+/// inline list keeps everything through its closing bracket.
+fn yamlScalarValue(s: []const u8) []const u8 {
+    var v = trimSpace(s);
+    if (v.len >= 2 and (v[0] == '"' or v[0] == '\'')) {
+        const q = v[0];
+        if (std.mem.lastIndexOfScalar(u8, v, q)) |ce| {
+            if (ce > 0) return v[1..ce];
+        }
+    }
+    if (v.len > 0 and v[0] == '[') {
+        if (std.mem.indexOfScalar(u8, v, ']')) |cb| return v[0 .. cb + 1];
+    }
+    if (std.mem.indexOf(u8, v, " #")) |cp| v = trimSpace(v[0..cp]);
+    return stripQuotes(v);
+}
+
 /// Bounded `_config.yml` scan: top-level `title`/`baseurl`/`permalink` scalars
 /// plus `collections:` names with their `output:` flag. Not a YAML parser.
 fn parseConfig(a: std.mem.Allocator, source: []const u8) !Config {
@@ -505,16 +523,14 @@ fn parseConfig(a: std.mem.Allocator, source: []const u8) !Config {
         if (indent == 0) {
             if (in_include and line.len > 1 and line[0] == '-') {
                 // YAML allows top-level list items at column 0 under a key.
-                var entry = trimSpace(line[1..]);
-                if (std.mem.indexOf(u8, entry, " #")) |cp| entry = trimSpace(entry[0..cp]);
-                entry = stripQuotes(entry);
+                const entry = yamlScalarValue(line[1..]);
                 if (entry.len > 0) try cfg.include_paths.append(a, try a.dupe(u8, entry));
                 continue;
             }
             current = null;
             const colon = std.mem.indexOfScalar(u8, line, ':') orelse continue;
             const key = trimSpace(line[0..colon]);
-            const value = stripQuotes(trimSpace(line[colon + 1 ..]));
+            const value = yamlScalarValue(line[colon + 1 ..]);
             if (std.mem.eql(u8, key, "collections")) {
                 in_collections = true;
                 in_include = false;
@@ -531,8 +547,7 @@ fn parseConfig(a: std.mem.Allocator, source: []const u8) !Config {
             } else if (std.mem.eql(u8, key, "include")) {
                 // `include: [a, b]`, `include: a`, or a `- item` block list.
                 in_include = true;
-                var v = trimSpace(value);
-                if (std.mem.indexOf(u8, v, " #")) |cp| v = trimSpace(v[0..cp]);
+                const v = trimSpace(value);
                 if (v.len >= 2 and v[0] == '[' and v[v.len - 1] == ']') {
                     var it2 = std.mem.splitScalar(u8, v[1 .. v.len - 1], ',');
                     while (it2.next()) |item| {
@@ -547,9 +562,7 @@ fn parseConfig(a: std.mem.Allocator, source: []const u8) !Config {
         }
         if (in_include) {
             if (line[0] == '-') {
-                var entry = trimSpace(line[1..]);
-                if (std.mem.indexOf(u8, entry, " #")) |cp| entry = trimSpace(entry[0..cp]);
-                entry = stripQuotes(entry);
+                const entry = yamlScalarValue(line[1..]);
                 if (entry.len > 0) try cfg.include_paths.append(a, try a.dupe(u8, entry));
             } else in_include = false;
             if (in_include) continue;
@@ -1466,6 +1479,9 @@ const EmitCtx = struct {
     static_set: std.StringHashMap(void),
     /// `_config.yml` include paths
     includes: []const []const u8,
+    /// baseurl exactly as configured (trailing slash kept) — for literal
+    /// `{{ site.baseurl }}` substitution
+    baseurl_raw: []const u8,
     /// non-Markdown collection member link target (source path `_docs/x` or
     /// public URL `docs/x`) → source path, for per-page asset copies
     member_assets: *std.StringHashMap([]const u8),
@@ -1566,7 +1582,9 @@ fn emitIsPublicAssetPath(path: []const u8, includes: []const []const u8) bool {
 /// per page — two pages sharing one static file each get a sibling copy.
 fn emitCopyAsset(ctx: *EmitCtx, io: Io, src_root: Io.Dir, stage: Io.Dir, rel_src: []const u8) !?[]const u8 {
     const a = ctx.a;
-    if (!emitIsPublicAssetPath(rel_src, ctx.includes)) return null;
+    // Collection members live under `_name/` — not public paths — but Jekyll
+    // publishes them as collection output, so they are copyable too.
+    if (!emitIsPublicAssetPath(rel_src, ctx.includes) and !ctx.member_assets.contains(rel_src)) return null;
     const key = try std.fmt.allocPrint(a, "{s}|{s}", .{ ctx.page.id, rel_src });
     if (ctx.copied.get(key)) |dest| return dest;
     const base = std.fs.path.basename(rel_src);
@@ -1667,7 +1685,7 @@ fn emitTransformBody(ctx: *EmitCtx, io: Io, src_root: Io.Dir, stage: Io.Dir, bod
                             continue;
                         }
                     }
-                    try out.appendSlice(a, ctx.baseurl);
+                    try out.appendSlice(a, ctx.baseurl_raw);
                 } else if (std.mem.startsWith(u8, inner, "site.data.")) {
                     try out.appendSlice(a, span);
                     try emitReportOnce(ctx, try std.fmt.allocPrint(a, "var/{s}", .{inner}), "liquid_preserved", try std.fmt.allocPrint(a, "{s} is a data-file reference; kept verbatim", .{inner}));
@@ -1780,7 +1798,7 @@ fn emitTransformBody(ctx: *EmitCtx, io: Io, src_root: Io.Dir, stage: Io.Dir, bod
                 }
                 // Substitute {{ site.baseurl }} inside the destination.
                 if (std.mem.indexOf(u8, dest, "{{ site.baseurl }}")) |bp| {
-                    const joined = try std.fmt.allocPrint(a, "{s}{s}{s}", .{ dest[0..bp], ctx.baseurl, dest[bp + "{{ site.baseurl }}".len ..] });
+                    const joined = try std.fmt.allocPrint(a, "{s}{s}{s}", .{ dest[0..bp], ctx.baseurl_raw, dest[bp + "{{ site.baseurl }}".len ..] });
                     dest = joined;
                 }
                 if (std.mem.indexOfScalar(u8, dest, ' ')) |sp| dest = trimSpace(dest[0..sp]);
@@ -1932,8 +1950,10 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
         try static_set.put(f, {});
     }
     // `_config.yml include:` can republish hidden dirs the scan otherwise
-    // marks ignored (e.g. `include: [_static]`).
+    // marks ignored (e.g. `include: [_static]`). Markdown is excluded — those
+    // files are pages, not assets, and never entered the page pipeline.
     for (inv.ignored.items) |f| {
+        if (isMd(f)) continue;
         if (emitIsPublicAssetPath(f, cfg.include_paths.items)) try static_set.put(f, {});
     }
 
@@ -2093,7 +2113,13 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
                 // resolve to the member's source path; a per-page copy is
                 // registered on first reference (emitCopyAsset).
                 try member_assets.put(m, m);
-                try member_assets.put(try std.fmt.allocPrint(a, "{s}/{s}", .{ col.name, std.fs.path.basename(m) }), m);
+                // Public URL keeps the member's path below the collection dir
+                // (`_docs/sub/logo.png` → `docs/sub/logo.png`).
+                const member_sub = if (std.mem.startsWith(u8, m, "_") and m.len > 1 + col.name.len + 1)
+                    m[1 + col.name.len + 1 ..]
+                else
+                    std.fs.path.basename(m);
+                try member_assets.put(try std.fmt.allocPrint(a, "{s}/{s}", .{ col.name, member_sub }), m);
                 try pending_member_copies.append(a, .{ .src = m, .dest = dest, .data = data });
                 try asset_copies.append(a, .{ .source_path = m, .dest = dest });
                 continue;
@@ -2269,6 +2295,7 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
             .path_index = path_index,
             .static_set = static_set,
             .includes = cfg.include_paths.items,
+            .baseurl_raw = cfg.baseurl orelse "",
             .member_assets = &member_assets,
             .baseurl = baseurl,
             .review = &review,
