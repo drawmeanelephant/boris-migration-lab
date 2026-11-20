@@ -23,9 +23,9 @@ Every construct below has one row in
 | Signal | Record |
 |--------|--------|
 | `Create` of a `Note` (plain) | statuses/1001 |
-| Public (`Public` in `to`) | statuses/1001, 1004, 1005, 1007, 1008 |
-| Unlisted (`Public` in `cc`, not `to`) | statuses/1006 |
-| Followers-only (`to` = followers collection only) | statuses/1002, 1009–1011 |
+| Public (`Public` in `to`) | statuses/1001, 1004, 1005, 1007, 1008, 1009, 1012 |
+| Unlisted (`Public` in `cc`, not `to`) | statuses/1006, 1010 |
+| Followers-only (`to` = followers collection only) | statuses/1002, 1011 |
 | Direct (`to` = mentioned actors only) | statuses/1003 |
 | Hashtag `tag` | statuses/1001 (`#ExampleTag`) |
 | Mention `tag` | statuses/1001, 1003, 1012 (`@friend@example.com`) |
@@ -34,7 +34,7 @@ Every construct below has one row in
 | Poll as `Question` object (`oneOf`, `votersCount`) | statuses/1005 |
 | Content warning (`summary` + `sensitive: true`) | statuses/1006 |
 | Edited post (`updated`) | statuses/1007 |
-| Self-reply thread ≥3 deep (`inReplyTo` chain) | statuses/1008 → 1009 → 1010 → 1011 |
+| Self-reply thread ≥3 deep (`inReplyTo` chain; mixed audience) | statuses/1008 → 1009 → 1010 → 1011 |
 | Reply to another account | statuses/1012 → `friend/statuses/9001` |
 | Boost (`Announce`, `object` as bare URI) | statuses/1013/announce |
 | Likes / bookmarks collections | `likes.json`, `bookmarks.json` |
@@ -42,8 +42,9 @@ Every construct below has one row in
 ## Run
 
 ```bash
-# from the repo root, once the mastodon modes exist:
-zig build run -- --mode=mastodon-inventory --root=./fixtures/mini-mastodon --out=./.masto-report
+# from the repo root:
+zig build run -- --mode=mastodon-inventory --root=./fixtures/mini-mastodon --out=./.masto-inventory
+zig build run -- --mode=mastodon --root=./fixtures/mini-mastodon --out=./.masto-report
 zig build test
 ```
 

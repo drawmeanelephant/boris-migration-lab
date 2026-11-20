@@ -21,9 +21,14 @@ Standalone **migration laboratory** for bringing existing sites into Boris.
 | **wordpress-theme** | Classic WordPress theme source tree | Deterministic PHP/template inventory + static Boris prototype + manual-review manifest (read-only) |
 | **link-audit** | Generated static HTML tree | Missing local routes/fragments report; external links are left out of scope |
 | **hugo-inventory** | Hugo project root (`config.toml`/`hugo.toml` + `content/`) | Read-only `inventory.json` + `INVENTORY.md` |
+| **hugo** | Hugo project root (`config.toml`/`hugo.toml` + `content/`) | Boris Markdown under `content/` (+ `<stem>.assets/`) + provenance sidecars, redirect and review reports |
 | **jekyll-inventory** | Jekyll site source tree | Read-only `inventory.json` + `INVENTORY.md` (posts, drafts, collections, Liquid, `_data` refs) |
 | **ghost-inventory** | Unpacked Ghost 5 export root (`ghost-export.json` + `content/images/`) | Read-only `inventory.json` + `INVENTORY.md` |
+| **ghost** | Unpacked Ghost 5 export root (same as `ghost-inventory`) | Candidate Boris Markdown under `content/{posts,pages}/` + sibling `.assets/`, `report.json`, `REPORT.md`, `provenance_manifest.json` |
 | **mkdocs-inventory** | MkDocs project root (`mkdocs.yml` + `docs/`) | Read-only `inventory.json` + `INVENTORY.md` |
+| **mkdocs** | MkDocs project root (`mkdocs.yml` + `docs/`) | Boris Markdown (`nav:` flattened to Trunk/Satellite) + includes/assets + `report.json`, `REPORT.md`, `provenance_manifest.json` |
+| **mastodon-inventory** | Unpacked Mastodon archive (`outbox.json`, `actor.json`, `likes.json`, `bookmarks.json`, `media_attachments/`) | Read-only `inventory.json` + `INVENTORY.md` |
+| **mastodon** | Unpacked Mastodon archive | Boris Markdown under `content/mastodon/` (+ `{stem}.assets/`) + inventory, `report.json`, `REPORT.md`, `provenance_manifest.json` |
 | **atproto-inventory** | AT Protocol repo export (`repo.car` + optional `blobs/`) | Read-only `inventory.json` + `INVENTORY.md` (collections, thread shapes, embeds, blob presence) |
 
 All modes are **read-only on inputs**: originals are never rewritten. There is
@@ -53,7 +58,8 @@ repository.
 | Jekyll format id | `boris-jekyll-migration-lab` |
 | Ghost format id | `boris-ghost-migration-lab` |
 | MkDocs format id | `boris-mkdocs-migration-lab` |
-| Schema | Instagram **`2`**; Astro/Obsidian/Notion/Filed/Starlight/Asset-filename/Theme-archaeology/Theme-materialize/Tinderbox/Hugo/Jekyll/Ghost/MkDocs `1`; WordPress **`3`** |
+| Mastodon format id | `boris-mastodon-migration-lab` |
+| Schema | Instagram **`2`**; Astro/Obsidian/Notion/Filed/Starlight/Asset-filename/Theme-archaeology/Theme-materialize/Tinderbox/Hugo/Jekyll/Ghost/MkDocs/Mastodon `1`; WordPress **`3`** |
 
 Companion author guide: [`docs/MIGRATION.md`](docs/MIGRATION.md).
 
@@ -218,6 +224,11 @@ zig build run -- --mode=hugo-inventory \
   --root=./fixtures/mini-hugo \
   --out=./.hugo-inventory-report
 
+# Convert a Hugo project to candidate Boris Markdown
+zig build run -- --mode=hugo \
+  --root=./fixtures/mini-hugo \
+  --out=./.hugo-emit
+
 # Read-only Jekyll site inventory (no Markdown emit)
 zig build run -- --mode=jekyll-inventory \
   --root=./fixtures/mini-jekyll \
@@ -228,10 +239,25 @@ zig build run -- --mode=ghost-inventory \
   --root=./fixtures/mini-ghost \
   --out=./.ghost-inventory
 
+# Ghost 5 export → candidate Boris Markdown (posts, pages, media, reports)
+zig build run -- --mode=ghost \
+  --root=./fixtures/mini-ghost \
+  --out=./.ghost-out
+
 # MkDocs project → read-only nav/link/extension inventory
 zig build run -- --mode=mkdocs-inventory \
   --root=./fixtures/mini-mkdocs \
   --out=./.mkdocs-inventory
+
+# MkDocs project → proposed Boris Markdown + review reports
+zig build run -- --mode=mkdocs \
+  --root=./fixtures/mini-mkdocs \
+  --out=./.mkdocs-emit
+
+# Mastodon archive → Boris Markdown (inventory + emit; no network)
+zig build run -- --mode=mastodon \
+  --root=./fixtures/mini-mastodon \
+  --out=./.masto-report
 ```
 
 This repository **is** the laboratory root, so `zig build` and `zig build test`
@@ -248,9 +274,9 @@ zig build test   # with BORIS_BIN exported or `boris` on PATH (see Boris pins)
 |------|---------|---------|
 | `-h`, `--help` | | Print usage; exit 0 |
 | `-q`, `--quiet` | off | Suppress progress lines |
-| `--mode=MODE` | `astro` | `astro`, `astro-import-plan`, `astro-import-apply`, `wordpress` (`wp` / `wxr`), `wordpress-theme` (`wp-theme` / `kubrick-theme`), `instagram` (`ig` / `takeout`), `obsidian` (`obs` / `vault`), `tinderbox-inventory` (`tbx-inventory` / `tinderbox-inv`), `tinderbox` (`tinderbox-emit` / `tbx`), `notion` (`md-csv` / `notion-export`), `filed` (`filed-fyi`), `filed-scan`, `starlight` (`sl` / `evcc`), `asset-filename` (`assets` / `asset-compat` / `filename-compat`), `theme-archaeology` (`theme` / `theme-arch` / `theme-inventory`), `theme-materialize` (`materialize` / `theme-materialise`), `link-audit` (`links` / `output-audit`), `frontmatter-review` (`fm-review` / `fmreview`), `hugo-inventory` (`hugo-inv`), `jekyll-inventory` (`jekyll-inv` / `jekyll-archaeology`), `ghost-inventory` (`ghost-inv`), `mkdocs-inventory` (`mkdocs-inv`), or `atproto-inventory` (`atproto-inv`) |
+| `--mode=MODE` | `astro` | `astro`, `astro-import-plan`, `astro-import-apply`, `wordpress` (`wp` / `wxr`), `wordpress-theme` (`wp-theme` / `kubrick-theme`), `instagram` (`ig` / `takeout`), `obsidian` (`obs` / `vault`), `tinderbox-inventory` (`tbx-inventory` / `tinderbox-inv`), `tinderbox` (`tinderbox-emit` / `tbx`), `notion` (`md-csv` / `notion-export`), `filed` (`filed-fyi`), `filed-scan`, `starlight` (`sl` / `evcc`), `asset-filename` (`assets` / `asset-compat` / `filename-compat`), `theme-archaeology` (`theme` / `theme-arch` / `theme-inventory`), `theme-materialize` (`materialize` / `theme-materialise`), `link-audit` (`links` / `output-audit`), `frontmatter-review` (`fm-review` / `fmreview`), `hugo-inventory` (`hugo-inv`), `hugo` (`hugo-emit`), `jekyll-inventory` (`jekyll-inv` / `jekyll-archaeology`), `ghost-inventory` (`ghost-inv`), `ghost`, `mkdocs-inventory` (`mkdocs-inv`), `mkdocs` (`mkdocs-emit`), `mastodon-inventory` (`mastodon-inv` / `masto-inventory`), `mastodon` (`masto` / `mastodon-emit`), or `atproto-inventory` (`atproto-inv`) |
 | `--out=DIR` | `migration-report` | Output directory (**must differ from inputs**); must be explicit for `astro-import-plan` |
-| `--root=DIR` | `.` | Astro archaeology root, Starlight project root, asset-filename content tree, theme scan root, Hugo project root, Jekyll site source root, generated HTML tree for `link-audit`, MkDocs project root for `mkdocs-inventory`, unpacked Ghost export root for `ghost-inventory`, or AT Protocol export root for `atproto-inventory`; must be explicit for `astro-import-plan` |
+| `--root=DIR` | `.` | Astro archaeology root, Starlight project root, asset-filename content tree, theme scan root, Hugo project root for `hugo` / `hugo-inventory`, Jekyll site source root, generated HTML tree for `link-audit`, MkDocs project root for `mkdocs-inventory` / `mkdocs`, unpacked Ghost export root for `ghost-inventory` / `ghost`, unpacked Mastodon archive for `mastodon` / `mastodon-inventory`, or AT Protocol export root for `atproto-inventory`; must be explicit for `astro-import-plan` |
 | `--content-root=RELATIVE_DIR` | | Required by `astro-import-plan` and `astro-import-apply`; approved plain-Markdown root relative to `--root` |
 | `--project-id=ID` | | Required by `astro-import-plan` and `astro-import-apply`; stable importer identity namespace |
 | `--plan=FILE` | | Required by `astro-import-apply`; reviewed `import_plan.json` with adjacent `source_snapshot.json` |
@@ -328,7 +354,13 @@ Exit codes: **0** success, **2** usage, **3** I/O error.
    shortcode bodies (they are scanned as text), never fetches themes or the
    network. Front matter and `config.toml` are read by bounded scanners;
    anything unclassifiable is reported, never guessed. Shortcodes inside
-   fenced code blocks are not counted. See
+   fenced code blocks are not counted. `--mode=hugo` writes a staged,
+   ownership-marked `--out` (refusing source/output overlap), rewrites only
+   `figure`, `ref`, `relref`, page-resource images, and links that name an
+   emitted page; every other shortcode stays as text and is reported
+   `human_review`. Hugo-only fields (`slug`, `weight`, `aliases`, `layout`,
+   `type`, `url`) land in `provenance/<entity-id>.json` and
+   `redirects.json`, never frontmatter. See
    [`docs/contracts/hugo.md`](docs/contracts/hugo.md).
 18. **Jekyll** — source-tree inventory only (writes under `--out`). Never
     executes Liquid, Ruby, `_plugins/*.rb`, or `jekyll build`; Liquid inside
@@ -339,12 +371,27 @@ Exit codes: **0** success, **2** usage, **3** I/O error.
 19. **Ghost** — read-only inventory of an unpacked Ghost 5 Admin export. Never
     mutates `ghost-export.json` or `content/images/`, never calls the Ghost API
     or the network, and never copies `users` emails, password hashes, or tokens
-    into the inventory. See [`docs/contracts/ghost.md`](docs/contracts/ghost.md).
+    into the inventory. `--mode=ghost` emits candidate Boris Markdown from the
+    same export: `members`/`paid`/`tiers` and `scheduled` rows land as
+    `status: draft` (never `published`), `__GHOST_URL__` links resolve to
+    `[[entity-id|label]]` or are reported, and local images are copied into
+    sibling `<stem>.assets/` trees. See [`docs/contracts/ghost.md`](docs/contracts/ghost.md).
 20. **MkDocs** — `mkdocs.yml` is inventory only. The `nav:` block is parsed
     by a bounded indentation parser; `!!python/...` YAML tags are recorded as
     `unsupported` and never evaluated. No plugin, macro, hook, theme, or
-    Python runtime is executed, and no Markdown is emitted. See
+    Python runtime is executed. `mkdocs-inventory` emits no Markdown;
+    `mkdocs` writes proposed Boris Markdown only under `--out` (nested
+    `nav:` flattened to Trunk + Satellite pages, never Satellite-of-Satellite)
+    and reports every transformed or reviewed construct. See
     [`docs/contracts/mkdocs.md`](docs/contracts/mkdocs.md).
+21. **Mastodon** — reads an unpacked archive export only; never fetches remote
+    statuses or media. Followers-only and direct posts are never written to
+    `content/` (not even as drafts) and appear in reports as counts only, with
+    no body text. Unlisted posts, polls, and anything else classed
+    `human_review` are emitted as `status: draft`. Self-reply threads become
+    one Trunk (the first post) with every later reply as a flat Satellite of
+    it. `actor.json` key material is never copied. See
+    [`docs/contracts/mastodon.md`](docs/contracts/mastodon.md).
 
 ---
 

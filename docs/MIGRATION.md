@@ -726,6 +726,10 @@ claim Material feature parity.
 | `static/` | Theme `assets/` and/or page-local `.assets/` |
 | `ref` / `relref` | `[[entity-id]]` |
 
+`boris-migration-lab --mode=hugo --root=<hugo-project> --out=<dir>` does this
+first pass mechanically and lists every page it could not map cleanly in
+`REPORT.md` ([lab contract](contracts/hugo.md)).
+
 ### MkDocs
 
 | MkDocs | Boris |
