@@ -1376,7 +1376,10 @@ pub fn run(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
 
     var out_dir = stripTrailingSlashes(opts.out_dir);
     if (out_dir.len == 0) out_dir = opts.out_dir;
-    const docs_dir_path = try std.fmt.allocPrint(a, "{s}/{s}", .{ opts.root_dir, inv.config.docs_dir });
+    const docs_dir_path = if (std.fs.path.isAbsolute(inv.config.docs_dir))
+        inv.config.docs_dir
+    else
+        try std.fmt.allocPrint(a, "{s}/{s}", .{ opts.root_dir, inv.config.docs_dir });
     const inputs = [_][]const u8{ opts.root_dir, docs_dir_path };
     var pub_ = try publication.Publication.begin(io, a, out_dir, &inputs, format_id);
     defer {
@@ -1650,6 +1653,44 @@ test "mkdocs: run refuses source/output overlap" {
     }));
 }
 
+test "mkdocs: run refuses output inside an absolute docs_dir" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer {
+        tmp.dir.close(io);
+        tmp.parent_dir.deleteTree(io, &tmp.sub_path) catch {};
+        tmp.parent_dir.close(io);
+    }
+    const base = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}", .{tmp.sub_path});
+    defer gpa.free(base);
+    const page = try std.fmt.allocPrint(gpa, "{s}/real-docs/index.md", .{base});
+    defer gpa.free(page);
+    try Io.Dir.cwd().createDirPath(io, std.fs.path.dirname(page).?);
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = page, .data = "# Home\n" });
+
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const n = try Io.Dir.cwd().realPathFile(io, page, &buf);
+    const abs_docs = std.fs.path.dirname(buf[0..n]).?;
+
+    const root = try std.fmt.allocPrint(gpa, "{s}/proj", .{base});
+    defer gpa.free(root);
+    try Io.Dir.cwd().createDirPath(io, root);
+    const yml_path = try std.fmt.allocPrint(gpa, "{s}/mkdocs.yml", .{root});
+    defer gpa.free(yml_path);
+    const yml = try std.fmt.allocPrint(gpa, "site_name: Abs\ndocs_dir: {s}\n", .{abs_docs});
+    defer gpa.free(yml);
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = yml_path, .data = yml });
+
+    const out = try std.fmt.allocPrint(gpa, "{s}/OUT", .{abs_docs});
+    defer gpa.free(out);
+    try std.testing.expectError(error.InputOutputOverlap, run(io, gpa, .{
+        .root_dir = root,
+        .out_dir = out,
+        .quiet = true,
+    }));
+    try std.testing.expectError(error.FileNotFound, Io.Dir.cwd().access(io, out, .{}));
+}
 test "mkdocs: missing mkdocs.yml is bad input" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
