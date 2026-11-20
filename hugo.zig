@@ -486,6 +486,7 @@ const RootEntryKind = enum { missing, file, dir, other };
 /// `--root`: a symlinked `content`, `config.toml`, or intermediate directory
 /// is reported instead of resolved outside the tree.
 fn safeKind(io: Io, a: std.mem.Allocator, root: Io.Dir, rel: []const u8, unclassified: *std.ArrayList([]const u8)) !?RootEntryKind {
+    if (std.mem.eql(u8, rel, ".")) return .dir; // the root itself was already opened
     var parts = std.mem.splitScalar(u8, rel, '/');
     var partial: std.ArrayList(u8) = .empty;
     var last_kind: ?RootEntryKind = .missing;
@@ -529,7 +530,7 @@ fn normalizeRelPath(a: std.mem.Allocator, p: []const u8) ![]const u8 {
         try out.appendSlice(a, seg);
         first = false;
     }
-    return out.items;
+    return if (out.items.len == 0) "." else out.items;
 }
 
 fn isUnsafeRelPath(p: []const u8) bool {
@@ -682,6 +683,13 @@ fn scanConfig(io: Io, a: std.mem.Allocator, root: Io.Dir, unclassified: *std.Arr
     return cfg;
 }
 
+/// `base/name` with `.` and empty bases mapped to just `name`, so scanning
+/// the root itself (`contentDir = "."`) records clean relative paths.
+fn joinRel(a: std.mem.Allocator, base: []const u8, name: []const u8) ![]const u8 {
+    if (base.len == 0 or std.mem.eql(u8, base, ".")) return a.dupe(u8, name);
+    return std.fmt.allocPrint(a, "{s}/{s}", .{ base, name });
+}
+
 fn isMd(name: []const u8) bool {
     return std.mem.endsWith(u8, name, ".md");
 }
@@ -742,8 +750,9 @@ fn langSuffix(noext: []const u8, codes: []const []const u8) ?[]const u8 {
 /// inventory (e.g. "content/en").
 fn scanContentDir(io: Io, ctx: ScanCtx, root: Io.Dir, root_rel: []const u8, rel: []const u8, language: []const u8, depth: usize) !void {
     const a = ctx.a;
-    const abs_rel = if (rel.len == 0) root_rel else try std.fmt.allocPrint(a, "{s}/{s}", .{ root_rel, rel });
-    const listing = try listDir(io, a, root, abs_rel, ctx.unclassified);
+    const abs_rel = if (rel.len == 0) root_rel else try joinRel(a, root_rel, rel);
+    const open_path = if (abs_rel.len == 0 or std.mem.eql(u8, abs_rel, ".")) "." else abs_rel;
+    const listing = try listDir(io, a, root, open_path, ctx.unclassified);
 
     // Directory file classes. `index.<lang>.md`/`_index.<lang>.md` and
     // `<name>.<lang>.md` are language variants of the same page kinds.
@@ -778,17 +787,17 @@ fn scanContentDir(io: Io, ctx: ScanCtx, root: Io.Dir, root_rel: []const u8, rel:
         const kind: PageKind = if (has_resources) .branch_bundle else .section;
         var class: ConversionClass = .transformed;
         if (depth > 1) class = .human_review; // nested section: Boris trunk/satellite is two-level
-        const path = try std.fmt.allocPrint(a, "{s}/{s}", .{ abs_rel, u.file });
+        const path = try joinRel(a, abs_rel, u.file);
         try appendPage(io, ctx, root, path, u.lang, kind, depth, class, resource_files.items);
     }
 
     for (index_pages.items) |p| {
-        const path = try std.fmt.allocPrint(a, "{s}/{s}", .{ abs_rel, p.file });
+        const path = try joinRel(a, abs_rel, p.file);
         try appendPage(io, ctx, root, path, p.lang, .leaf_bundle, depth, .transformed, resource_files.items);
     }
 
     for (singles.items) |p| {
-        const path = try std.fmt.allocPrint(a, "{s}/{s}", .{ abs_rel, p.file });
+        const path = try joinRel(a, abs_rel, p.file);
         try appendPage(io, ctx, root, path, p.lang, .single, depth, .exact, &.{});
     }
 
@@ -799,12 +808,12 @@ fn scanContentDir(io: Io, ctx: ScanCtx, root: Io.Dir, root_rel: []const u8, rel:
     // their own pages.
     if (under_pages.items.len == 0 and index_pages.items.len == 0 and has_resources) {
         for (resource_files.items) |f| {
-            try ctx.unclassified.append(a, try std.fmt.allocPrint(a, "{s}/{s}: resource outside any bundle", .{ abs_rel, f }));
+            try ctx.unclassified.append(a, try std.fmt.allocPrint(a, "{s}: resource outside any bundle", .{try joinRel(a, abs_rel, f)}));
         }
     }
 
     for (listing.dirs) |d| {
-        const child_rel = if (rel.len == 0) try a.dupe(u8, d) else try std.fmt.allocPrint(a, "{s}/{s}", .{ rel, d });
+        const child_rel = if (rel.len == 0) try a.dupe(u8, d) else try joinRel(a, rel, d);
         try scanContentDir(io, ctx, root, root_rel, child_rel, language, depth + 1);
     }
 }
@@ -932,7 +941,8 @@ fn scanSite(io: Io, a: std.mem.Allocator, root: Io.Dir) !Inventory {
             continue;
         }
         content_scanned = true;
-        try scanContentDir(io, ctx, root, content_dir, "", scan_lang, 0);
+        const scan_rel = if (std.mem.eql(u8, content_dir, ".")) "" else content_dir;
+        try scanContentDir(io, ctx, root, scan_rel, "", scan_lang, 0);
     }
     if (!content_scanned and cfg.languages.len == 0) {
         if (try safeKind(io, a, root, "content", &unclassified)) |k| {
@@ -1715,6 +1725,33 @@ test "hugo: equivalent contentDir spellings dedupe" {
     const json = try readFileAlloc(io, o, "inventory.json", a);
     // en (shared default) and fr ("./content") resolve to one scan, not two.
     try std.testing.expect(std.mem.indexOf(u8, json, "\"pages\": 1") != null);
+}
+
+test "hugo: contentDir \".\" scans the project root" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer {
+        tmp.dir.close(io);
+        tmp.parent_dir.deleteTree(io, &tmp.sub_path) catch {};
+        tmp.parent_dir.close(io);
+    }
+    const root = try tmpBase(a, &tmp, "rootcontent");
+    try Io.Dir.cwd().createDirPath(io, root);
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fmt.allocPrint(a, "{s}/config.toml", .{root}), .data =
+        \\[languages.en]
+        \\contentDir = "."
+        \\
+    });
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fmt.allocPrint(a, "{s}/about.md", .{root}), .data = "hi\n" });
+    const out = try std.fmt.allocPrint(a, "{s}-out", .{root});
+    try run(io, a, .{ .root_dir = root, .out_dir = out, .quiet = true });
+    var o = try Io.Dir.cwd().openDir(io, out, .{});
+    defer o.close(io);
+    const json = try readFileAlloc(io, o, "inventory.json", a);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"path\": \"about.md\"") != null);
 }
 
 test "hugo: contentDir outside root is not scanned" {
