@@ -384,6 +384,11 @@ fn resolveLocal(a: std.mem.Allocator, page_dir: []const u8, dest: []const u8) !?
     return try std.mem.join(a, "/", segs.items);
 }
 
+/// `dir` names a directory component of `path` (case-insensitive).
+fn isDirPrefix(dir: []const u8, path: []const u8) bool {
+    return path.len > dir.len and path[dir.len] == '/' and std.ascii.startsWithIgnoreCase(path, dir);
+}
+
 fn isPathChar(c: u8) bool {
     return c > ' ' and c != ')' and c != '(' and c != '"' and c != '\'' and c != '<' and c != '>' and c != ']' and c != '[' and c != '{' and c != '}' and c != '|';
 }
@@ -435,10 +440,21 @@ const Rewriter = struct {
         var n: usize = 2;
         while (true) {
             var taken = false;
+            var dir_clash = false;
             for (self.page.assets.items) |c| {
-                if (std.ascii.eqlIgnoreCase(c.dest[prefix.len..], within)) taken = true;
+                const other = c.dest[prefix.len..];
+                if (std.ascii.eqlIgnoreCase(other, within)) taken = true;
+                if (isDirPrefix(other, within) or isDirPrefix(within, other)) dir_clash = true;
             }
-            if (!taken) break;
+            if (!taken and !dir_clash) break;
+            if (dir_clash and std.mem.indexOfScalar(u8, within, '/') != null) {
+                // A file and a directory would share one path: flatten this one.
+                const flat = try self.a.dupe(u8, within);
+                std.mem.replaceScalar(u8, flat, '/', '-');
+                within = flat;
+                try self.page.flag(self.a, .human_review, "asset_name_collision");
+                continue;
+            }
             const dot = std.mem.lastIndexOfScalar(u8, base_within, '.');
             const slash = std.mem.lastIndexOfScalar(u8, base_within, '/');
             within = if (dot != null and (slash == null or dot.? > slash.?))
@@ -1693,7 +1709,9 @@ test "jekyll: emit hostile tree: id collisions, bad dates, quoted titles and tag
         .{ "site/notes/deep/page.md", "---\ntitle: Deep\n---\n\n[x|y]({% post_url 2024-02-30-bad-date %})\n" },
         .{ "site/plain.md", "No front matter: Jekyll copies this verbatim.\n" },
         .{ "site/assets/hero image.png", "img\n" },
-        .{ "site/gallery.md", "---\ntitle: Gallery\n---\n\n![h](/assets/hero%20image.png)\n" },
+        .{ "site/assets/foo bar.png", "a\n" },
+        .{ "site/assets/foo-bar.png/child.png", "b\n" },
+        .{ "site/gallery.md", "---\ntitle: Gallery\n---\n\n![h](/assets/hero%20image.png) ![a](/assets/foo%20bar.png) ![b](/assets/foo-bar.png/child.png)\n" },
         .{ "site/commented.md", "---\ntitle: Commented\npublished: false # not ready\n---\n\nHidden.\n" },
     };
     for (files) |f| {
@@ -1722,6 +1740,8 @@ test "jekyll: emit hostile tree: id collisions, bad dates, quoted titles and tag
     try expectContains(try readOut(io, a, out, "content/commented.md"), "status: draft\n");
     try expectContains(try readOut(io, a, out, "content/gallery.md"), "![h](gallery.assets/hero-image.png)");
     try std.testing.expectEqualStrings("img\n", try readOut(io, a, out, "content/gallery.assets/hero-image.png"));
+    try expectContains(try readOut(io, a, out, "content/gallery.md"), "![a](gallery.assets/foo-bar.png) ![b](gallery.assets/foo-bar.png-child.png)");
+    try std.testing.expectEqualStrings("b\n", try readOut(io, a, out, "content/gallery.assets/foo-bar.png-child.png"));
 
     try compileWithBoris(io, std.testing.allocator, try std.fmt.allocPrint(a, "{s}/content", .{out}), try std.fmt.allocPrint(a, "{s}/html", .{base}));
 }
