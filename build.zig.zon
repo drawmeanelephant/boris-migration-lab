@@ -41,6 +41,7 @@
         "link_audit.zig",
         "frontmatter_review.zig",
         "mkdocs.zig",
+        "ghost.zig",
         "migration_semantics.zig",
         "publication.zig",
         "archaeology.zig",
