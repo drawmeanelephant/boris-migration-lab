@@ -517,9 +517,11 @@ fn resolveUrl(site: *Site, lang: []const u8, url: []const u8) !?[]const u8 {
             break;
         }
     }
+    // Published URLs (slug, url, aliases) win over source-shaped paths: a
+    // slug can move a page onto a path another page's file name implies.
     const key = try langKey(a, use_lang, norm);
-    if (site.refs.get(key)) |id| return id;
-    return site.url_ids.get(key);
+    if (site.url_ids.get(key)) |id| return id;
+    return site.refs.get(key);
 }
 
 // ---------------------------------------------------------------------------
@@ -1838,7 +1840,9 @@ test "hugo: synthesized landings, JSON/YAML lists, link-form refs, unresolved re
         \\
     );
     try writeTestFile(io, a, site_root, "content/notes/deep/_index.md", "---\ntitle: Deep notes\n---\nNested only.\n");
-    try writeTestFile(io, a, site_root, "content/top.md", "---\ntitle: Top\ntags: solo\naliases: /old-top/\n---\nRoot page.\n");
+    try writeTestFile(io, a, site_root, "content/top.md", "---\ntitle: Top\ntags: solo\naliases: /old-top/\n---\nRoot page, see [moved](/docs/renamed/).\n");
+    try writeTestFile(io, a, site_root, "content/docs/renamed.md", "---\ntitle: Old file name\n---\nShadowed.\n");
+    try writeTestFile(io, a, site_root, "content/docs/slugged.md", "---\ntitle: Slugged\nslug: renamed\n---\nPublished at /docs/renamed/.\n");
     const out = try std.fmt.allocPrint(a, "{s}-out", .{site_root});
     defer a.free(out);
     try run(io, a, .{ .root_dir = site_root, .out_dir = out, .quiet = true });
@@ -1869,6 +1873,7 @@ test "hugo: synthesized landings, JSON/YAML lists, link-form refs, unresolved re
     defer a.free(top);
     try expectContains(top, "id: top\n");
     try expectContains(top, "tags: [solo]\n");
+    try expectContains(top, "[[docs/slugged|moved]]");
     try std.testing.expect(std.mem.indexOf(u8, top, "parent:") == null);
 
     const report = try hugo.readFileAlloc(io, od, "report.json", a);
