@@ -638,7 +638,7 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
             try mastoReviewOnce(&ctx, &review_dedup, "poll_as_list", "poll emitted as Markdown list; Boris has no poll widget");
             try body.appendSlice(a, try std.fmt.allocPrint(a, "{s}\n\n", .{try convHtml(&ctx, st.content)}));
             for (st.poll_options) |opt| {
-                try body.appendSlice(a, try std.fmt.allocPrint(a, "- {s} ({d} votes)\n", .{ opt.name, opt.votes }));
+                try body.appendSlice(a, try std.fmt.allocPrint(a, "- {s} ({d} votes)\n", .{ try escapeWikiBrackets(a, opt.name), opt.votes }));
             }
             if (st.voters > 0) try body.appendSlice(a, try std.fmt.allocPrint(a, "\n{d} voters total.\n", .{st.voters}));
         } else {
@@ -648,7 +648,7 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
         for (st.tags) |tag| {
             if (std.mem.eql(u8, tag.type, "Mention") and tag.href.len > 0) {
                 if (std.mem.indexOf(u8, body.items, tag.href) == null) {
-                    try body.appendSlice(a, try std.fmt.allocPrint(a, "\n[{s}]({s})\n", .{ tag.name, tag.href }));
+                    try body.appendSlice(a, try std.fmt.allocPrint(a, "\n[{s}]({s})\n", .{ try escapeWikiBrackets(a, tag.name), tag.href }));
                 }
             }
             if (std.mem.eql(u8, tag.type, "Emoji") and tag.icon_url.len > 0) {
@@ -658,7 +658,7 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
         // Attachments → image lines.
         for (st.attachments) |att| {
             if (try mastoCopyAsset(&ctx, att.url)) |dest| {
-                try body.appendSlice(a, try std.fmt.allocPrint(a, "\n![{s}]({s})\n", .{ att.name, dest }));
+                try body.appendSlice(a, try std.fmt.allocPrint(a, "\n![{s}]({s})\n", .{ try escapeWikiBrackets(a, att.name), dest }));
             } else {
                 try mastoReviewOnce(&ctx, &review_dedup, "attachment_missing", try std.fmt.allocPrint(a, "attachment '{s}' not found in archive", .{att.url}));
             }
@@ -750,23 +750,28 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
     }
 }
 
-fn convHtml(ctx: *const MEmitCtx, html: []const u8) ![]const u8 {
-    const conv = try wordpress.htmlToMarkdown(ctx.a, html);
-    // Literal `[[…]]` in post text (people quote wiki syntax) must stay
-    // literal — Boris parses it as a wiki link and errors when the target
-    // is missing.
+// Literal `[[…]]` in post text (people quote wiki syntax) must stay
+// literal — Boris parses it as a wiki link and errors when the target
+// is missing. Applies to body markdown AND raw JSON strings written into
+// body markdown (poll options, hashtag links, attachment alt text).
+fn escapeWikiBrackets(a: std.mem.Allocator, s: []const u8) ![]const u8 {
     var out: std.ArrayList(u8) = .empty;
     var i: usize = 0;
-    while (i < conv[0].len) {
-        if (i + 1 < conv[0].len and conv[0][i] == '[' and conv[0][i + 1] == '[') {
-            try out.appendSlice(ctx.a, "\\[\\[");
+    while (i < s.len) {
+        if (i + 1 < s.len and s[i] == '[' and s[i + 1] == '[') {
+            try out.appendSlice(a, "\\[\\[");
             i += 2;
         } else {
-            try out.append(ctx.a, conv[0][i]);
+            try out.append(a, s[i]);
             i += 1;
         }
     }
-    return try out.toOwnedSlice(ctx.a);
+    return try out.toOwnedSlice(a);
+}
+
+fn convHtml(ctx: *const MEmitCtx, html: []const u8) ![]const u8 {
+    const conv = try wordpress.htmlToMarkdown(ctx.a, html);
+    return try escapeWikiBrackets(ctx.a, conv[0]);
 }
 
 fn jsonEscapeAppend(buf: *std.ArrayList(u8), gpa: std.mem.Allocator, s: []const u8) !void {
