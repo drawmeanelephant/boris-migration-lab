@@ -847,24 +847,35 @@ fn escapeHtmlTextBrackets(a: std.mem.Allocator, html: []const u8) ![]const u8 {
         }
         if (!in_code and html[i] == '`') {
             // Backtick code span in plain text: copy verbatim — an added
-            // backslash would render literally inside the span.
+            // backslash would render literally inside the span. An
+            // unmatched or backslash-escaped backtick opens no span, so
+            // only skip when a closing run actually exists; otherwise the
+            // trailing `[x](y)` text would slip through unescaped and
+            // render as a link.
+            var bs: usize = 0;
+            while (bs < i and html[i - 1 - bs] == '\\') bs += 1;
             var n: usize = 0;
             while (i + n < html.len and html[i + n] == '`') n += 1;
-            try out.appendSlice(a, html[i .. i + n]);
+            var close: ?usize = null;
             var j = i + n;
             while (j < html.len) {
                 if (html[j] == '`') {
                     var m: usize = 0;
                     while (j + m < html.len and html[j + m] == '`') m += 1;
+                    if (m >= n) {
+                        close = j + m;
+                        break;
+                    }
                     j += m;
-                    if (m >= n) break;
                 } else {
                     j += 1;
                 }
             }
-            try out.appendSlice(a, html[i + n .. j]);
-            i = j;
-            continue;
+            if (close != null and bs % 2 == 0) {
+                try out.appendSlice(a, html[i..close.?]);
+                i = close.?;
+                continue;
+            }
         }
         if (!in_code and (html[i] == '[' or html[i] == ']' or html[i] == '(' or html[i] == ')')) {
             try out.append(a, '\\');
@@ -1037,4 +1048,18 @@ test "convHtml leaves backtick code spans in text untouched" {
     const out = try escapeWikiBrackets(a, conv[0]);
     try testing.expect(std.mem.indexOf(u8, out, "`handlers[groups[i]](request)`") != null);
     try testing.expect(std.mem.indexOf(u8, out, "then handlers\\[groups\\[i\\]\\]\\(request\\)") != null);
+}
+
+test "convHtml escapes text after unmatched or escaped backticks" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // Unmatched backtick: trailing [x](y) must still be escaped.
+    const c1 = try wordpress.htmlToMarkdown(a, try escapeHtmlTextBrackets(a, "<p>a `b [x](y)</p>"));
+    const o1 = try escapeWikiBrackets(a, c1[0]);
+    try testing.expect(std.mem.indexOf(u8, o1, "a `b \\[x\\]\\(y\\)") != null);
+    // Escaped backtick: the whole run is literal text, not a span.
+    const c2 = try wordpress.htmlToMarkdown(a, try escapeHtmlTextBrackets(a, "<p>\\`tick [a](b) tail\\`</p>"));
+    const o2 = try escapeWikiBrackets(a, c2[0]);
+    try testing.expect(std.mem.indexOf(u8, o2, "\\[a\\]\\(b\\)") != null);
 }
