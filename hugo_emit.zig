@@ -771,8 +771,12 @@ fn rewriteLink(ctx: BodyCtx, line: []const u8, start: usize) !?usize {
     var dest = inside[0..sp];
     if (dest.len >= 2 and dest[0] == '<' and dest[dest.len - 1] == '>') dest = dest[1 .. dest.len - 1];
     if (!isLocalLink(dest)) return null;
-    if (resourceRef(ctx, dest) != null) return null;
     const p = ctx.page;
+    if (resourceRef(ctx, dest)) |ref| {
+        try ctx.out.print(a, "{s}{s}{s})", .{ line[start .. rb + 2], ref, inside[sp..] });
+        try p.notes.append(a, try std.fmt.allocPrint(a, "link {s} → {s}", .{ dest, ref }));
+        return cp + 1;
+    }
     const has_fragment = std.mem.indexOfScalar(u8, dest, '#') != null;
     const id: ?[]const u8 = if (has_fragment)
         null
@@ -1839,6 +1843,8 @@ test "hugo: synthesized landings, JSON/YAML lists, link-form refs, unresolved re
         \\Body with {{< youtube abc >}}.
         \\
     );
+    try writeTestFile(io, a, site_root, "content/docs/kit/index.md", "---\ntitle: Kit\n---\n[Download](manual.pdf)\n");
+    try writeTestFile(io, a, site_root, "content/docs/kit/manual.pdf", "pdf");
     try writeTestFile(io, a, site_root, "content/notes/deep/_index.md", "---\ntitle: Deep notes\n---\nNested only.\n");
     try writeTestFile(io, a, site_root, "content/top.md", "---\ntitle: Top\ntags: solo\naliases: /old-top/\n---\nRoot page, see [moved](/docs/renamed/).\n");
     try writeTestFile(io, a, site_root, "content/docs/renamed.md", "---\ntitle: Old file name\n---\nShadowed.\n");
@@ -1868,6 +1874,10 @@ test "hugo: synthesized landings, JSON/YAML lists, link-form refs, unresolved re
     try expectContains(guide, "tags: [one, two]\n");
     try expectContains(guide, "summary: \"The guide.\"\n");
     try expectContains(guide, "{{< youtube abc >}}");
+
+    const kit = try hugo.readFileAlloc(io, od, "content/docs/kit.md", a);
+    defer a.free(kit);
+    try expectContains(kit, "[Download](kit.assets/manual.pdf)");
 
     const top = try hugo.readFileAlloc(io, od, "content/top.md", a);
     defer a.free(top);
