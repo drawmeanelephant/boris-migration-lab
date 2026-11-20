@@ -95,7 +95,11 @@ overlap/symlink refusal):
 
 Review markers in bodies are HTML comments starting
 `<!-- boris-migration-review: `. Source text that Boris would read as its own
-syntax (`[[`, `{{`, `<Capitalized`) is entity-escaped.
+syntax (`[[`, `{{`, `<Capitalized`) is entity-escaped. Lexical/Mobiledoc text runs are plain text: Markdown punctuation
+(`\ * _ ` [ ] ~`, block-leading `# > - + = |`, `1.`) is backslash-escaped so it
+renders literally. Media symlinks under `content/` are refused (reported
+`image_symlink_refused`), never followed or copied. HTML cards that `href` a
+`__GHOST_URL__` route are converted to Markdown so the link resolves.
 
 ## ConversionClass ranks
 
