@@ -1972,6 +1972,7 @@ fn emitLink(ctx: Ctx, out: *std.ArrayList(u8), is_img: bool, label: []const u8, 
             var out_rel = try std.fmt.allocPrint(a, "{s}.assets/{s}", .{ stem, within });
             var n: usize = 2;
             var reuse = false;
+            var dir_clash = false;
             while (true) : (n += 1) {
                 var clash = false;
                 for (ctx.plan.assets.items) |x| {
@@ -1982,11 +1983,17 @@ fn emitLink(ctx: Ctx, out: *std.ArrayList(u8), is_img: bool, label: []const u8, 
                     // A file path cannot also be a directory of another asset.
                     if (pathUnder(x.out_path, out_rel) or pathUnder(out_rel, x.out_path)) {
                         clash = true;
+                        dir_clash = true;
                         break;
                     }
                 }
                 if (!clash) break;
-                within = if (std.fs.path.dirname(sanitized)) |d|
+                // A directory conflict cannot be fixed by renaming the
+                // basename: prefix the top-level segment instead (each n
+                // yields a fresh root, so this terminates).
+                within = if (dir_clash)
+                    try std.fmt.allocPrint(a, "{d}-{s}", .{ n, sanitized })
+                else if (std.fs.path.dirname(sanitized)) |d|
                     try std.fmt.allocPrint(a, "{s}/{d}-{s}", .{ d, n, std.fs.path.basename(sanitized) })
                 else
                     try std.fmt.allocPrint(a, "{d}-{s}", .{ n, sanitized });
@@ -2109,11 +2116,19 @@ fn emitLink(ctx: Ctx, out: *std.ArrayList(u8), is_img: bool, label: []const u8, 
 fn closingParen(line: []const u8, start: usize) ?usize {
     var depth: usize = 0;
     var k = start;
+    // `<...>` destinations are opaque.
+    if (k < line.len and line[k] == '<') k = std.mem.indexOfScalarPos(u8, line, k, '>') orelse return null;
     while (k < line.len) : (k += 1) {
         switch (line[k]) {
-            // A quoted link title after whitespace is opaque.
+            // A quoted link title after whitespace is opaque (backslash
+            // escapes included).
             '"', '\'' => if (k > start and (line[k - 1] == ' ' or line[k - 1] == '\t')) {
-                k = std.mem.indexOfScalarPos(u8, line, k + 1, line[k]) orelse return null;
+                const q = line[k];
+                k += 1;
+                while (k < line.len and line[k] != q) : (k += 1) {
+                    if (line[k] == '\\') k += 1;
+                }
+                if (k >= line.len) return null;
             },
             '(' => depth += 1,
             ')' => {
