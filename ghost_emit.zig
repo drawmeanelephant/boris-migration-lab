@@ -92,6 +92,37 @@ fn neutralize(a: std.mem.Allocator, s: []const u8) ![]const u8 {
     return try out.toOwnedSlice(a);
 }
 
+/// Plain source text (Lexical/Mobiledoc text runs) → Markdown that renders
+/// literally: inline punctuation is backslash-escaped, then Boris syntax is
+/// neutralized.
+fn literalText(a: std.mem.Allocator, s: []const u8) ![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    for (s) |c| {
+        switch (c) {
+            '\\', '*', '_', '`', '[', ']', '~' => {
+                try out.append(a, '\\');
+                try out.append(a, c);
+            },
+            else => try out.append(a, c),
+        }
+    }
+    return try neutralize(a, out.items);
+}
+
+/// Escape a leading character that would turn a paragraph into a heading,
+/// quote, list, table, or thematic break.
+fn escapeBlockStart(a: std.mem.Allocator, block: []const u8) ![]const u8 {
+    if (block.len == 0) return block;
+    const c = block[0];
+    if (c == '#' or c == '>' or c == '-' or c == '+' or c == '=' or c == '|') return try std.fmt.allocPrint(a, "\\{s}", .{block});
+    var j: usize = 0;
+    while (j < block.len and std.ascii.isDigit(block[j])) j += 1;
+    if (j > 0 and j < block.len and (block[j] == '.' or block[j] == ')')) {
+        return try std.fmt.allocPrint(a, "{s}\\{s}", .{ block[0..j], block[j..] });
+    }
+    return block;
+}
+
 /// Text safe inside an HTML comment: no `--`, no newlines.
 fn commentSafe(a: std.mem.Allocator, s: []const u8) ![]const u8 {
     var out: std.ArrayList(u8) = .empty;
@@ -305,12 +336,14 @@ fn lexicalInline(ctx: *PageCtx, node: Value, out: *std.ArrayList(u8)) anyerror!v
     for (ghost.jsonArray(node, "children")) |child| {
         const t = ghost.jsonGetString(child, "type");
         if (std.mem.eql(u8, t, "text") or std.mem.eql(u8, t, "codehighlight") or std.mem.eql(u8, t, "hashtag")) {
-            const text = try neutralize(a, ghost.jsonGetString(child, "text"));
+            const raw = ghost.jsonGetString(child, "text");
             const fmt: i64 = if (ghost.jsonGet(child, "format")) |f| (if (f == .integer) f.integer else 0) else 0;
             if (fmt & 16 != 0) {
-                try out.print(a, "`{s}`", .{text});
+                const fence: []const u8 = if (std.mem.indexOfScalar(u8, raw, '`') != null) "``" else "`";
+                try out.print(a, "{s}{s}{s}", .{ fence, try neutralize(a, raw), fence });
                 continue;
             }
+            const text = try literalText(a, raw);
             const bold = fmt & 1 != 0;
             const italic = fmt & 2 != 0;
             if (fmt & ~@as(i64, 3) != 0) ctx.class = Class.worse(ctx.class, .transformed);
@@ -374,7 +407,9 @@ fn lexicalBlock(ctx: *PageCtx, node: Value, out: *std.ArrayList(u8)) anyerror!vo
     const t = ghost.jsonGetString(node, "type");
     var b: std.ArrayList(u8) = .empty;
     if (std.mem.eql(u8, t, "paragraph")) {
-        try lexicalInline(ctx, node, &b);
+        var para: std.ArrayList(u8) = .empty;
+        try lexicalInline(ctx, node, &para);
+        try b.appendSlice(a, try escapeBlockStart(a, para.items));
     } else if (std.mem.eql(u8, t, "heading")) {
         const tag = ghost.jsonGetString(node, "tag");
         const level: usize = if (tag.len == 2 and tag[1] >= '1' and tag[1] <= '6') tag[1] - '0' else 2;
@@ -472,10 +507,10 @@ fn mobiledocMarkers(ctx: *PageCtx, doc: Value, markers: []const Value, out: *std
             const idx: usize = if (it[3] == .integer and it[3].integer >= 0) @intCast(it[3].integer) else atoms.len;
             const atom_name = if (idx < atoms.len and atoms[idx] == .array and atoms[idx].array.items.len > 0 and atoms[idx].array.items[0] == .string) atoms[idx].array.items[0].string else "?";
             const atom_text = if (idx < atoms.len and atoms[idx] == .array and atoms[idx].array.items.len > 1 and atoms[idx].array.items[1] == .string) atoms[idx].array.items[1].string else "";
-            try out.appendSlice(a, try neutralize(a, atom_text));
+            try out.appendSlice(a, try literalText(a, atom_text));
             try ctx.note("mobiledoc_atom", .human_review, atom_name);
         } else if (it[3] == .string) {
-            try out.appendSlice(a, try neutralize(a, it[3].string));
+            try out.appendSlice(a, try literalText(a, it[3].string));
         }
         if (it[2] == .integer) {
             var close: usize = @intCast(@max(it[2].integer, 0));
@@ -504,7 +539,11 @@ fn mobiledocToMarkdown(ctx: *PageCtx, src: []const u8) ![]const u8 {
                 } else if (std.mem.eql(u8, tag, "blockquote") or std.mem.eql(u8, tag, "aside")) {
                     try b.appendSlice(a, "> ");
                 }
-                if (s.len > 2 and s[2] == .array) try mobiledocMarkers(ctx, doc, s[2].array.items, &b);
+                if (s.len > 2 and s[2] == .array) {
+                    var para: std.ArrayList(u8) = .empty;
+                    try mobiledocMarkers(ctx, doc, s[2].array.items, &para);
+                    try b.appendSlice(a, if (b.items.len == 0) try escapeBlockStart(a, para.items) else para.items);
+                }
             },
             2 => { // image section
                 if (s[1] == .string) try b.print(a, "![]({s})", .{s[1].string});
@@ -1116,7 +1155,7 @@ test "ghost: lexical tree walk renders blocks, marks, lists, cards" {
     ;
     const md = try lexicalToMarkdown(&ctx, src);
     try std.testing.expect(std.mem.indexOf(u8, md, "### Title") != null);
-    try std.testing.expect(std.mem.indexOf(u8, md, "**bold** and `code` &#91;[x]] &lt;Foo>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, md, "**bold** and `code` \\[\\[x\\]\\] &lt;Foo>") != null);
     try std.testing.expect(std.mem.indexOf(u8, md, "1. one\n2. two") != null);
     try std.testing.expect(std.mem.indexOf(u8, md, "> quoted") != null);
     try std.testing.expect(std.mem.indexOf(u8, md, "<Aside kind=\"warning\">\n\ncareful\n\n</Aside>") != null);
