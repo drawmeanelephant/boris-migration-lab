@@ -28,6 +28,7 @@ const jekyll = @import("jekyll.zig");
 const astro_import_plan = @import("astro_import_plan.zig");
 const astro_import_apply = @import("astro_import_apply.zig");
 const hugo = @import("hugo.zig");
+const hugo_emit = @import("hugo_emit.zig");
 const ghost = @import("ghost.zig");
 const mkdocs = @import("mkdocs.zig");
 
@@ -61,6 +62,7 @@ pub const Mode = enum {
     link_audit,
     frontmatter_review,
     hugo_inventory,
+    hugo,
     jekyll_inventory,
     ghost_inventory,
     mkdocs_inventory,
@@ -164,9 +166,8 @@ pub const table = [_]Entry{
     .{ .tag = .theme_materialize, .names = &.{ "theme-materialize", "theme-materialise", "materialize" } },
     .{ .tag = .link_audit, .names = &.{ "link-audit", "links", "output-audit" } },
     .{ .tag = .frontmatter_review, .names = &.{ "frontmatter-review", "fm-review", "fmreview" } },
-    // Bare "hugo" stays unregistered on purpose: #38 owns it, and a
-    // parseOptions test uses --mode=hugo as an invalid mode.
     .{ .tag = .hugo_inventory, .names = &.{ "hugo-inventory", "hugo-inv" } },
+    .{ .tag = .hugo, .names = &.{ "hugo", "hugo-emit" } },
     .{ .tag = .jekyll_inventory, .names = &.{ "jekyll-inventory", "jekyll-inv", "jekyll-archaeology" } },
     .{ .tag = .ghost_inventory, .names = &.{ "ghost-inventory", "ghost-inv" } },
     .{ .tag = .mkdocs_inventory, .names = &.{ "mkdocs-inventory", "mkdocs-inv" } },
@@ -568,6 +569,21 @@ fn run_hugo_inventory(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
     return ExitCode.success.int();
 }
 
+fn run_hugo(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
+    hugo_emit.run(io, gpa, .{
+        .root_dir = opts.root_dir,
+        .out_dir = opts.out_dir,
+        .quiet = opts.quiet,
+    }) catch |err| {
+        std.log.err("migration-lab (hugo) failed: {s}", .{@errorName(err)});
+        return switch (err) {
+            error.InvalidHugoRoot, error.InputOutputOverlap, error.InputSymlink, error.OutputSymlink, error.OutputNotOwned => ExitCode.usage.int(),
+            else => ExitCode.io_error.int(),
+        };
+    };
+    return ExitCode.success.int();
+}
+
 fn run_mkdocs_inventory(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
     mkdocs.run(io, gpa, .{
         .root_dir = opts.root_dir,
@@ -760,6 +776,16 @@ const usage_text =
     \\  No TOML parser: `+++` front matter and config use a bounded scanner;
     \\  anything unclassifiable is reported, never guessed. Fenced code blocks
     \\  are not shortcode usage. No Markdown emit, no template execution.
+    \\
+    \\Hugo emit (candidate Boris Markdown):
+    \\  --mode=hugo       Convert a Hugo project to Boris pages under content/
+    \\  --root=DIR         Hugo project root (required; never modified)
+    \\  Writes: content/** (+ <stem>.assets/), assets/** (from static/),
+    \\          provenance/<entity-id>.json, redirects.json, report.json, REPORT.md
+    \\  Aliases: hugo-emit
+    \\  Home, top sections, and root pages become Trunks; section pages become
+    \\  Satellites; nested sections flatten (human_review). figure/ref/relref are
+    \\  rewritten; other shortcodes are preserved as text and reported.
     \\
     \\MkDocs inventory (read-only mkdocs.yml + docs tree scan):
     \\  --mode=mkdocs-inventory  Parse nav:, links, admonitions, tabs, snippets
