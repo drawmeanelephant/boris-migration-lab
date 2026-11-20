@@ -89,6 +89,9 @@ const Status = struct {
     obj: std.json.Value,
     slug: []const u8 = "",
     role: ThreadRole = .standalone,
+    /// `in_reply_to` names an own status that is not emitted (followers-only
+    /// or direct); provenance must not reveal its URI.
+    reply_hidden: bool = false,
     thread_root: ?usize = null,
     depth: usize = 0,
 };
@@ -582,6 +585,7 @@ fn resolveThreads(a: std.mem.Allocator, arch: *Archive) !void {
 
     for (arch.statuses, 0..) |*s, i| {
         const target = s.in_reply_to orelse continue;
+        if (by_uri.get(target)) |direct_parent| s.reply_hidden = !arch.statuses[direct_parent].visibility.emitted();
         var cur = by_uri.get(target) orelse {
             const own = own_prefix.len > 0 and std.mem.startsWith(u8, target, own_prefix);
             s.role = if (own) .reply_missing else .reply_other;
@@ -1060,11 +1064,13 @@ fn emitProvenanceJson(a: std.mem.Allocator, arch: *const Archive, pages: []const
         try buf.appendSlice(a, ",\n      \"updated\": ");
         try jsonOptAppend(&buf, a, s.updated);
         try buf.appendSlice(a, ",\n      \"in_reply_to\": ");
-        try jsonOptAppend(&buf, a, s.in_reply_to);
+        try jsonOptAppend(&buf, a, if (s.reply_hidden) null else s.in_reply_to);
+        try buf.print(a, ",\n      \"in_reply_to_redacted\": {}", .{s.reply_hidden});
         try buf.appendSlice(a, ",\n      \"thread_role\": ");
         try jsonEscapeAppend(&buf, a, s.role.jsonName());
         try buf.appendSlice(a, ",\n      \"thread_root\": ");
-        try jsonOptAppend(&buf, a, if (s.thread_root) |r| arch.statuses[r].uri else null);
+        const root_uri = if (s.thread_root) |r| (if (arch.statuses[r].visibility.emitted()) arch.statuses[r].uri else null) else null;
+        try jsonOptAppend(&buf, a, root_uri);
         try buf.print(a, ",\n      \"thread_depth\": {d},\n      \"sensitive\": {},\n      \"content_warning\": {},\n      \"summary_source\": ", .{ s.depth, s.sensitive, s.content_warning != null });
         try jsonEscapeAppend(&buf, a, p.summary_source);
         try buf.appendSlice(a, ",\n      \"mentions\": ");
@@ -1496,6 +1502,11 @@ test "mastodon: deep self-reply chains flatten; edge cases are reviewed" {
     try expectContains(report, "self-reply target is not in the archive; kept as a standalone Trunk");
     try expectContains(report, "\"unknown\": 2");
     try expectMissing(report, "private root");
+    const prov = try readAllOut(io, gpa, dir, "provenance_manifest.json");
+    defer gpa.free(prov);
+    try expectMissing(prov, "statuses/3\"");
+    try expectMissing(prov, "statuses/5\"");
+    try expectContains(prov, "\"in_reply_to_redacted\": true");
     const inv = try readAllOut(io, gpa, dir, "inventory.json");
     defer gpa.free(inv);
     try expectContains(inv, "\"construct\": \"Unknown activity type\", \"class\": \"human_review\", \"count\": 1");
