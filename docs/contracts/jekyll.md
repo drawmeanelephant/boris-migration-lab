@@ -62,6 +62,40 @@ published_at, summary}`.
 | `assets/` and other static files | transformed | Page-sibling `{stem}.assets/` copy when referenced by an emitted page; else inventoried |
 | `_config.yml` | transformed | Parsed for `collections` declaration and provenance (title, baseurl, permalink scheme); never a page |
 
+## Emit mapping (`--mode=jekyll`)
+
+Decisions recorded for the two-level graph (`{id, parent}` only):
+
+- `_posts/` → satellites `posts/<slug>` of a **generated `posts` Trunk**
+  (`id: posts`, `kind: generated_trunk`, synthesized title/summary). The
+  filename `YYYY-MM-DD` maps to `published_at` (`T00:00:00Z`); a front-matter
+  `date` overrides it and may carry time + zone (normalized to UTC).
+- `published: false` and `_drafts/` → `status: draft`. Drafts land as
+  satellites `drafts/<stem>` of a generated `drafts` Trunk.
+- Each `output: true` collection gets its **own generated Trunk** named by
+  the collection (`docs/` → `docs`); members are satellites
+  `<name>/<rel-stem>` with `parent: <name>`. `output: false` collections
+  are not emitted and are reported `collection_skipped`.
+- Top-level front-matter pages (`index.md`, `about.md`, nested dirs) →
+  Trunks at their stem path (`index`, `about`).
+- `_posts/` files failing the `YYYY-MM-DD-slug` pattern are **not emitted**;
+  they are reported `unmatched_post`.
+- `{% post_url stem %}` and `{% link path %}` → `[[entity-id]]`
+  (`[[id|text]]` as a Markdown-link destination). Broken targets stay
+  verbatim and are reported `unresolved_ref`.
+- `{{ site.baseurl }}` → the configured `baseurl` value; when a
+  `{{ site.baseurl }}/path` or Markdown link resolves to a real static file,
+  the file is copied to `content/<id>.assets/<name>` and the reference
+  rewritten to `<stem>.assets/<name>`.
+- `{% include %}`, `{{ site.data.* }}`, and every other `{% %}`/`{{ }}`
+  stay verbatim in the body and are listed in `report.json`/`REPORT.md`
+  (`include_preserved`, `liquid_preserved`, `unresolved_link`).
+- `permalink` → provenance comment + `routes` report row; `categories` →
+  provenance only. Neither becomes Boris frontmatter.
+- Generated-entity files: `content/posts.md`, `content/drafts.md`,
+  `content/<collection>.md`. Reports: `report.json` + `REPORT.md` (pages,
+  routes, link rewrites, asset copies, human-review items).
+
 ## ConversionClass ranks
 
 `exact` < `transformed` < `unsupported` < `human_review` — worse wins per page.

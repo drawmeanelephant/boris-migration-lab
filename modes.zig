@@ -62,6 +62,7 @@ pub const Mode = enum {
     frontmatter_review,
     hugo,
     hugo_inventory,
+    jekyll,
     jekyll_inventory,
     ghost_inventory,
     mkdocs_inventory,
@@ -167,6 +168,7 @@ pub const table = [_]Entry{
     .{ .tag = .frontmatter_review, .names = &.{ "frontmatter-review", "fm-review", "fmreview" } },
     .{ .tag = .hugo, .names = &.{ "hugo", "hugo-emit" } },
     .{ .tag = .hugo_inventory, .names = &.{ "hugo-inventory", "hugo-inv" } },
+    .{ .tag = .jekyll, .names = &.{ "jekyll", "jekyll-emit" } },
     .{ .tag = .jekyll_inventory, .names = &.{ "jekyll-inventory", "jekyll-inv", "jekyll-archaeology" } },
     .{ .tag = .ghost_inventory, .names = &.{ "ghost-inventory", "ghost-inv" } },
     .{ .tag = .mkdocs_inventory, .names = &.{ "mkdocs-inventory", "mkdocs-inv" } },
@@ -602,6 +604,21 @@ fn run_mkdocs_inventory(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
     return ExitCode.success.int();
 }
 
+fn run_jekyll(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
+    jekyll.runEmit(io, gpa, .{
+        .root_dir = opts.root_dir,
+        .out_dir = opts.out_dir,
+        .quiet = opts.quiet,
+    }) catch |err| {
+        std.log.err("migration-lab (jekyll) failed: {s}", .{@errorName(err)});
+        return switch (err) {
+            error.InvalidJekyllInput, error.InputOutputOverlap, error.InputSymlink => ExitCode.usage.int(),
+            else => ExitCode.io_error.int(),
+        };
+    };
+    return ExitCode.success.int();
+}
+
 fn run_jekyll_inventory(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
     if (std.mem.eql(u8, opts.root_dir, opts.out_dir)) {
         std.log.err("--out must differ from --root", .{});
@@ -704,6 +721,17 @@ const usage_text =
     \\  Aliases: jekyll-inv | jekyll-archaeology
     \\  No Markdown emit, no Liquid/Ruby execution, no network.
     \\  {% raw %} and fenced-code Liquid are counted as inert text.
+    \\
+    \\Jekyll emit (candidate Boris Markdown):
+    \\  --mode=jekyll      Jekyll site source → content/ tree + reports
+    \\  --root=DIR         Jekyll site source root (required; never modified)
+    \\  Writes: content/**, report.json, REPORT.md
+    \\  Aliases: jekyll-emit
+    \\  _posts → satellites of a generated `posts` Trunk (filename date →
+    \\  published_at); _drafts → satellites of `drafts` (status: draft);
+    \\  output:true collections → own Trunks; front-matter pages → Trunks.
+    \\  {% post_url %}/{% link %} → [[id]]; other Liquid preserved+reported.
+    \\  permalink/categories → provenance + route report. No Liquid rendering.
     \\
     \\Link audit (generated-output validation):
     \\  --mode=link-audit   Scan static HTML output for missing local routes/fragments

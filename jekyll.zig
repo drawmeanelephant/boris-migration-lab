@@ -1056,6 +1056,1234 @@ pub fn run(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
 }
 
 // ---------------------------------------------------------------------------
+// Emit (`--mode=jekyll`): Jekyll source tree → Boris Markdown under --out.
+//
+// Entity model (contract: docs/contracts/jekyll.md):
+//   posts       → satellites `posts/<slug>` of a generated `posts` Trunk
+//   _drafts     → satellites `drafts/<stem>` of a generated `drafts` Trunk
+//   collection (output: true) → Trunk `<name>` + satellites `<name>/<stem>`
+//   top-level front-matter pages → Trunks at their stem path
+// `{% post_url %}`/`{% link %}` resolve to `[[id]]`; every other Liquid stays
+// verbatim in the body and is listed in the report. permalink/categories go
+// to provenance + the route report, never Boris frontmatter.
+// ---------------------------------------------------------------------------
+
+const EmitPage = struct {
+    source_path: []const u8,
+    /// Relative path used for {% link %} resolution (`_docs/guide-one.md`).
+    link_path: []const u8,
+    id: []const u8,
+    out_path: []const u8,
+    parent: ?[]const u8,
+    kind: []const u8, // "post" | "draft" | "page" | "collection_member" | "generated_trunk"
+    title: []const u8,
+    status: []const u8,
+    tags: []const []const u8,
+    categories: []const []const u8,
+    permalink: ?[]const u8,
+    published_at: ?[]const u8,
+    summary: ?[]const u8,
+    layout: ?[]const u8,
+    dropped: []const []const u8,
+    class: []const u8 = "transformed",
+    body: []const u8,
+};
+
+const ReviewItem = struct {
+    source_path: []const u8,
+    kind: []const u8,
+    detail: []const u8,
+};
+
+const EmitLink = struct {
+    source_path: []const u8,
+    target: []const u8,
+    result: []const u8,
+};
+
+const RouteEntry = struct {
+    source_path: []const u8,
+    route: []const u8,
+    entity_id: []const u8,
+};
+
+const AssetCopy = struct {
+    source_path: []const u8,
+    dest: []const u8,
+};
+
+fn emitIsEntityChar(c: u8) bool {
+    return (c >= 'A' and c <= 'Z') or (c >= 'a' and c <= 'z') or (c >= '0' and c <= '9') or c == '_' or c == '.' or c == '-';
+}
+
+fn emitSanitizeSegment(a: std.mem.Allocator, seg: []const u8) ![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    var prev_dash = false;
+    for (seg) |c| {
+        if (emitIsEntityChar(c) and c != '.') {
+            try out.append(a, c);
+            prev_dash = false;
+        } else if (c == '.' and out.items.len > 0) {
+            try out.append(a, c);
+            prev_dash = false;
+        } else if (!prev_dash and out.items.len > 0) {
+            try out.append(a, '-');
+            prev_dash = true;
+        }
+    }
+    var s = out.items;
+    while (s.len > 0 and (s[s.len - 1] == '-' or s[s.len - 1] == '.')) s = s[0 .. s.len - 1];
+    if (s.len == 0) return try a.dupe(u8, "page");
+    return s;
+}
+
+fn emitEntityId(a: std.mem.Allocator, raw: []const u8) ![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    var it = std.mem.splitScalar(u8, raw, '/');
+    var first = true;
+    while (it.next()) |seg| {
+        if (seg.len == 0) continue;
+        if (!first) try out.append(a, '/');
+        try out.appendSlice(a, try emitSanitizeSegment(a, seg));
+        first = false;
+    }
+    if (out.items.len == 0) return try a.dupe(u8, "page");
+    return try out.toOwnedSlice(a);
+}
+
+fn emitAppendQuotedScalar(buf: *std.ArrayList(u8), a: std.mem.Allocator, value: []const u8) !void {
+    try buf.append(a, '"');
+    for (value) |c| {
+        if (c == '"') try buf.appendSlice(a, "'") else if (c >= 0x20 and c != 0x7f) try buf.append(a, c);
+    }
+    try buf.append(a, '"');
+}
+
+fn emitEscapeFmValue(a: std.mem.Allocator, value: []const u8) ![]u8 {
+    var needs_quote = false;
+    for (value) |c| {
+        if (c == ':' or c == '#' or c == '"' or c == '\'' or c == '[' or c == ']' or c == '\n' or c == ',' or
+            c == '&' or c == '<' or c == '>' or c == '{' or c == '}' or c == '\\' or c == '`' or c == '!' or
+            c == '@' or c == '$' or c == '%' or c == '^' or c == '*' or c == '(' or c == ')' or c == '=' or
+            c == '+' or c == ';' or c == '?' or c == '/')
+        {
+            needs_quote = true;
+            break;
+        }
+    }
+    if (!needs_quote and value.len > 0 and (value[0] == ' ' or value[value.len - 1] == ' ')) needs_quote = true;
+    if (!needs_quote) {
+        for (value) |c| {
+            if (c < 0x20 or c == 0x7f) {
+                needs_quote = true;
+                break;
+            }
+        }
+    }
+    if (!needs_quote) return try a.dupe(u8, value);
+    var out: std.ArrayList(u8) = .empty;
+    try emitAppendQuotedScalar(&out, a, value);
+    return try out.toOwnedSlice(a);
+}
+
+/// Boris closed frontmatter writer (sibling of hugo.buildEmitFrontmatter).
+fn emitBuildFrontmatter(
+    a: std.mem.Allocator,
+    id: []const u8,
+    title: []const u8,
+    parent: ?[]const u8,
+    status: []const u8,
+    tags: []const []const u8,
+    published_at: ?[]const u8,
+    summary: ?[]const u8,
+) ![]u8 {
+    var buf: std.ArrayList(u8) = .empty;
+    try buf.appendSlice(a, "---\n");
+    try buf.print(a, "id: {s}\n", .{try emitEscapeFmValue(a, id)});
+    try buf.print(a, "title: {s}\n", .{try emitEscapeFmValue(a, title)});
+    if (parent) |p| try buf.print(a, "parent: {s}\n", .{try emitEscapeFmValue(a, p)});
+    try buf.print(a, "status: {s}\n", .{status});
+    if (tags.len > 0) {
+        try buf.appendSlice(a, "tags: [");
+        for (tags, 0..) |t, i| {
+            if (i > 0) try buf.appendSlice(a, ", ");
+            var safe = t.len > 0;
+            for (t) |c| {
+                if (!((c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or (c >= '0' and c <= '9') or c == '-' or c == '_')) safe = false;
+            }
+            if (safe) {
+                try buf.appendSlice(a, t);
+            } else {
+                try emitAppendQuotedScalar(&buf, a, t);
+            }
+        }
+        try buf.appendSlice(a, "]\n");
+    }
+    if (published_at) |d| try buf.print(a, "published_at: {s}\n", .{try emitEscapeFmValue(a, d)});
+    if (summary) |s| try buf.print(a, "summary: {s}\n", .{try emitEscapeFmValue(a, s)});
+    try buf.appendSlice(a, "---\n");
+    return try buf.toOwnedSlice(a);
+}
+
+/// Lab provenance comment — never Boris frontmatter.
+fn emitProvenanceComment(
+    a: std.mem.Allocator,
+    source_root: []const u8,
+    page: EmitPage,
+    liquid_count: usize,
+) ![]u8 {
+    var buf: std.ArrayList(u8) = .empty;
+    try buf.print(a,
+        \\<!-- migration-provenance
+        \\  produced_by: {s}
+        \\  source_root: {s}
+        \\  source_path: {s}
+        \\  entity_id: {s}
+        \\  source_kind: {s}
+        \\
+    , .{ format_id, source_root, page.source_path, page.id, page.kind });
+    if (page.layout) |v| try buf.print(a, "  layout: {s}\n", .{v});
+    if (page.permalink) |v| try buf.print(a, "  permalink: {s}\n", .{v});
+    if (page.categories.len > 0) {
+        try buf.appendSlice(a, "  categories:");
+        for (page.categories) |c| try buf.print(a, " {s}", .{c});
+        try buf.append(a, '\n');
+    }
+    if (page.dropped.len > 0) {
+        try buf.appendSlice(a, "  dropped_front_matter_keys:");
+        for (page.dropped) |k| try buf.print(a, " {s}", .{k});
+        try buf.append(a, '\n');
+    }
+    if (liquid_count > 0) try buf.print(a, "  liquid_preserved: {d}\n", .{liquid_count});
+    try buf.print(a, "  conversion: {s}\n  tool_version: {s}\n-->\n", .{ page.class, tool_version });
+    return try buf.toOwnedSlice(a);
+}
+
+/// Extract a YAML front-matter list for `key`: `key: [a, b]`, block
+/// `key:` + `- item` rows, or a scalar split on `,` (Jekyll allows
+/// space-separated `tags:`/`categories:` too).
+fn emitFrontmatterList(a: std.mem.Allocator, source: []const u8, key: []const u8) !?[]const []const u8 {
+    if (!std.mem.startsWith(u8, source, "---\n") and !std.mem.startsWith(u8, source, "---\r\n")) return null;
+    var it = std.mem.splitScalar(u8, source, '\n');
+    _ = it.next();
+    var items: std.ArrayList([]const u8) = .empty;
+    while (it.next()) |line_raw| {
+        const line = trimSpace(line_raw);
+        if (std.mem.eql(u8, line, "---")) break;
+        if (line.len == 0 or line[0] == '#') continue;
+        const indented = line_raw.len > 0 and (line_raw[0] == ' ' or line_raw[0] == '\t');
+        if (indented or std.mem.startsWith(u8, line, "- ")) {
+            // A `- item` row belongs to the previous top-level key.
+            continue;
+        }
+        const colon = std.mem.indexOfScalar(u8, line, ':') orelse continue;
+        if (!std.mem.eql(u8, trimSpace(line[0..colon]), key)) continue;
+        const value = trimSpace(line[colon + 1 ..]);
+        if (value.len == 0) {
+            // Block list on following lines.
+            while (it.next()) |l2_raw| {
+                const l2 = trimSpace(l2_raw);
+                if (l2.len == 0 or l2[0] == '#') continue;
+                if (std.mem.startsWith(u8, l2, "- ")) {
+                    try items.append(a, stripQuotes(trimSpace(l2[2..])));
+                    continue;
+                }
+                break;
+            }
+            if (items.items.len == 0) return null;
+            return try items.toOwnedSlice(a);
+        }
+        if (value.len >= 2 and value[0] == '[' and value[value.len - 1] == ']') {
+            var parts = std.mem.splitScalar(u8, value[1 .. value.len - 1], ',');
+            while (parts.next()) |p| {
+                const item = stripQuotes(trimSpace(p));
+                if (item.len > 0) try items.append(a, item);
+            }
+            if (items.items.len == 0) return null;
+            return try items.toOwnedSlice(a);
+        }
+        // Scalar: comma list first, else Jekyll's space-separated form.
+        const scalar = stripQuotes(value);
+        if (std.mem.indexOfScalar(u8, scalar, ',') != null) {
+            var parts = std.mem.splitScalar(u8, scalar, ',');
+            while (parts.next()) |p| {
+                const item = trimSpace(p);
+                if (item.len > 0) try items.append(a, item);
+            }
+        } else {
+            var parts = std.mem.splitScalar(u8, scalar, ' ');
+            while (parts.next()) |p| {
+                if (p.len > 0) try items.append(a, p);
+            }
+        }
+        if (items.items.len == 0) return null;
+        return try items.toOwnedSlice(a);
+    }
+    return null;
+}
+
+/// Jekyll post dates: `YYYY-MM-DD` (filename) or front-matter
+/// `YYYY-MM-DD HH:MM[:SS]` with optional `Z`/`±HH:MM`/`±HHMM` zone.
+/// Normalize to Boris `YYYY-MM-DDTHH:MM:SSZ` (UTC) or return null.
+fn emitNormalizeDate(a: std.mem.Allocator, raw0: []const u8) !?[]const u8 {
+    const raw = trimSpace(stripQuotes(raw0));
+    if (raw.len < 10) return null;
+    for (raw[0..10], 0..) |c, i| {
+        const sep = (i == 4 or i == 7);
+        if (sep) {
+            if (c != '-') return null;
+        } else if (!isDigit(c)) return null;
+    }
+    const year = std.fmt.parseInt(i64, raw[0..4], 10) catch return null;
+    const month = std.fmt.parseInt(i64, raw[5..7], 10) catch return null;
+    const day = std.fmt.parseInt(i64, raw[8..10], 10) catch return null;
+    if (month < 1 or month > 12 or day < 1 or day > 31) return null;
+    var hour: i64 = 0;
+    var minute: i64 = 0;
+    var second: i64 = 0;
+    var off_sign: i64 = 0;
+    var off_min: i64 = 0;
+    var rest = trimSpace(raw[10..]);
+    if (rest.len > 0 and (rest[0] == 'T' or rest[0] == ' ')) rest = trimSpace(rest[1..]);
+    var ri: usize = 0;
+    while (ri < rest.len and (isDigit(rest[ri]) or rest[ri] == ':')) ri += 1;
+    if (ri > 0) {
+        var tparts = std.mem.splitScalar(u8, rest[0..ri], ':');
+        hour = std.fmt.parseInt(i64, tparts.next() orelse return null, 10) catch return null;
+        if (tparts.next()) |m| minute = std.fmt.parseInt(i64, m, 10) catch return null;
+        if (tparts.next()) |s| second = std.fmt.parseInt(i64, s, 10) catch return null;
+        if (hour > 23 or minute > 59 or second > 59) return null;
+        rest = trimSpace(rest[ri..]);
+    }
+    if (rest.len > 0) {
+        if (std.mem.eql(u8, rest, "Z")) {
+            rest = "";
+        } else if (rest[0] == '+' or rest[0] == '-') {
+            off_sign = if (rest[0] == '-') @as(i64, -1) else 1;
+            var zn = std.mem.splitScalar(u8, trimSpace(rest[1..]), ':');
+            const zh = std.fmt.parseInt(i64, zn.next() orelse return null, 10) catch return null;
+            const zm = if (zn.next()) |m| std.fmt.parseInt(i64, m, 10) catch 0 else 0;
+            off_min = off_sign * (zh * 60 + zm);
+        } else return null;
+    }
+    const days = daysFromCivil(year, month, day);
+    const ts = days * 86400 + hour * 3600 + minute * 60 + second - off_min * 60;
+    const cd = civilFromDays(@divFloor(ts, 86400));
+    const tod = @mod(ts, 86400);
+    return try std.fmt.allocPrint(a, "{d:0>4}-{d:0>2}-{d:0>2}T{d:0>2}:{d:0>2}:{d:0>2}Z", .{
+        @as(u64, @intCast(cd.y)), @as(u64, @intCast(cd.m)), @as(u64, @intCast(cd.d)), @as(u64, @intCast(@divTrunc(tod, 3600))), @as(u64, @intCast(@mod(@divTrunc(tod, 60), 60))), @as(u64, @intCast(@mod(tod, 60))),
+    });
+}
+
+fn daysFromCivil(y0: i64, m: i64, d: i64) i64 {
+    const y = if (m <= 2) y0 - 1 else y0;
+    const era = @divFloor(y, 400);
+    const yoe = y - era * 400;
+    const mp = @mod(m + 9, 12);
+    const doy = @divTrunc(153 * mp + 2, 5) + d - 1;
+    const doe = yoe * 365 + @divTrunc(yoe, 4) - @divTrunc(yoe, 100) + doy;
+    return era * 146097 + doe - 719468;
+}
+
+const CivilDate = struct { y: i64, m: i64, d: i64 };
+
+fn civilFromDays(z0: i64) CivilDate {
+    const z = z0 + 719468;
+    const era = @divFloor(z, 146097);
+    const doe = z - era * 146097;
+    const yoe = @divTrunc(doe - @divTrunc(doe, 1460) + @divTrunc(doe, 36524) - @divTrunc(doe, 146096), 365);
+    const y = yoe + era * 400;
+    const doy = doe - (365 * yoe + @divTrunc(yoe, 4) - @divTrunc(yoe, 100));
+    const mp = @divTrunc(5 * doy + 2, 153);
+    return .{ .y = if (mp >= 10) y + 1 else y, .m = if (mp >= 10) mp - 9 else mp + 3, .d = doy - @divTrunc(153 * mp + 2, 5) + 1 };
+}
+
+// Liquid body transform --------------------------------------------------------
+
+const EmitCtx = struct {
+    a: std.mem.Allocator,
+    /// post stem (`2024-01-02-welcome-post`) → entity id
+    post_index: std.StringHashMap([]const u8),
+    /// site-relative source path (`_docs/guide-one.md`) → entity id
+    path_index: std.StringHashMap([]const u8),
+    /// static file paths present under the root
+    static_set: std.StringHashMap(void),
+    baseurl: []const u8,
+    review: *std.ArrayList(ReviewItem),
+    links: *std.ArrayList(EmitLink),
+    /// static src → dest already copied (copy each file once per output)
+    copied: *std.StringHashMap([]const u8),
+    /// liquid constructs reported once per page
+    reported: *std.StringHashMap(void),
+    page: EmitPage,
+    preserved: usize = 0,
+};
+
+fn emitReportOnce(ctx: *EmitCtx, dedup_key: []const u8, kind: []const u8, detail: []const u8) !void {
+    const a = ctx.a;
+    const dk = try std.fmt.allocPrint(a, "{s}/{s}", .{ ctx.page.source_path, dedup_key });
+    if (ctx.reported.contains(dk)) return;
+    try ctx.reported.put(dk, {});
+    ctx.preserved += 1;
+    try ctx.review.append(a, .{ .source_path = ctx.page.source_path, .kind = kind, .detail = detail });
+}
+
+fn emitWikiLink(out: *std.ArrayList(u8), a: std.mem.Allocator, id: []const u8, text: ?[]const u8) !void {
+    try out.appendSlice(a, "[[");
+    try out.appendSlice(a, id);
+    if (text) |t| {
+        if (t.len > 0) {
+            try out.append(a, '|');
+            try out.appendSlice(a, t);
+        }
+    }
+    try out.appendSlice(a, "]]");
+}
+
+/// Resolve a `{% post_url %}` / `{% link %}` target to an entity id.
+fn emitResolveTagTarget(ctx: *EmitCtx, tag_name: []const u8, arg: []const u8) ?[]const u8 {
+    const t = stripQuotes(trimSpace(arg));
+    if (t.len == 0) return null;
+    if (std.mem.eql(u8, tag_name, "post_url")) {
+        var stem = t;
+        if (std.mem.startsWith(u8, stem, "_posts/")) stem = stem["_posts/".len..];
+        if (isMd(stem)) stem = stem[0 .. stem.len - 3];
+        return ctx.post_index.get(stem);
+    }
+    // {% link %}: site-relative source path.
+    var p = t;
+    while (p.len > 0 and p[0] == '/') p = p[1..];
+    if (ctx.path_index.get(p)) |id| return id;
+    if (isMd(p)) {
+        if (ctx.path_index.get(p[0 .. p.len - 3])) |id| return id;
+    } else {
+        const with_md = std.fmt.allocPrint(ctx.a, "{s}.md", .{p}) catch return null;
+        if (ctx.path_index.get(with_md)) |id| return id;
+    }
+    return null;
+}
+
+/// Register a copied static file; returns the page-relative dest.
+fn emitCopyAsset(ctx: *EmitCtx, io: Io, src_root: Io.Dir, stage: Io.Dir, rel_src: []const u8) !?[]const u8 {
+    const a = ctx.a;
+    if (ctx.copied.get(rel_src)) |dest| return dest;
+    const base = std.fs.path.basename(rel_src);
+    var dest_name = try emitSanitizeSegment(a, base);
+    var dest = try std.fmt.allocPrint(a, "content/{s}.assets/{s}", .{ ctx.page.id, dest_name });
+    var n: usize = 2;
+    while (ctx.copied.contains(dest)) : (n += 1) {
+        dest_name = try std.fmt.allocPrint(a, "{d}-{s}", .{ n, try emitSanitizeSegment(a, base) });
+        dest = try std.fmt.allocPrint(a, "content/{s}.assets/{s}", .{ ctx.page.id, dest_name });
+    }
+    const data = try readFileAlloc(io, src_root, rel_src, a);
+    try writeBytes(io, stage, dest, data);
+    const page_dest = try std.fmt.allocPrint(a, "{s}.assets/{s}", .{ std.fs.path.basename(ctx.page.id), dest_name });
+    try ctx.copied.put(rel_src, page_dest);
+    try ctx.copied.put(dest, rel_src);
+    return page_dest;
+}
+
+fn emitTransformBody(ctx: *EmitCtx, io: Io, src_root: Io.Dir, stage: Io.Dir, body: []const u8) ![]u8 {
+    const a = ctx.a;
+    var out: std.ArrayList(u8) = .empty;
+    var i: usize = 0;
+    var in_fence = false;
+    var fence_ch: u8 = '`';
+    var fence_len: usize = 0;
+    var in_raw = false;
+    var line_start = true;
+    while (i < body.len) {
+        const c = body[i];
+        if (line_start) {
+            line_start = false;
+            const fl = fenceMarkerLen(body[i..]);
+            if (fl > 0) {
+                if (in_fence) {
+                    if (c == fence_ch and fl >= fence_len) in_fence = false;
+                } else {
+                    in_fence = true;
+                    fence_ch = c;
+                    fence_len = fl;
+                }
+                try out.append(a, c);
+                i += 1;
+                continue;
+            }
+        }
+        if (c == '\n') {
+            try out.append(a, c);
+            i += 1;
+            line_start = true;
+            continue;
+        }
+        if (in_fence) {
+            try out.append(a, c);
+            i += 1;
+            continue;
+        }
+        if (in_raw) {
+            if (c == '{' and i + 1 < body.len and body[i + 1] == '%') {
+                const close = std.mem.indexOfPos(u8, body, i + 2, "%}") orelse {
+                    try out.appendSlice(a, body[i..]);
+                    break;
+                };
+                const inner = trimSpace(body[i + 2 .. close]);
+                if (std.mem.eql(u8, inner, "endraw")) {
+                    in_raw = false;
+                    i = close + 2;
+                    continue;
+                }
+            }
+            // Raw block contents pass through untouched.
+            try out.append(a, c);
+            i += 1;
+            continue;
+        }
+        if (c == '{' and i + 1 < body.len) {
+            if (body[i + 1] == '{') {
+                const close = std.mem.indexOfPos(u8, body, i + 2, "}}") orelse {
+                    try out.appendSlice(a, body[i..]);
+                    break;
+                };
+                const inner = trimSpace(body[i + 2 .. close]);
+                const span = body[i .. close + 2];
+                if (std.mem.eql(u8, inner, "site.baseurl")) {
+                    // `{{ site.baseurl }}/path` — when the joined path names a
+                    // static file, copy it beside the page and rewrite.
+                    var tend = close + 2;
+                    while (tend < body.len and !std.ascii.isWhitespace(body[tend]) and
+                        body[tend] != ')' and body[tend] != ']' and body[tend] != '<' and
+                        body[tend] != '"' and body[tend] != '\'' and body[tend] != '(') tend += 1;
+                    const tail = body[close + 2 .. tend];
+                    var rel = if (tail.len > 0 and tail[0] == '/') tail[1..] else tail;
+                    if (std.mem.indexOfAny(u8, rel, "#?")) |cut| rel = rel[0..cut];
+                    if (rel.len > 0 and ctx.static_set.contains(rel)) {
+                        if (try emitCopyAsset(ctx, io, src_root, stage, rel)) |page_dest| {
+                            try out.appendSlice(a, page_dest);
+                            try ctx.links.append(a, .{ .source_path = ctx.page.source_path, .target = body[i..tend], .result = page_dest });
+                            i = tend;
+                            continue;
+                        }
+                    }
+                    try out.appendSlice(a, ctx.baseurl);
+                } else if (std.mem.startsWith(u8, inner, "site.data.")) {
+                    try out.appendSlice(a, span);
+                    try emitReportOnce(ctx, try std.fmt.allocPrint(a, "var/{s}", .{inner}), "liquid_preserved", try std.fmt.allocPrint(a, "{s} is a data-file reference; kept verbatim", .{inner}));
+                } else {
+                    try out.appendSlice(a, span);
+                    var name_end: usize = 0;
+                    while (name_end < inner.len and (isIdentChar(inner[name_end]) or inner[name_end] == '.')) name_end += 1;
+                    try emitReportOnce(ctx, try std.fmt.allocPrint(a, "var/{s}", .{inner[0..name_end]}), "liquid_preserved", try std.fmt.allocPrint(a, "expression {{{{ {s} }}}} kept verbatim", .{inner[0..name_end]}));
+                }
+                i = close + 2;
+                continue;
+            }
+            if (body[i + 1] == '%') {
+                const close = std.mem.indexOfPos(u8, body, i + 2, "%}") orelse {
+                    try out.appendSlice(a, body[i..]);
+                    break;
+                };
+                const inner = trimSpace(body[i + 2 .. close]);
+                const span = body[i .. close + 2];
+                var name_end: usize = 0;
+                while (name_end < inner.len and isIdentChar(inner[name_end])) name_end += 1;
+                const name = inner[0..name_end];
+                const arg = trimSpace(inner[name_end..]);
+                if (std.mem.eql(u8, name, "raw")) {
+                    in_raw = true;
+                } else if (std.mem.eql(u8, name, "post_url") or std.mem.eql(u8, name, "link")) {
+                    if (emitResolveTagTarget(ctx, name, arg)) |id| {
+                        try ctx.links.append(a, .{ .source_path = ctx.page.source_path, .target = span, .result = id });
+                        try emitWikiLink(&out, a, id, null);
+                    } else {
+                        try out.appendSlice(a, span);
+                        try emitReportOnce(ctx, try std.fmt.allocPrint(a, "tag/{s}:{s}", .{ name, arg }), "unresolved_ref", try std.fmt.allocPrint(a, "{s} kept verbatim; target not emitted", .{span}));
+                    }
+                } else {
+                    try out.appendSlice(a, span);
+                    const kind: []const u8 = if (std.mem.eql(u8, name, "include")) "include_preserved" else "liquid_preserved";
+                    try emitReportOnce(ctx, try std.fmt.allocPrint(a, "tag/{s}", .{name}), kind, try std.fmt.allocPrint(a, "{s} {s} not converted; kept verbatim", .{ name, if (arg.len > 0) "(with args)" else "" }));
+                }
+                i = close + 2;
+                continue;
+            }
+        }
+        if (c == '[' or (c == '!' and i + 1 < body.len and body[i + 1] == '[')) {
+            const is_img = c == '!';
+            const text_start = i + @as(usize, if (is_img) 2 else 1);
+            const bracket_close = std.mem.indexOfScalarPos(u8, body, text_start, ']') orelse {
+                try out.append(a, c);
+                i += 1;
+                continue;
+            };
+            if (bracket_close + 1 < body.len and body[bracket_close + 1] == '(') {
+                const paren_close = std.mem.indexOfScalarPos(u8, body, bracket_close + 2, ')') orelse {
+                    try out.append(a, c);
+                    i += 1;
+                    continue;
+                };
+                const text = body[text_start..bracket_close];
+                var dest = trimSpace(body[bracket_close + 2 .. paren_close]);
+                const span = body[i .. paren_close + 1];
+                // `{% post_url %}` / `{% link %}` as the destination.
+                if (std.mem.startsWith(u8, dest, "{%") and std.mem.endsWith(u8, dest, "%}")) {
+                    const inner = trimSpace(dest[2 .. dest.len - 2]);
+                    var name_end: usize = 0;
+                    while (name_end < inner.len and isIdentChar(inner[name_end])) name_end += 1;
+                    const name = inner[0..name_end];
+                    const arg = trimSpace(inner[name_end..]);
+                    if (std.mem.eql(u8, name, "post_url") or std.mem.eql(u8, name, "link")) {
+                        if (emitResolveTagTarget(ctx, name, arg)) |id| {
+                            try ctx.links.append(a, .{ .source_path = ctx.page.source_path, .target = span, .result = id });
+                            try emitWikiLink(&out, a, id, if (is_img) null else text);
+                        } else {
+                            try out.appendSlice(a, span);
+                            try emitReportOnce(ctx, try std.fmt.allocPrint(a, "tag/{s}:{s}", .{ name, arg }), "unresolved_ref", try std.fmt.allocPrint(a, "{s} kept verbatim; target not emitted", .{span}));
+                        }
+                    } else {
+                        try out.appendSlice(a, span);
+                        try emitReportOnce(ctx, try std.fmt.allocPrint(a, "tag/{s}", .{name}), "liquid_in_link", try std.fmt.allocPrint(a, "{s} kept verbatim", .{span}));
+                    }
+                    i = paren_close + 1;
+                    continue;
+                }
+                // Substitute {{ site.baseurl }} inside the destination.
+                if (std.mem.indexOf(u8, dest, "{{ site.baseurl }}")) |bp| {
+                    const joined = try std.fmt.allocPrint(a, "{s}{s}{s}", .{ dest[0..bp], ctx.baseurl, dest[bp + "{{ site.baseurl }}".len ..] });
+                    dest = joined;
+                }
+                if (std.mem.indexOfScalar(u8, dest, ' ')) |sp| dest = trimSpace(dest[0..sp]);
+                if (dest.len >= 2 and dest[0] == '<' and dest[dest.len - 1] == '>') dest = dest[1 .. dest.len - 1];
+                // External → verbatim.
+                if (emitDestIsExternal(dest)) {
+                    try out.appendSlice(a, span);
+                    i = paren_close + 1;
+                    continue;
+                }
+                var rel = dest;
+                while (rel.len > 0 and rel[0] == '/') rel = rel[1..];
+                if (std.mem.indexOfAny(u8, rel, "#?")) |cut| {
+                    rel = rel[0..cut];
+                }
+                if (rel.len > 0 and ctx.static_set.contains(rel)) {
+                    if (try emitCopyAsset(ctx, io, src_root, stage, rel)) |page_dest| {
+                        if (is_img) try out.append(a, '!');
+                        try out.append(a, '[');
+                        try out.appendSlice(a, text);
+                        try out.appendSlice(a, "](");
+                        try out.appendSlice(a, page_dest);
+                        try out.append(a, ')');
+                        try ctx.links.append(a, .{ .source_path = ctx.page.source_path, .target = dest, .result = page_dest });
+                        i = paren_close + 1;
+                        continue;
+                    }
+                }
+                // Page link → [[id]].
+                const norm = try emitNormalizeLinkPath(a, rel);
+                if (norm.len > 0) {
+                    if (ctx.path_index.get(norm)) |id| {
+                        try ctx.links.append(a, .{ .source_path = ctx.page.source_path, .target = dest, .result = id });
+                        try emitWikiLink(&out, a, id, if (is_img) null else text);
+                        i = paren_close + 1;
+                        continue;
+                    }
+                }
+                if (rel.len > 0) {
+                    try out.appendSlice(a, span);
+                    try emitReportOnce(ctx, try std.fmt.allocPrint(a, "link/{s}", .{dest}), "unresolved_link", try std.fmt.allocPrint(a, "link {s} kept verbatim; target not found", .{dest}));
+                    i = paren_close + 1;
+                    continue;
+                }
+                try out.appendSlice(a, span);
+                i = paren_close + 1;
+                continue;
+            }
+            try out.append(a, c);
+            i += 1;
+            continue;
+        }
+        try out.append(a, c);
+        i += 1;
+    }
+    return try out.toOwnedSlice(a);
+}
+
+fn emitDestIsExternal(dest: []const u8) bool {
+    if (dest.len == 0) return true;
+    if (std.mem.indexOfScalar(u8, dest, ':')) |colon| {
+        const scheme = dest[0..colon];
+        if (scheme.len == 0) return false;
+        for (scheme) |c| {
+            if (!std.ascii.isAlphanumeric(c) and c != '+' and c != '-' and c != '.') return false;
+        }
+        return true;
+    }
+    return std.mem.startsWith(u8, dest, "//") or std.mem.startsWith(u8, dest, "#");
+}
+
+/// Normalize a link target path for path_index lookup: strip leading `/`,
+/// `.md`, trailing `/`, `/index` — keep directory stems as-is.
+fn emitNormalizeLinkPath(a: std.mem.Allocator, raw: []const u8) ![]const u8 {
+    var t = trimSpace(raw);
+    while (t.len > 0 and t[0] == '/') t = t[1..];
+    while (t.len > 0 and t[t.len - 1] == '/') t = t[0 .. t.len - 1];
+    if (isMd(t)) t = t[0 .. t.len - 3];
+    if (std.mem.endsWith(u8, t, "/index")) t = t[0 .. t.len - 6];
+    return try a.dupe(u8, t);
+}
+
+/// Title a generated trunk id segment (`posts` → `Posts`, `docs` → `Docs`).
+fn emitTitleize(a: std.mem.Allocator, seg: []const u8) ![]u8 {
+    const dup = try a.dupe(u8, seg);
+    for (dup, 0..) |c, i| {
+        if (c == '-' or c == '_') dup[i] = ' ';
+    }
+    if (dup.len > 0 and dup[0] >= 'a' and dup[0] <= 'z') dup[0] -= 32;
+    return dup;
+}
+
+pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+
+    var root = Io.Dir.cwd().openDir(io, opts.root_dir, .{ .iterate = true, .follow_symlinks = false }) catch {
+        return error.InvalidJekyllInput;
+    };
+    defer root.close(io);
+
+    var cfg: Config = .{};
+    if (root.statFile(io, "_config.yml", .{ .follow_symlinks = false })) |st| {
+        if (st.kind == .file) {
+            const bytes = try readFileAlloc(io, root, "_config.yml", a);
+            cfg = try parseConfig(a, bytes);
+            cfg.found = true;
+        }
+    } else |_| {}
+
+    var all_paths: std.ArrayList([]const u8) = .empty;
+    try collectUnderDir(io, a, root, "", &all_paths);
+    std.mem.sort([]const u8, all_paths.items, {}, lessStr);
+
+    var inv: Inventory = .{};
+    try scan(io, a, root, &cfg, &inv, all_paths.items);
+
+    const baseurl = cfg.baseurl orelse "";
+    var review: std.ArrayList(ReviewItem) = .empty;
+    var links: std.ArrayList(EmitLink) = .empty;
+    var routes: std.ArrayList(RouteEntry) = .empty;
+    var asset_copies: std.ArrayList(AssetCopy) = .empty;
+    var copied = std.StringHashMap([]const u8).init(a);
+    var reported = std.StringHashMap(void).init(a);
+    var post_index = std.StringHashMap([]const u8).init(a);
+    var path_index = std.StringHashMap([]const u8).init(a);
+    var static_set = std.StringHashMap(void).init(a);
+    for (inv.static_files.items) |f| try static_set.put(f, {});
+
+    var epages: std.ArrayList(EmitPage) = .empty;
+    var id_used = std.StringHashMap(void).init(a);
+
+    // posts → satellites of a generated `posts` trunk.
+    const have_posts = inv.posts.items.len > 0;
+    var posts_trunk_emitted = false;
+    if (have_posts) {
+        for (inv.posts.items) |p| {
+            const text = try readFileAlloc(io, root, p.path, a);
+            const lite = try archaeology.parseFrontmatterLite(a, text);
+            const body = if (lite.body_offset < text.len) text[lite.body_offset..] else "";
+            const slug = try emitSanitizeSegment(a, p.slug);
+            const id = try std.fmt.allocPrint(a, "posts/{s}", .{slug});
+            try id_used.put(id, {});
+            const stem = std.fs.path.basename(p.path);
+            const name_stem = stem[0 .. stem.len - std.fs.path.extension(stem).len];
+            try post_index.put(name_stem, id);
+            const title = if (lite.title) |t| t else p.title orelse p.slug;
+            var status: []const u8 = "published";
+            if (frontmatterScalar(text, "published")) |v| {
+                if (std.ascii.eqlIgnoreCase(v, "false")) status = "draft";
+            }
+            if (std.mem.eql(u8, p.status, "draft")) status = "draft";
+            const date_raw = frontmatterScalar(text, "date") orelse p.date;
+            var published_at: ?[]const u8 = null;
+            if (try emitNormalizeDate(a, date_raw)) |d| {
+                published_at = d;
+            } else if (date_raw.len > 0) {
+                try review.append(a, .{
+                    .source_path = p.path,
+                    .kind = "date_dropped",
+                    .detail = try std.fmt.allocPrint(a, "date {s} does not match published_at grammar; omitted", .{date_raw}),
+                });
+            }
+            var dropped: std.ArrayList([]const u8) = .empty;
+            for (lite.all_keys) |k| {
+                if (std.mem.eql(u8, k, "title") or std.mem.eql(u8, k, "tags") or std.mem.eql(u8, k, "layout") or
+                    std.mem.eql(u8, k, "permalink") or std.mem.eql(u8, k, "categories") or std.mem.eql(u8, k, "date") or
+                    std.mem.eql(u8, k, "published")) continue;
+                try dropped.append(a, k);
+            }
+            try epages.append(a, .{
+                .source_path = p.path,
+                .link_path = p.path,
+                .id = id,
+                .out_path = try std.fmt.allocPrint(a, "content/{s}.md", .{id}),
+                .parent = "posts",
+                .kind = "post",
+                .title = title,
+                .status = status,
+                .tags = (try emitFrontmatterList(a, text, "tags")) orelse &.{},
+                .categories = (try emitFrontmatterList(a, text, "categories")) orelse &.{},
+                .permalink = frontmatterScalar(text, "permalink"),
+                .published_at = published_at,
+                .summary = if (published_at != null) try std.fmt.allocPrint(a, "Jekyll post migrated from {s}.", .{p.path}) else null,
+                .layout = if (lite.has_layout) frontmatterScalar(text, "layout") else null,
+                .dropped = try dropped.toOwnedSlice(a),
+                .body = body,
+            });
+        }
+        posts_trunk_emitted = true;
+    }
+    // _posts files that failed the date pattern → reported, never emitted.
+    for (inv.unmatched_posts.items) |u| {
+        try review.append(a, .{
+            .source_path = u.path,
+            .kind = "unmatched_post",
+            .detail = try std.fmt.allocPrint(a, "{s} lacks a YYYY-MM-DD-slug filename; not emitted", .{u.path}),
+        });
+    }
+
+    // _drafts → satellites of a generated `drafts` trunk.
+    const have_drafts = inv.drafts.items.len > 0;
+    if (have_drafts) {
+        for (inv.drafts.items) |d| {
+            const text = try readFileAlloc(io, root, d.path, a);
+            const lite = try archaeology.parseFrontmatterLite(a, text);
+            const body = if (lite.body_offset < text.len) text[lite.body_offset..] else "";
+            const stem = std.fs.path.basename(d.path);
+            const name_stem = stem[0 .. stem.len - std.fs.path.extension(stem).len];
+            const id = try std.fmt.allocPrint(a, "drafts/{s}", .{try emitSanitizeSegment(a, name_stem)});
+            if (id_used.contains(id)) {
+                try review.append(a, .{ .source_path = d.path, .kind = "id_collision", .detail = try std.fmt.allocPrint(a, "{s} already used; not emitted", .{id}) });
+                continue;
+            }
+            try id_used.put(id, {});
+            var dropped: std.ArrayList([]const u8) = .empty;
+            for (lite.all_keys) |k| {
+                if (std.mem.eql(u8, k, "title") or std.mem.eql(u8, k, "tags") or std.mem.eql(u8, k, "layout") or
+                    std.mem.eql(u8, k, "permalink") or std.mem.eql(u8, k, "categories") or std.mem.eql(u8, k, "date") or
+                    std.mem.eql(u8, k, "published")) continue;
+                try dropped.append(a, k);
+            }
+            try epages.append(a, .{
+                .source_path = d.path,
+                .link_path = d.path,
+                .id = id,
+                .out_path = try std.fmt.allocPrint(a, "content/{s}.md", .{id}),
+                .parent = "drafts",
+                .kind = "draft",
+                .title = if (lite.title) |t| t else name_stem,
+                .status = "draft",
+                .tags = (try emitFrontmatterList(a, text, "tags")) orelse &.{},
+                .categories = (try emitFrontmatterList(a, text, "categories")) orelse &.{},
+                .permalink = frontmatterScalar(text, "permalink"),
+                .published_at = null,
+                .summary = null,
+                .layout = if (lite.has_layout) frontmatterScalar(text, "layout") else null,
+                .dropped = try dropped.toOwnedSlice(a),
+                .body = body,
+            });
+        }
+    }
+
+    // Collections: output:true → trunk + satellites; output:false → reported.
+    for (cfg.collections.items) |col| {
+        if (!col.output) {
+            for (col.members.items) |m| {
+                try review.append(a, .{
+                    .source_path = m,
+                    .kind = "collection_skipped",
+                    .detail = try std.fmt.allocPrint(a, "collection {s} has output: false; {s} not emitted", .{ col.name, m }),
+                });
+            }
+            continue;
+        }
+        if (col.members.items.len == 0) continue;
+        for (col.members.items) |m| {
+            const text = try readFileAlloc(io, root, m, a);
+            const lite = try archaeology.parseFrontmatterLite(a, text);
+            const body = if (lite.body_offset < text.len) text[lite.body_offset..] else "";
+            // `_name/sub/file.md` → `name/sub/file` id stem.
+            var rel = m;
+            if (std.mem.startsWith(u8, rel, "_")) {
+                const slash = std.mem.indexOfScalar(u8, rel, '/') orelse rel.len;
+                rel = rel[1..];
+                if (slash < m.len) rel = rel[slash..];
+            }
+            if (isMd(rel)) rel = rel[0 .. rel.len - 3];
+            var id_raw = try std.fmt.allocPrint(a, "{s}/{s}", .{ col.name, rel });
+            if (std.mem.endsWith(u8, id_raw, "/index")) id_raw = id_raw[0 .. id_raw.len - 6];
+            const id = try emitEntityId(a, id_raw);
+            if (id_used.contains(id)) {
+                try review.append(a, .{ .source_path = m, .kind = "id_collision", .detail = try std.fmt.allocPrint(a, "{s} already used; not emitted", .{id}) });
+                continue;
+            }
+            try id_used.put(id, {});
+            var status: []const u8 = "published";
+            if (frontmatterScalar(text, "published")) |v| {
+                if (std.ascii.eqlIgnoreCase(v, "false")) status = "draft";
+            }
+            const stem = std.fs.path.basename(rel);
+            var dropped: std.ArrayList([]const u8) = .empty;
+            for (lite.all_keys) |k| {
+                if (std.mem.eql(u8, k, "title") or std.mem.eql(u8, k, "tags") or std.mem.eql(u8, k, "layout") or
+                    std.mem.eql(u8, k, "permalink") or std.mem.eql(u8, k, "categories") or std.mem.eql(u8, k, "date") or
+                    std.mem.eql(u8, k, "published")) continue;
+                try dropped.append(a, k);
+            }
+            try epages.append(a, .{
+                .source_path = m,
+                .link_path = m,
+                .id = id,
+                .out_path = try std.fmt.allocPrint(a, "content/{s}.md", .{id}),
+                .parent = try emitSanitizeSegment(a, col.name),
+                .kind = "collection_member",
+                .title = if (lite.title) |t| t else stem,
+                .status = status,
+                .tags = (try emitFrontmatterList(a, text, "tags")) orelse &.{},
+                .categories = (try emitFrontmatterList(a, text, "categories")) orelse &.{},
+                .permalink = frontmatterScalar(text, "permalink"),
+                .published_at = null,
+                .summary = null,
+                .layout = if (lite.has_layout) frontmatterScalar(text, "layout") else null,
+                .dropped = try dropped.toOwnedSlice(a),
+                .body = body,
+            });
+        }
+    }
+
+    // Top-level front-matter pages → Trunks at their stem path.
+    for (inv.pages.items) |p| {
+        const text = try readFileAlloc(io, root, p.path, a);
+        const lite = try archaeology.parseFrontmatterLite(a, text);
+        const body = if (lite.body_offset < text.len) text[lite.body_offset..] else "";
+        var rel = p.path;
+        if (isMd(rel)) rel = rel[0 .. rel.len - 3];
+        if (std.mem.endsWith(u8, rel, "/index")) rel = rel[0 .. rel.len - 6];
+        const id = try emitEntityId(a, rel);
+        if (id_used.contains(id)) {
+            try review.append(a, .{ .source_path = p.path, .kind = "id_collision", .detail = try std.fmt.allocPrint(a, "{s} already used; not emitted", .{id}) });
+            continue;
+        }
+        try id_used.put(id, {});
+        var status: []const u8 = "published";
+        if (frontmatterScalar(text, "published")) |v| {
+            if (std.ascii.eqlIgnoreCase(v, "false")) status = "draft";
+        }
+        const stem = std.fs.path.basename(rel);
+        var dropped: std.ArrayList([]const u8) = .empty;
+        for (lite.all_keys) |k| {
+            if (std.mem.eql(u8, k, "title") or std.mem.eql(u8, k, "tags") or std.mem.eql(u8, k, "layout") or
+                std.mem.eql(u8, k, "permalink") or std.mem.eql(u8, k, "categories") or std.mem.eql(u8, k, "date") or
+                std.mem.eql(u8, k, "published")) continue;
+            try dropped.append(a, k);
+        }
+        try epages.append(a, .{
+            .source_path = p.path,
+            .link_path = p.path,
+            .id = id,
+            .out_path = try std.fmt.allocPrint(a, "content/{s}.md", .{id}),
+            .parent = null,
+            .kind = "page",
+            .title = if (lite.title) |t| t else stem,
+            .status = status,
+            .tags = (try emitFrontmatterList(a, text, "tags")) orelse &.{},
+            .categories = (try emitFrontmatterList(a, text, "categories")) orelse &.{},
+            .permalink = p.permalink,
+            .published_at = null,
+            .summary = null,
+            .layout = if (lite.has_layout) frontmatterScalar(text, "layout") else null,
+            .dropped = try dropped.toOwnedSlice(a),
+            .body = body,
+        });
+    }
+
+    // path_index for {% link %} and markdown .md links.
+    for (epages.items) |ep| {
+        const norm = try emitNormalizeLinkPath(a, ep.link_path);
+        if (norm.len > 0) try path_index.put(norm, ep.id);
+    }
+
+    // Generated trunks (emitted first in reports; files written in order below).
+    var trunk_ids: std.ArrayList([]const u8) = .empty;
+    if (posts_trunk_emitted) try trunk_ids.append(a, "posts");
+    if (have_drafts) try trunk_ids.append(a, "drafts");
+    for (cfg.collections.items) |col| {
+        if (col.output and col.members.items.len > 0) try trunk_ids.append(a, try emitSanitizeSegment(a, col.name));
+    }
+    for (trunk_ids.items) |tid| {
+        if (id_used.contains(tid)) {
+            try review.append(a, .{
+                .source_path = "_config.yml",
+                .kind = "trunk_id_collision",
+                .detail = try std.fmt.allocPrint(a, "generated trunk id {s} already used; trunk not emitted", .{tid}),
+            });
+            continue;
+        }
+        try id_used.put(tid, {});
+        const title = try emitTitleize(a, std.fs.path.basename(tid));
+        try epages.append(a, .{
+            .source_path = "(generated)",
+            .link_path = "",
+            .id = tid,
+            .out_path = try std.fmt.allocPrint(a, "content/{s}.md", .{tid}),
+            .parent = null,
+            .kind = "generated_trunk",
+            .title = title,
+            .status = "published",
+            .tags = &.{},
+            .categories = &.{},
+            .permalink = null,
+            .published_at = null,
+            .summary = try std.fmt.allocPrint(a, "Generated trunk for Jekyll {s}.", .{tid}),
+            .layout = null,
+            .dropped = &.{},
+            .body = try std.fmt.allocPrint(a, "Generated landing page for migrated `{s}` entries.\n", .{tid}),
+        });
+    }
+
+    // Stage output.
+    const out_dir = std.mem.trimEnd(u8, opts.out_dir, "/");
+    if (out_dir.len == 0) return error.InvalidJekyllInput;
+    var output = try publication.Publication.begin(io, a, out_dir, &.{opts.root_dir}, format_id);
+    defer {
+        output.abandon(io, a);
+        output.deinit(a);
+    }
+    var stage = try Io.Dir.cwd().openDir(io, output.stage_path, .{});
+    defer stage.close(io);
+
+    // Emit generated trunks first, then content pages.
+    for (epages.items) |ep| {
+        if (!std.mem.eql(u8, ep.kind, "generated_trunk")) continue;
+        const fm = try emitBuildFrontmatter(a, ep.id, ep.title, ep.parent, ep.status, ep.tags, ep.published_at, ep.summary);
+        const doc = try std.fmt.allocPrint(a, "{s}{s}", .{ fm, ep.body });
+        try writeBytes(io, stage, ep.out_path, doc);
+    }
+    for (epages.items) |ep| {
+        if (std.mem.eql(u8, ep.kind, "generated_trunk")) continue;
+        var ctx = EmitCtx{
+            .a = a,
+            .post_index = post_index,
+            .path_index = path_index,
+            .static_set = static_set,
+            .baseurl = baseurl,
+            .review = &review,
+            .links = &links,
+            .copied = &copied,
+            .reported = &reported,
+            .page = ep,
+        };
+        const new_body = try emitTransformBody(&ctx, io, root, stage, ep.body);
+        var cls: []const u8 = "transformed";
+        if (ctx.preserved > 0) cls = "human_review";
+        var ep2 = ep;
+        ep2.class = cls;
+        const fm = try emitBuildFrontmatter(a, ep.id, ep.title, ep.parent, ep.status, ep.tags, ep.published_at, ep.summary);
+        const prov = try emitProvenanceComment(a, opts.root_dir, ep2, ctx.preserved);
+        const doc = try std.fmt.allocPrint(a, "{s}{s}{s}", .{ fm, prov, new_body });
+        try writeBytes(io, stage, ep.out_path, doc);
+        if (ep.permalink) |pl| {
+            try routes.append(a, .{ .source_path = ep.source_path, .route = pl, .entity_id = ep.id });
+        }
+    }
+    // Manifest copied assets (copied map holds dest→src for dest keys).
+    var cit = copied.iterator();
+    while (cit.next()) |e| {
+        const k = e.key_ptr.*;
+        if (std.mem.startsWith(u8, k, "content/")) {
+            try asset_copies.append(a, .{ .source_path = e.value_ptr.*, .dest = k });
+        }
+    }
+    std.mem.sort(AssetCopy, asset_copies.items, {}, struct {
+        fn less(_: void, x: AssetCopy, y: AssetCopy) bool {
+            return lessStr({}, x.dest, y.dest);
+        }
+    }.less);
+    std.mem.sort(ReviewItem, review.items, {}, struct {
+        fn less(_: void, x: ReviewItem, y: ReviewItem) bool {
+            const c = std.mem.order(u8, x.source_path, y.source_path);
+            if (c != .eq) return c == .lt;
+            return std.mem.order(u8, x.kind, y.kind) == .lt;
+        }
+    }.less);
+    std.mem.sort(RouteEntry, routes.items, {}, struct {
+        fn less(_: void, x: RouteEntry, y: RouteEntry) bool {
+            return lessStr({}, x.route, y.route);
+        }
+    }.less);
+
+    const json = try emitReportJson(a, opts.root_dir, epages.items, routes.items, links.items, review.items, asset_copies.items, inv);
+    const md = try emitReportMd(a, opts.root_dir, epages.items, routes.items, links.items, review.items, asset_copies.items, inv);
+    try writeBytes(io, stage, "report.json", json);
+    try writeBytes(io, stage, "REPORT.md", md);
+    try output.commit(io, a);
+    if (!opts.quiet) {
+        std.debug.print("jekyll: wrote {s}/content/, {s}/report.json, {s}/REPORT.md\n", .{ out_dir, out_dir, out_dir });
+    }
+}
+
+fn emitReportJson(
+    a: std.mem.Allocator,
+    source_root: []const u8,
+    pages: []const EmitPage,
+    routes: []const RouteEntry,
+    links: []const EmitLink,
+    review: []const ReviewItem,
+    asset_copies: []const AssetCopy,
+    inv: Inventory,
+) ![]u8 {
+    var buf: std.ArrayList(u8) = .empty;
+    try buf.appendSlice(a, "{\n  \"tool\": \"");
+    try jsonEscapeAppend(&buf, a, format_id);
+    try buf.appendSlice(a, "\",\n  \"version\": \"");
+    try jsonEscapeAppend(&buf, a, tool_version);
+    try buf.appendSlice(a, "\",\n  \"source_root\": \"");
+    try jsonEscapeAppend(&buf, a, source_root);
+    try buf.print(a, "\",\n  \"counts\": {{\n    \"emitted_pages\": {d},\n    \"generated_trunks\": {d},\n    \"routes\": {d},\n    \"link_rewrites\": {d},\n    \"asset_copies\": {d},\n    \"human_review\": {d},\n    \"unmatched_posts\": {d}\n  }},\n", .{
+        pages.len,
+        blk: {
+            var n: usize = 0;
+            for (pages) |p| if (std.mem.eql(u8, p.kind, "generated_trunk")) {
+                n += 1;
+            };
+            break :blk n;
+        },
+        routes.len,
+        links.len,
+        asset_copies.len,
+        review.len,
+        inv.unmatched_posts.items.len,
+    });
+    try buf.appendSlice(a, "  \"pages\": [\n");
+    for (pages, 0..) |p, i| {
+        try buf.appendSlice(a, "    {\"id\": \"");
+        try jsonEscapeAppend(&buf, a, p.id);
+        try buf.appendSlice(a, "\", \"source\": \"");
+        try jsonEscapeAppend(&buf, a, p.source_path);
+        try buf.appendSlice(a, "\", \"kind\": \"");
+        try jsonEscapeAppend(&buf, a, p.kind);
+        try buf.appendSlice(a, "\", \"status\": \"");
+        try jsonEscapeAppend(&buf, a, p.status);
+        try buf.appendSlice(a, "\", \"conversion\": \"");
+        try jsonEscapeAppend(&buf, a, p.class);
+        try buf.appendSlice(a, "\", \"parent\": ");
+        try jsonOptAppend(&buf, a, p.parent);
+        try buf.appendSlice(a, "}");
+        if (i + 1 < pages.len) try buf.append(a, ',');
+        try buf.append(a, '\n');
+    }
+    try buf.appendSlice(a, "  ],\n  \"routes\": [\n");
+    for (routes, 0..) |r, i| {
+        try buf.appendSlice(a, "    {\"route\": \"");
+        try jsonEscapeAppend(&buf, a, r.route);
+        try buf.appendSlice(a, "\", \"source\": \"");
+        try jsonEscapeAppend(&buf, a, r.source_path);
+        try buf.appendSlice(a, "\", \"entity_id\": \"");
+        try jsonEscapeAppend(&buf, a, r.entity_id);
+        try buf.appendSlice(a, "\"}");
+        if (i + 1 < routes.len) try buf.append(a, ',');
+        try buf.append(a, '\n');
+    }
+    try buf.appendSlice(a, "  ],\n  \"link_rewrites\": [\n");
+    for (links, 0..) |l, i| {
+        try buf.appendSlice(a, "    {\"source\": \"");
+        try jsonEscapeAppend(&buf, a, l.source_path);
+        try buf.appendSlice(a, "\", \"target\": \"");
+        try jsonEscapeAppend(&buf, a, l.target);
+        try buf.appendSlice(a, "\", \"result\": \"");
+        try jsonEscapeAppend(&buf, a, l.result);
+        try buf.appendSlice(a, "\"}");
+        if (i + 1 < links.len) try buf.append(a, ',');
+        try buf.append(a, '\n');
+    }
+    try buf.appendSlice(a, "  ],\n  \"asset_copies\": [\n");
+    for (asset_copies, 0..) |c, i| {
+        try buf.appendSlice(a, "    {\"source\": \"");
+        try jsonEscapeAppend(&buf, a, c.source_path);
+        try buf.appendSlice(a, "\", \"dest\": \"");
+        try jsonEscapeAppend(&buf, a, c.dest);
+        try buf.appendSlice(a, "\"}");
+        if (i + 1 < asset_copies.len) try buf.append(a, ',');
+        try buf.append(a, '\n');
+    }
+    try buf.appendSlice(a, "  ],\n  \"human_review\": [\n");
+    for (review, 0..) |r, i| {
+        try buf.appendSlice(a, "    {\"source\": \"");
+        try jsonEscapeAppend(&buf, a, r.source_path);
+        try buf.appendSlice(a, "\", \"kind\": \"");
+        try jsonEscapeAppend(&buf, a, r.kind);
+        try buf.appendSlice(a, "\", \"detail\": \"");
+        try jsonEscapeAppend(&buf, a, r.detail);
+        try buf.appendSlice(a, "\"}");
+        if (i + 1 < review.len) try buf.append(a, ',');
+        try buf.append(a, '\n');
+    }
+    try buf.appendSlice(a, "  ]\n}\n");
+    return try buf.toOwnedSlice(a);
+}
+
+fn emitReportMd(
+    a: std.mem.Allocator,
+    source_root: []const u8,
+    pages: []const EmitPage,
+    routes: []const RouteEntry,
+    links: []const EmitLink,
+    review: []const ReviewItem,
+    asset_copies: []const AssetCopy,
+    inv: Inventory,
+) ![]u8 {
+    var buf: std.ArrayList(u8) = .empty;
+    try buf.appendSlice(a, "# Jekyll → Boris migration report\n\nSource root: `");
+    try buf.appendSlice(a, source_root);
+    try buf.appendSlice(a, "`\n\n");
+    try appendMdCount(&buf, a, "Emitted pages", pages.len);
+    try appendMdCount(&buf, a, "Routes (permalink)", routes.len);
+    try appendMdCount(&buf, a, "Link rewrites", links.len);
+    try appendMdCount(&buf, a, "Asset copies", asset_copies.len);
+    try appendMdCount(&buf, a, "Human-review items", review.len);
+    try appendMdCount(&buf, a, "Unmatched posts (not emitted)", inv.unmatched_posts.items.len);
+    try buf.appendSlice(a, "\n## Pages\n\n| id | kind | status | conversion | source |\n|---|---|---|---|---|\n");
+    for (pages) |p| {
+        try buf.print(a, "| {s} | {s} | {s} | {s} | {s} |\n", .{ p.id, p.kind, p.status, p.class, p.source_path });
+    }
+    if (routes.len > 0) {
+        try buf.appendSlice(a, "\n## Routes\n\n| route | entity | source |\n|---|---|---|\n");
+        for (routes) |r| {
+            try buf.print(a, "| {s} | {s} | {s} |\n", .{ r.route, r.entity_id, r.source_path });
+        }
+    }
+    if (links.len > 0) {
+        try buf.appendSlice(a, "\n## Link rewrites\n\n| source | target | result |\n|---|---|---|\n");
+        for (links) |l| {
+            try buf.print(a, "| {s} | {s} | {s} |\n", .{ l.source_path, l.target, l.result });
+        }
+    }
+    if (asset_copies.len > 0) {
+        try buf.appendSlice(a, "\n## Asset copies\n\n| source | dest |\n|---|---|\n");
+        for (asset_copies) |c| {
+            try buf.print(a, "| {s} | {s} |\n", .{ c.source_path, c.dest });
+        }
+    }
+    if (review.len > 0) {
+        try buf.appendSlice(a, "\n## Human review\n\n| source | kind | detail |\n|---|---|---|\n");
+        for (review) |r| {
+            try buf.print(a, "| {s} | {s} | {s} |\n", .{ r.source_path, r.kind, r.detail });
+        }
+    }
+    try buf.appendSlice(a, "\nLab provenance is not Boris frontmatter. See `docs/contracts/jekyll.md`.\nMachine-readable twin: `report.json`.\n");
+    return try buf.toOwnedSlice(a);
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 

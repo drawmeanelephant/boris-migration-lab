@@ -17,6 +17,8 @@
 //!   frontmatter-review — Scan a content tree for unsupported frontmatter keys → JSON + MD report
 //!   hugo — Hugo project → Boris Markdown content/ + reports
 //!   hugo-inventory — Hugo project → inventory.json + INVENTORY.md (read-only)
+//!   jekyll — Jekyll site source → Boris Markdown content/ + reports
+//!   jekyll-inventory — Jekyll site source → inventory.json + INVENTORY.md (read-only)
 //!   mkdocs-inventory — MkDocs mkdocs.yml + docs tree → inventory.json + INVENTORY.md
 //!
 //! Never rewrites inputs. Not part of the Boris product compiler pipeline.
@@ -35,6 +37,7 @@
 //!   zig build run -- --mode=frontmatter-review --content=./content --out=./.out-fmreview
 //!   zig build run -- --mode=hugo-inventory --root=./fixtures/mini-hugo --out=./.out-hugo-inv
 //!   zig build run -- --mode=hugo --root=./fixtures/mini-hugo --out=./.out-hugo
+//!   zig build run -- --mode=jekyll --root=./fixtures/mini-jekyll --out=./.out-jekyll
 //!   zig build test
 //!
 //! The black-box compile tests also need a pinned product `boris` binary
@@ -865,6 +868,21 @@ test "parseOptions: jekyll-inventory flags" {
 
     const o3 = try parseOptions(&.{ "boris-migration-lab", "--mode=jekyll-archaeology", "--root=./j" });
     try std.testing.expect(o3.mode == .jekyll_inventory);
+}
+
+test "parseOptions: jekyll emit flags" {
+    const o = try parseOptions(&.{
+        "boris-migration-lab",
+        "--mode=jekyll",
+        "--root=fixtures/mini-jekyll",
+        "--out=./.jekyll-out",
+    });
+    try std.testing.expect(o.mode == .jekyll);
+    try std.testing.expectEqualStrings("fixtures/mini-jekyll", o.root_dir);
+    try std.testing.expectEqualStrings("./.jekyll-out", o.out_dir);
+
+    const o2 = try parseOptions(&.{ "boris-migration-lab", "--mode=jekyll-emit", "--root=./j" });
+    try std.testing.expect(o2.mode == .jekyll);
 }
 
 test "parseOptions: filed-scan flags" {
@@ -2453,6 +2471,67 @@ test "hugo: generated content compiles with product Boris" {
     const pub_banner = try hugo.readFileAlloc(io, html_root, "en/posts/hello-bundle.assets/banner.png", gpa);
     defer gpa.free(pub_banner);
     try std.testing.expect(pub_banner.len > 0);
+}
+
+test "jekyll: generated content compiles with product Boris" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer cleanupTestTmpDir(io, &tmp);
+
+    const test_root = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}/jekyll-compile", .{tmp.sub_path});
+    defer gpa.free(test_root);
+    const lab_out = try std.fmt.allocPrint(gpa, "{s}/converted", .{test_root});
+    defer gpa.free(lab_out);
+    const html_out = try std.fmt.allocPrint(gpa, "{s}/html", .{test_root});
+    defer gpa.free(html_out);
+
+    try jekyll.runEmit(io, gpa, .{
+        .root_dir = "fixtures/mini-jekyll",
+        .out_dir = lab_out,
+        .quiet = true,
+    });
+
+    const boris_bin = (try product_boris.resolve(io, gpa)) orelse
+        return error.MissingProductBorisBinary;
+
+    const content_from_lab = try std.fmt.allocPrint(gpa, "{s}/content", .{lab_out});
+    defer gpa.free(content_from_lab);
+    const layout_from_lab = "layouts/main.html";
+
+    const argv = [_][]const u8{
+        boris_bin,
+        "--input",
+        content_from_lab,
+        "--html-dir",
+        html_out,
+        "--html-layout",
+        layout_from_lab,
+    };
+    const result = try std.process.run(gpa, io, .{
+        .argv = &argv,
+        .stdout_limit = .limited(64 * 1024),
+        .stderr_limit = .limited(64 * 1024),
+    });
+    defer gpa.free(result.stdout);
+    defer gpa.free(result.stderr);
+
+    const code: u8 = switch (result.term) {
+        .exited => |c| c,
+        else => 255,
+    };
+    if (code != 0) {
+        std.debug.print("boris compile failed code={d} stderr={s} stdout={s}\n", .{ code, result.stderr, result.stdout });
+    }
+    try std.testing.expectEqual(@as(u8, 0), code);
+
+    // Page-sibling asset published beside the page's route.
+    var html_root = try Io.Dir.cwd().openDir(io, html_out, .{});
+    defer html_root.close(io);
+    const pub_hero = try wordpress.readFileAlloc(io, html_root, "index.assets/hero.png", gpa);
+    defer gpa.free(pub_hero);
+    try std.testing.expect(pub_hero.len > 0);
 }
 
 fn cleanupTestTmpDir(io: Io, tmp: *std.testing.TmpDir) void {
