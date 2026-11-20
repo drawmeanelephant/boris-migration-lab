@@ -399,8 +399,9 @@ fn resolveLocal(a: std.mem.Allocator, page_dir: []const u8, dest: []const u8) !?
 }
 
 /// Jekyll whitespace control: `{%- tag -%}` / `{{- x -}}`.
+/// The `-` must touch the delimiter: `{% x- %}` keeps its hyphen.
 fn stripWsControl(s: []const u8) []const u8 {
-    var t = trimSpace(s);
+    var t = s;
     if (t.len > 0 and t[0] == '-') t = t[1..];
     if (t.len > 0 and t[t.len - 1] == '-') t = t[0 .. t.len - 1];
     return trimSpace(t);
@@ -2027,12 +2028,14 @@ test "jekyll: emit whitespace-control Liquid, unclosed delimiters, and local des
         \\{%- raw -%}{% post_url 2024-01-02-x %}{%- endraw -%} {%- post_url 2024-01-02-x -%}
         \\{% raw %}lit{%- endraw -%} {% post_url 2024-01-02-x %}
         \\![ok](/img/ok.png) ![m](/assets/missing.png) [n](/NOTES.md) [u](../up/) [e](https://example.com/a.png) [f](#frag) [mail](mailto:x@example.com)
+        \\{% post_url 2024-01-02-x- %} {%-post_url 2024-01-02-x-%}
         \\{% oops
         \\
     );
     const out = rw.out.items;
     try expectContains(out, "{%- raw -%}{% post_url 2024-01-02-x %}{%- endraw -%} [[posts/x]]\n");
     try expectContains(out, "{% raw %}lit{%- endraw -%} [[posts/x]]\n");
+    try expectContains(out, "{% post_url 2024-01-02-x- %} [[posts/x]]\n");
     try expectContains(out, "![ok](p.assets/img/ok.png) ![m](/assets/missing.png) [n](/NOTES.md) [u](../up/) [e](https://example.com/a.png) [f](#frag) [mail](mailto:x@example.com)");
     for ([_][]const u8{ "local_image_unresolved", "local_link_unresolved", "liquid_unclosed" }) |code| {
         try std.testing.expect(containsStr(page.review.items, code));
