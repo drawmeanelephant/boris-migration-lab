@@ -50,7 +50,7 @@ repository.
 | Jekyll format id | `boris-jekyll-migration-lab` |
 | Ghost format id | `boris-ghost-migration-lab` |
 | MkDocs format id | `boris-mkdocs-migration-lab` |
-| Schema | Instagram **`2`**; Astro/Obsidian/Notion/Filed/Starlight/Asset-filename/Theme-archaeology/Theme-materialize/Tinderbox/MkDocs `1`; WordPress **`3`** |
+| Schema | Instagram **`2`**; Astro/Obsidian/Notion/Filed/Starlight/Asset-filename/Theme-archaeology/Theme-materialize/Tinderbox/Jekyll/Ghost/MkDocs `1`; WordPress **`3`** |
 
 Companion author guide: [`docs/MIGRATION.md`](docs/MIGRATION.md).
 
@@ -242,7 +242,7 @@ zig build test   # with BORIS_BIN exported or `boris` on PATH (see Boris pins)
 | `-q`, `--quiet` | off | Suppress progress lines |
 | `--mode=MODE` | `astro` | `astro`, `astro-import-plan`, `astro-import-apply`, `wordpress` (`wp` / `wxr`), `wordpress-theme` (`wp-theme` / `kubrick-theme`), `instagram` (`ig` / `takeout`), `obsidian` (`obs` / `vault`), `tinderbox-inventory` (`tbx-inventory` / `tinderbox-inv`), `tinderbox` (`tinderbox-emit` / `tbx`), `notion` (`md-csv` / `notion-export`), `filed` (`filed-fyi`), `filed-scan`, `starlight` (`sl` / `evcc`), `asset-filename` (`assets` / `asset-compat` / `filename-compat`), `theme-archaeology` (`theme` / `theme-arch` / `theme-inventory`), `theme-materialize` (`materialize` / `theme-materialise`), `link-audit` (`links` / `output-audit`), `frontmatter-review` (`fm-review` / `fmreview`), `jekyll-inventory` (`jekyll-inv` / `jekyll-archaeology`), `ghost-inventory` (`ghost-inv`), or `mkdocs-inventory` (`mkdocs-inv`) |
 | `--out=DIR` | `migration-report` | Output directory (**must differ from inputs**); must be explicit for `astro-import-plan` |
-| `--root=DIR` | `.` | Astro archaeology root, Starlight project root, asset-filename content tree, theme scan root, Jekyll site source root, generated HTML tree for `link-audit`, or MkDocs project root for `mkdocs-inventory`; must be explicit for `astro-import-plan` |
+| `--root=DIR` | `.` | Astro archaeology root, Starlight project root, asset-filename content tree, theme scan root, Jekyll site source root, generated HTML tree for `link-audit`, MkDocs project root for `mkdocs-inventory`, or unpacked Ghost export root for `ghost-inventory`; must be explicit for `astro-import-plan` |
 | `--content-root=RELATIVE_DIR` | | Required by `astro-import-plan` and `astro-import-apply`; approved plain-Markdown root relative to `--root` |
 | `--project-id=ID` | | Required by `astro-import-plan` and `astro-import-apply`; stable importer identity namespace |
 | `--plan=FILE` | | Required by `astro-import-apply`; reviewed `import_plan.json` with adjacent `source_snapshot.json` |
