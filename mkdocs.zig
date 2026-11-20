@@ -1955,17 +1955,29 @@ fn emitLink(ctx: Ctx, out: *std.ArrayList(u8), is_img: bool, label: []const u8, 
     const base_dir = std.fs.path.dirname(ctx.source) orelse "";
 
     if (is_img) {
-        const resolved = if (url[0] == '/') null else try resolveRelative(a, base_dir, url);
+        const lookup = if (std.mem.indexOfScalar(u8, url, '%') != null) try asset_filename.urlDecodeAlloc(a, url) else url;
+        const resolved = if (url[0] == '/') null else try resolveRelative(a, base_dir, lookup);
         if (ctx.page != null and resolved != null and fileExists(ctx.inv.files, resolved.?)) {
             const page = ctx.plan.pages.items[ctx.page.?];
-            const within = try asset_filename.sanitizeWithinTree(a, resolved.?);
+            const sanitized = try asset_filename.sanitizeWithinTree(a, resolved.?);
             const stem = stemOf(page.out_path);
-            const out_rel = try std.fmt.allocPrint(a, "{s}.assets/{s}", .{ stem, within });
-            var dup = false;
-            for (ctx.plan.assets.items) |x| {
-                if (std.mem.eql(u8, x.out_path, out_rel)) dup = true;
+            // Two sources that sanitize alike get distinct published names.
+            var within: []const u8 = sanitized;
+            var out_rel = try std.fmt.allocPrint(a, "{s}.assets/{s}", .{ stem, within });
+            var n: usize = 2;
+            var reuse = false;
+            while (true) : (n += 1) {
+                var clash = false;
+                for (ctx.plan.assets.items) |x| {
+                    if (!std.ascii.eqlIgnoreCase(x.out_path, out_rel)) continue;
+                    if (std.mem.eql(u8, x.source, resolved.?)) reuse = true else clash = true;
+                    break;
+                }
+                if (!clash) break;
+                within = try std.fmt.allocPrint(a, "{d}-{s}", .{ n, sanitized });
+                out_rel = try std.fmt.allocPrint(a, "{s}.assets/{s}", .{ stem, within });
             }
-            if (!dup) try ctx.plan.assets.append(a, .{ .page = page.id, .source = resolved.?, .out_path = out_rel });
+            if (!reuse) try ctx.plan.assets.append(a, .{ .page = page.id, .source = resolved.?, .out_path = out_rel });
             try out.appendSlice(a, "![");
             try out.appendSlice(a, label);
             try out.appendSlice(a, "](");
@@ -2021,7 +2033,8 @@ fn emitLink(ctx: Ctx, out: *std.ArrayList(u8), is_img: bool, label: []const u8, 
     var target_pi: ?usize = null;
     var resolved: ?[]const u8 = null;
     if (path_part[0] != '/') {
-        resolved = try resolveRelative(a, base_dir, path_part);
+        const lookup = if (std.mem.indexOfScalar(u8, path_part, '%') != null) try asset_filename.urlDecodeAlloc(a, path_part) else path_part;
+        resolved = try resolveRelative(a, base_dir, lookup);
         if (resolved) |r| {
             target_pi = ctx.plan.bySource(r);
             if (target_pi == null and !isMarkdownName(r)) {
