@@ -757,6 +757,7 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
 fn escapeBrackets(a: std.mem.Allocator, s: []const u8, singles: bool) ![]const u8 {
     var out: std.ArrayList(u8) = .empty;
     var i: usize = 0;
+    var open_pairs: usize = 0;
     while (i < s.len) {
         if (s[i] == '`') {
             var n: usize = 1;
@@ -779,11 +780,14 @@ fn escapeBrackets(a: std.mem.Allocator, s: []const u8, singles: bool) ![]const u
         }
         if (i + 1 < s.len and s[i] == '[' and s[i + 1] == '[') {
             try out.appendSlice(a, "\\[\\[");
+            open_pairs += 1;
             i += 2;
-        } else if (i + 1 < s.len and s[i] == ']' and s[i + 1] == ']') {
-            // `]]` must escape too: in `![alt](src)` the first `]` would
-            // otherwise close the label and break the image.
+        } else if (i + 1 < s.len and s[i] == ']' and s[i + 1] == ']' and open_pairs > 0) {
+            // Only escape `]]` that closes an escaped `[[`: in `[x [y]](url)`
+            // the `]]` is markdown structure (label close + literal), and in
+            // `![alt](src)` a lone `]` would still close the label early.
             try out.appendSlice(a, "\\]\\]");
+            open_pairs -= 1;
             i += 2;
         } else if (singles and (s[i] == '[' or s[i] == ']')) {
             // Raw JSON text (poll options, mention names, alt text): a
