@@ -305,6 +305,22 @@ fn findClose(s: []const u8, closer: []const u8) ?usize {
     return std.mem.indexOf(u8, s, closer);
 }
 
+/// Offset of the line that closes a fence opened at `from` (a position
+/// inside the opener's line), or body.len when it never closes.
+fn fenceClosePos(body: []const u8, from: usize, ch: u8, len: usize) usize {
+    var p = from;
+    while (true) {
+        while (p < body.len and body[p] != '\n') p += 1;
+        if (p >= body.len) return body.len;
+        p += 1;
+        var j = p;
+        while (j < body.len and (body[j] == ' ' or body[j] == '\t')) j += 1;
+        var n: usize = 0;
+        while (j + n < body.len and body[j + n] == ch) n += 1;
+        if (n >= len) return p;
+    }
+}
+
 fn isIdentChar(c: u8) bool {
     return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or (c >= '0' and c <= '9') or c == '_';
 }
@@ -323,6 +339,7 @@ fn scanLiquid(
     var in_fence = false;
     var fence_char: u8 = 0;
     var fence_len: usize = 0;
+    var fence_end: usize = 0;
     var in_raw = false;
     var at_line_start = true;
 
@@ -344,6 +361,7 @@ fn scanLiquid(
                     in_fence = true;
                     fence_char = body[j];
                     fence_len = flen;
+                    fence_end = fenceClosePos(body, j + flen, fence_char, fence_len);
                 }
                 i = j + flen;
                 at_line_start = false;
@@ -367,9 +385,17 @@ fn scanLiquid(
         }
         if (c == '{' and i + 1 < body.len and (body[i + 1] == '%' or body[i + 1] == '{')) {
             if (in_fence) {
-                // Inert example text: count the marker, never hunt for a
-                // closer past the end of the fence.
+                // Inert example text: count the marker once, like the live
+                // path, but never hunt for a closer past the end of the fence.
                 inv.n_fenced_liquid += 1;
+                const fenced_closer: []const u8 = if (body[i + 1] == '%') "%}" else "}}";
+                const bound = @min(body.len, fence_end);
+                if (i + 2 <= bound) {
+                    if (findClose(body[i + 2 .. bound], fenced_closer)) |off| {
+                        i += 2 + off + 2;
+                        continue;
+                    }
+                }
                 i += 2;
                 continue;
             }
@@ -1134,6 +1160,18 @@ test "jekyll: liquid scan handles edge whitespace and nested fences" {
     try scanLiquid(arena.allocator(),
         \\```
         \\{{ unclosed
+        \\```
+        \\{{ site.baseurl }}
+        \\
+    , &files, &stems, &data_files, &inv);
+    try std.testing.expectEqual(@as(usize, 1), inv.n_baseurl);
+    try std.testing.expectEqual(@as(usize, 1), inv.n_fenced_liquid);
+
+    // A marker quoted inside a fenced tag is part of the same example, not a second tag.
+    inv = .{};
+    try scanLiquid(arena.allocator(),
+        \\```
+        \\{% assign opener = '{{' %}
         \\```
         \\{{ site.baseurl }}
         \\
