@@ -336,9 +336,21 @@ fn scanYamlFields(a: std.mem.Allocator, block: []const u8, unclassified: *std.Ar
 /// their `#` characters.
 fn stripYamlComment(s: []const u8) []const u8 {
     var quote: u8 = 0;
-    for (s, 0..) |c, i| {
+    var i: usize = 0;
+    while (i < s.len) : (i += 1) {
+        const c = s[i];
         if (quote != 0) {
-            if (c == quote) quote = 0;
+            if (quote == '"' and c == '\\' and i + 1 < s.len) {
+                i += 1; // \" inside a double-quoted scalar is literal, not a close
+                continue;
+            }
+            if (c == quote) {
+                if (quote == '\'' and i + 1 < s.len and s[i + 1] == '\'') {
+                    i += 1; // '' escapes a single quote in YAML
+                    continue;
+                }
+                quote = 0;
+            }
             continue;
         }
         if (c == '"' or c == '\'') {
@@ -1993,7 +2005,7 @@ const RefIndex = struct {
 /// Normalize a ref/link target: strip leading `/`, trailing `/`, `.md`,
 /// `/index` suffixes; lowercase untouched (Hugo paths are case-sensitive but
 /// the fixture grammar is already normalized).
-fn normalizeTarget(a: std.mem.Allocator, raw: []const u8) ![]const u8 {
+fn normalizeTarget(a: std.mem.Allocator, raw: []const u8, ref_index: *const RefIndex) ![]const u8 {
     var t = trimSpace(raw);
     if (t.len >= 2 and t[0] == '<' and t[t.len - 1] == '>') t = trimSpace(t[1 .. t.len - 1]);
     // Strip any anchor/query.
@@ -2001,6 +2013,17 @@ fn normalizeTarget(a: std.mem.Allocator, raw: []const u8) ![]const u8 {
     while (t.len > 0 and t[0] == '/') t = t[1..];
     while (t.len > 0 and t[t.len - 1] == '/') t = t[0 .. t.len - 1];
     if (std.mem.endsWith(u8, t, ".md")) t = t[0 .. t.len - 3];
+    // Suffix-style translations: `about.fr`/`guides/_index.fr` → strip the
+    // `.<lang>` for any language present in the site (mirrors pageKey).
+    var lit = ref_index.langs.keyIterator();
+    while (lit.next()) |lang| {
+        if (lang.*.len == 0) continue;
+        const suffix = try std.fmt.allocPrint(a, ".{s}", .{lang.*});
+        if (t.len > suffix.len and std.mem.endsWith(u8, t, suffix)) {
+            t = t[0 .. t.len - suffix.len];
+            break;
+        }
+    }
     for ([_][]const u8{ "/index", "/_index" }) |suf| {
         if (std.mem.endsWith(u8, t, suf)) {
             t = t[0 .. t.len - suf.len];
@@ -2037,7 +2060,7 @@ const EmitCtx = struct {
 
 /// Resolve a `ref`/`relref` or site-absolute link target to an entity id.
 fn resolveEntity(ctx: *const EmitCtx, page: EmitPage, target: []const u8) !?[]const u8 {
-    const key = try normalizeTarget(ctx.a, target);
+    const key = try normalizeTarget(ctx.a, target, ctx.ref_index);
     if (key.len == 0) {
         // Root ref → the language root trunk.
         if (ctx.ref_index.get(page.src.language, "")) |id| return id;
@@ -2213,7 +2236,6 @@ fn rewriteLine(ctx: *const EmitCtx, page: EmitPage, line: []const u8, out: *std.
                 };
                 const text = line[text_start..bracket_close];
                 var dest = trimSpace(line[bracket_close + 2 .. paren_close]);
-                if (dest.len >= 2 and dest[0] == '<' and dest[dest.len - 1] == '>') dest = dest[1 .. dest.len - 1];
                 if (dest.len > 0 and dest[0] == '{') {
                     // A shortcode used as the link destination, e.g.
                     // `[text]({{< ref "x.md" >}})`. Resolve ref/relref to a
@@ -2253,8 +2275,9 @@ fn rewriteLine(ctx: *const EmitCtx, page: EmitPage, line: []const u8, out: *std.
                     i = paren_close + 1;
                     continue;
                 }
-                // Optional `"title"` after the destination.
+                // Optional `"title"` after the destination, then `<...>` wrap.
                 if (std.mem.indexOfScalar(u8, dest, ' ')) |sp| dest = trimSpace(dest[0..sp]);
+                if (dest.len >= 2 and dest[0] == '<' and dest[dest.len - 1] == '>') dest = dest[1 .. dest.len - 1];
                 const res = try rewriteDest(ctx, page, dest);
                 switch (res) {
                     .keep => try out.appendSlice(a, line[i .. paren_close + 1]),
@@ -2840,8 +2863,13 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
     }
 
     // static/ → assets/ (manifested; page references absolutize via baseURL).
+    // Pass 1: reserve every planned sanitized dest plus its intermediate
+    // directories, so a renamed file can never claim a name some other file
+    // needs as a directory (`my file` → `my-file` must not block
+    // `my-file/icon.svg` either direction).
     var used_static = std.StringHashMap(void).init(a);
-    for (inv.static_assets) |s| {
+    var planned = try a.alloc([]const u8, inv.static_assets.len);
+    for (inv.static_assets, 0..) |s, si| {
         const rel = s["static/".len..];
         var parts: std.ArrayList(u8) = .empty;
         var it = std.mem.splitScalar(u8, rel, '/');
@@ -2853,9 +2881,21 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
             try parts.appendSlice(a, sani);
             first = false;
         }
-        var dest = try std.fmt.allocPrint(a, "assets/{s}", .{parts.items});
+        const dest = try std.fmt.allocPrint(a, "assets/{s}", .{parts.items});
+        planned[si] = dest;
+        // Reserve intermediate dirs (`assets/x` for `assets/x/y.png`), not the
+        // dest itself — two files may legitimately share a directory.
+        var cut: usize = "assets/".len;
+        while (std.mem.indexOfScalarPos(u8, dest, cut, '/')) |j| {
+            try used_static.put(dest[0..j], {});
+            cut = j + 1;
+        }
+    }
+    for (inv.static_assets, planned) |s, dest0| {
+        var dest = dest0;
         if (used_static.contains(dest)) {
-            // Sanitized-name collision: suffix the basename, never overwrite.
+            // Sanitized-name collision (file or reserved dir): suffix the
+            // basename until free, never overwrite or block a directory.
             const dir = std.fs.path.dirname(dest);
             const base = std.fs.path.basename(dest);
             const dot = std.mem.lastIndexOfScalar(u8, base, '.');
@@ -2872,6 +2912,11 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
                 .kind = "static_name_collision",
                 .detail = try std.fmt.allocPrint(a, "sanitized dest collided; renamed to {s}", .{dest}),
             });
+            var cut: usize = "assets/".len;
+            while (std.mem.indexOfScalarPos(u8, dest, cut, '/')) |j| {
+                try used_static.put(dest[0..j], {});
+                cut = j + 1;
+            }
         }
         try used_static.put(dest, {});
         try static_copies.append(a, .{ .source_path = s, .dest = dest });
