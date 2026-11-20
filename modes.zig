@@ -30,6 +30,7 @@ const astro_import_apply = @import("astro_import_apply.zig");
 const hugo = @import("hugo.zig");
 const ghost = @import("ghost.zig");
 const mkdocs = @import("mkdocs.zig");
+const mastodon = @import("mastodon.zig");
 
 pub const ExitCode = enum(u8) {
     success = 0,
@@ -65,6 +66,8 @@ pub const Mode = enum {
     ghost_inventory,
     mkdocs_inventory,
     mkdocs,
+    mastodon_inventory,
+    mastodon,
 
     pub fn parse(s: []const u8) ?Mode {
         for (table) |entry| {
@@ -172,6 +175,8 @@ pub const table = [_]Entry{
     .{ .tag = .ghost_inventory, .names = &.{ "ghost-inventory", "ghost-inv" } },
     .{ .tag = .mkdocs_inventory, .names = &.{ "mkdocs-inventory", "mkdocs-inv" } },
     .{ .tag = .mkdocs, .names = &.{ "mkdocs", "mkdocs-emit" } },
+    .{ .tag = .mastodon_inventory, .names = &.{ "mastodon-inventory", "mastodon-inv", "masto-inventory" } },
+    .{ .tag = .mastodon, .names = &.{ "mastodon", "masto", "mastodon-emit" } },
 };
 
 const mode_list = blk: {
@@ -639,6 +644,34 @@ fn run_ghost_inventory(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
     return ExitCode.success.int();
 }
 
+fn run_mastodon_inventory(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
+    return runMastodon(io, gpa, opts, false);
+}
+
+fn run_mastodon(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
+    return runMastodon(io, gpa, opts, true);
+}
+
+fn runMastodon(io: Io, gpa: std.mem.Allocator, opts: Options, emit: bool) u8 {
+    mastodon.run(io, gpa, .{
+        .root_dir = opts.root_dir,
+        .out_dir = opts.out_dir,
+        .emit = emit,
+        .quiet = opts.quiet,
+    }) catch |err| {
+        std.log.err("migration-lab ({s}) failed: {s}", .{ if (emit) "mastodon" else "mastodon-inventory", @errorName(err) });
+        return switch (err) {
+            error.InvalidMastodonInput,
+            error.InputOutputOverlap,
+            error.InputSymlink,
+            error.OutputSymlink,
+            => ExitCode.usage.int(),
+            else => ExitCode.io_error.int(),
+        };
+    };
+    return ExitCode.success.int();
+}
+
 pub fn printUsage() void {
     std.debug.print("{s}", .{usage_text});
 }
@@ -808,6 +841,17 @@ const usage_text =
     \\  Writes: inventory.json, INVENTORY.md
     \\  Aliases: ghost-inv
     \\  users emails/passwords are never inventoried; no Ghost API, no network.
+    \\
+    \\Mastodon archive (offline ActivityStreams export):
+    \\  --mode=mastodon-inventory  Inventory outbox/actor/likes/bookmarks; never emit
+    \\  --mode=mastodon    Inventory + candidate Boris Markdown under content/mastodon/
+    \\  --root=DIR         Unpacked Mastodon archive holding outbox.json, actor.json,
+    \\                     likes.json, bookmarks.json, media_attachments/ (never modified)
+    \\  Writes: inventory.json, INVENTORY.md; emit adds content/mastodon/**
+    \\          (+ {{stem}}.assets/), report.json, REPORT.md, provenance_manifest.json
+    \\  Aliases: mastodon-inv | masto-inventory; masto | mastodon-emit
+    \\  Followers-only/direct posts are counted, never written. Self-reply threads
+    \\  become flat Satellites of the first post. No network, no remote media.
     \\
     \\Notion mode:
     \\  --export=DIR       Unpacked Notion Markdown & CSV export root (required; never modified)
