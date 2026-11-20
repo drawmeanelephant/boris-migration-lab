@@ -488,6 +488,7 @@ fn mobiledocMarkers(ctx: *PageCtx, doc: Value, markers: []const Value, out: *std
     const markups = ghost.jsonArray(doc, "markups");
     const atoms = ghost.jsonArray(doc, "atoms");
     var stack: std.ArrayList([]const u8) = .empty; // closing strings
+    var code_depth: usize = 0;
     for (markers) |m| {
         if (m != .array or m.array.items.len < 4) continue;
         const it = m.array.items;
@@ -506,6 +507,7 @@ fn mobiledocMarkers(ctx: *PageCtx, doc: Value, markers: []const Value, out: *std
                 } else if (std.mem.eql(u8, tag, "code")) {
                     try out.append(a, '`');
                     try stack.append(a, "`");
+                    code_depth += 1;
                 } else if (std.mem.eql(u8, tag, "a")) {
                     var href: []const u8 = "";
                     if (mk.array.items.len > 1 and mk.array.items[1] == .array) {
@@ -530,11 +532,16 @@ fn mobiledocMarkers(ctx: *PageCtx, doc: Value, markers: []const Value, out: *std
             try out.appendSlice(a, try literalText(a, atom_text));
             try ctx.note("mobiledoc_atom", .human_review, atom_name);
         } else if (it[3] == .string) {
-            try out.appendSlice(a, try literalText(a, it[3].string));
+            // Backslashes are literal inside code spans.
+            try out.appendSlice(a, if (code_depth > 0) try neutralize(a, it[3].string) else try literalText(a, it[3].string));
         }
         if (it[2] == .integer) {
             var close: usize = @intCast(@max(it[2].integer, 0));
-            while (close > 0 and stack.items.len > 0) : (close -= 1) try out.appendSlice(a, stack.pop().?);
+            while (close > 0 and stack.items.len > 0) : (close -= 1) {
+                const closing = stack.pop().?;
+                if (std.mem.eql(u8, closing, "`")) code_depth -|= 1;
+                try out.appendSlice(a, closing);
+            }
         }
     }
     while (stack.pop()) |s| try out.appendSlice(a, s);
