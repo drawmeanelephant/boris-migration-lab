@@ -43,6 +43,7 @@
         "hugo.zig",
         "hugo_emit.zig",
         "jekyll.zig",
+        "jekyll_emit.zig",
         "ghost.zig",
         "ghost_emit.zig",
         "mkdocs.zig",

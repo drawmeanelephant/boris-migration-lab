@@ -19,6 +19,7 @@
 //!   hugo — Hugo project → Boris content/ + provenance, redirects, review reports
 //!   mkdocs-inventory — MkDocs mkdocs.yml + docs tree → inventory.json + INVENTORY.md
 //!   mkdocs     — MkDocs project → Boris Markdown (Trunk/Satellite nav) + reports
+//!   jekyll — Jekyll site source → Boris Markdown + provenance sidecars + review reports
 //!   atproto-inventory — AT Protocol repo.car + blobs/ → inventory.json + INVENTORY.md
 //!
 //! Never rewrites inputs. Not part of the Boris product compiler pipeline.
@@ -61,6 +62,7 @@ const wordpress_theme = @import("wordpress_theme.zig");
 const link_audit = @import("link_audit.zig");
 const frontmatter_review = @import("frontmatter_review.zig");
 const jekyll = @import("jekyll.zig");
+const jekyll_emit = @import("jekyll_emit.zig");
 const publication = @import("publication.zig");
 const astro_import_plan = @import("astro_import_plan.zig");
 const astro_import_apply = @import("astro_import_apply.zig");
@@ -584,6 +586,7 @@ test {
     _ = hugo;
     _ = hugo_emit;
     _ = jekyll;
+    _ = jekyll_emit;
     _ = ghost;
     _ = ghost_emit;
     _ = mkdocs;
@@ -906,6 +909,21 @@ test "parseOptions: jekyll-inventory flags" {
 
     const o3 = try parseOptions(&.{ "boris-migration-lab", "--mode=jekyll-archaeology", "--root=./j" });
     try std.testing.expect(o3.mode == .jekyll_inventory);
+}
+
+test "parseOptions: jekyll emit flags" {
+    const o = try parseOptions(&.{
+        "boris-migration-lab",
+        "--mode=jekyll",
+        "--root=fixtures/mini-jekyll",
+        "--out=./.jekyll-out",
+    });
+    try std.testing.expect(o.mode == .jekyll);
+    try std.testing.expectEqualStrings("fixtures/mini-jekyll", o.root_dir);
+    try std.testing.expectEqualStrings("./.jekyll-out", o.out_dir);
+
+    const o2 = try parseOptions(&.{ "boris-migration-lab", "--mode=jekyll-emit", "--root=./j" });
+    try std.testing.expect(o2.mode == .jekyll);
 }
 
 test "parseOptions: filed-scan flags" {

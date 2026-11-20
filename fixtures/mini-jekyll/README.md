@@ -25,7 +25,7 @@ a read-only scanner. All content is fictional — `example.com` URLs only.
 | `_layouts/` (unsupported construct) | `_layouts/default.html`, `_layouts/post.html` |
 | `_includes/` (unsupported construct) | `_includes/note.html` |
 | `_plugins/` (never executed) | `_plugins/shout_filter.rb` |
-| Asset file | `assets/images/hero.png` |
+| Asset file | `assets/images/hero.png` (referenced via `{{ site.baseurl }}` in `index.md` and a root-absolute image in `_docs/guide-two.md`) |
 
 File count is kept under the ~40-file budget
 (`find fixtures/mini-jekyll -type f | wc -l`).
