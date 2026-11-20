@@ -20,6 +20,7 @@
 //!   mkdocs-inventory — MkDocs mkdocs.yml + docs tree → inventory.json + INVENTORY.md
 //!   mkdocs     — MkDocs project → Boris Markdown (Trunk/Satellite nav) + reports
 //!   jekyll — Jekyll site source → Boris Markdown + provenance sidecars + review reports
+//!   atproto-inventory — AT Protocol repo.car + blobs/ → inventory.json + INVENTORY.md
 //!
 //! Never rewrites inputs. Not part of the Boris product compiler pipeline.
 //!
@@ -66,6 +67,7 @@ const publication = @import("publication.zig");
 const astro_import_plan = @import("astro_import_plan.zig");
 const astro_import_apply = @import("astro_import_apply.zig");
 const car = @import("car.zig");
+const atproto = @import("atproto.zig");
 const hugo = @import("hugo.zig");
 const hugo_emit = @import("hugo_emit.zig");
 const ghost = @import("ghost.zig");
@@ -580,6 +582,7 @@ test {
     _ = astro_import_apply;
     _ = link_audit;
     _ = car;
+    _ = atproto;
     _ = hugo;
     _ = hugo_emit;
     _ = jekyll;
@@ -976,6 +979,21 @@ test "parseOptions: mkdocs emit flags" {
     try std.testing.expectEqualStrings("outputs/mkdocs", o.out_dir);
     const o2 = try parseOptions(&.{ "boris-migration-lab", "--mode=mkdocs-emit", "--root=r", "--out=o" });
     try std.testing.expect(o2.mode == .mkdocs);
+}
+
+test "parseOptions: atproto-inventory flags" {
+    const o = try parseOptions(&.{
+        "boris-migration-lab",
+        "--mode=atproto-inventory",
+        "--root=fixtures/mini-atproto",
+        "--out=outputs/atproto-inv",
+    });
+    try std.testing.expect(o.mode == .atproto_inventory);
+    try std.testing.expectEqualStrings("fixtures/mini-atproto", o.root_dir);
+    const o2 = try parseOptions(&.{ "boris-migration-lab", "--mode=atproto-inv", "--root=r", "--out=o" });
+    try std.testing.expect(o2.mode == .atproto_inventory);
+    // Bare `atproto` is reserved for the emit slice and stays invalid.
+    try std.testing.expectError(error.InvalidValue, parseOptions(&.{ "x", "--mode=atproto" }));
 }
 
 test "parseOptions: unknown flag" {
