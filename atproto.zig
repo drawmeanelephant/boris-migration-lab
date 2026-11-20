@@ -727,6 +727,8 @@ const EPage = struct {
     published_at_dropped: ?[]const u8 = null,
 };
 
+const EmittedRec = struct { id: []u8, rec_idx: usize };
+
 const ECtx = struct {
     a: std.mem.Allocator,
     gpa: std.mem.Allocator, // non-arena: freed right after use (blob bytes)
@@ -737,7 +739,7 @@ const ECtx = struct {
     review: *std.ArrayList(EReviewItem),
     assets: *std.ArrayList(EAsset),
     assets_seen: *std.StringHashMap(void),
-    emitted_ids: *std.StringHashMap(usize), // lowercased page id -> winning record index
+    emitted_ids: *std.StringHashMap(EmittedRec), // lowercased page id -> winning record
     trunk_ids: *std.StringHashMap(void), // emitted ids that are Trunk (parents may point only here)
     review_dedup: *std.StringHashMap(void),
 };
@@ -847,6 +849,29 @@ fn neutralize(a: std.mem.Allocator, s: []const u8) ![]const u8 {
             try out.appendSlice(a, "&lt;");
         } else {
             try out.append(a, c);
+        }
+    }
+    return try out.toOwnedSlice(a);
+}
+
+/// neutralize for authored Markdown: fenced code is literal — entities
+/// there would corrupt copied samples — so fences pass through as-is.
+fn neutralizeOutOfFence(a: std.mem.Allocator, s: []const u8) ![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    var in_fence = false;
+    var it = std.mem.splitScalar(u8, s, '\n');
+    var first = true;
+    while (it.next()) |line| {
+        if (!first) try out.append(a, '\n');
+        first = false;
+        const trimmed = std.mem.trimStart(u8, line, " \t");
+        if (std.mem.startsWith(u8, trimmed, "```") or std.mem.startsWith(u8, trimmed, "~~~")) {
+            in_fence = !in_fence;
+            try out.appendSlice(a, line);
+        } else if (in_fence) {
+            try out.appendSlice(a, line);
+        } else {
+            try out.appendSlice(a, try neutralize(a, line));
         }
     }
     return try out.toOwnedSlice(a);
@@ -1070,9 +1095,13 @@ fn emitQuoteRef(ctx: *const ECtx, page: *EPage, rec_m: []const car.MapEntry) !vo
         null;
     if (prefix != null and std.mem.eql(u8, parts.did, ctx.did) and isRkey(parts.rkey)) {
         const id = try pageId(ctx.a, prefix.?, parts.rkey);
-        if (ctx.emitted_ids.contains(try asset_filename.asciiLowerAlloc(ctx.a, id))) {
-            try page.body.print(ctx.a, "> quoted: [[{s}]]\n\n", .{id});
-            return;
+        // Byte-exact match against the emitted page's canonical id: a
+        // case-colliding record was skipped, so quoting it must not link.
+        if (ctx.emitted_ids.get(try asset_filename.asciiLowerAlloc(ctx.a, id))) |w| {
+            if (std.mem.eql(u8, w.id, id)) {
+                try page.body.print(ctx.a, "> quoted: [[{s}]]\n\n", .{id});
+                return;
+            }
         }
     }
     try eReview(ctx, page.rkey, "quote_unresolved", try std.fmt.allocPrint(ctx.a, "quoted {s} not in this repo's emitted set", .{uri}));
@@ -1188,7 +1217,7 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
     var stage = try Io.Dir.cwd().openDir(io, pub_.stage_path, .{});
     defer stage.close(io);
 
-    var emitted_ids: std.StringHashMap(usize) = .init(a);
+    var emitted_ids: std.StringHashMap(EmittedRec) = .init(a);
     var trunk_ids: std.StringHashMap(void) = .init(a);
     var ctx = ECtx{
         .a = a,
@@ -1227,7 +1256,7 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
             try eReview(&ctx, rec.rkey, "id_collision", try std.fmt.allocPrint(a, "page id {s} already emitted; skipped (case-insensitive filesystems would overwrite)", .{id}));
             continue;
         }
-        try ctx.emitted_ids.put(id_key, @intCast(rec_idx));
+        try ctx.emitted_ids.put(id_key, .{ .id = id, .rec_idx = rec_idx });
         // Only Trunk pages may be parented: documents always are; posts
         // only when they classify top-level (a reply is a Satellite).
         if (is_doc) {
@@ -1247,7 +1276,8 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
         if (!is_post and !is_doc) continue;
         if (!isRkey(rec.rkey)) continue; // reported in pass 1
         const id = try pageId(a, if (is_post) "bsky" else "std", rec.rkey);
-        if (ctx.emitted_ids.get(try asset_filename.asciiLowerAlloc(a, id)) != rec_idx) continue; // collision loser, reported in pass 1
+        const winner = ctx.emitted_ids.get(try asset_filename.asciiLowerAlloc(a, id)) orelse continue;
+        if (winner.rec_idx != rec_idx) continue; // collision loser, reported in pass 1
         const value = car.decodeValue(a, rec.record) catch return error.InvalidAtprotoInput;
         const m = switch (value) {
             .map => |mm| mm,
@@ -1285,8 +1315,8 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
             const text = textOf(car.mapGet(m, "text")) orelse "";
             page.summary = if (text.len > 0) fmClamp(try excerpt(a, text), 1024) else page.title;
             // Document text is authored Markdown: keep its formatting,
-            // neutralize only Boris-specific syntax.
-            try page.body.appendSlice(a, try neutralize(a, text));
+            // neutralize only Boris-specific syntax (not inside code fences).
+            try page.body.appendSlice(a, try neutralizeOutOfFence(a, text));
             try page.body.appendSlice(a, "\n\n");
         } else {
             const text = textOf(car.mapGet(m, "text")) orelse "";
@@ -1323,10 +1353,15 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
                 if (threadRootRkey(m, parsed.did)) |root| {
                     const cand = try pageId(a, "bsky", root);
                     const cand_key = try asset_filename.asciiLowerAlloc(a, cand);
-                    if (ctx.trunk_ids.contains(cand_key)) {
-                        page.parent = cand;
-                    } else if (ctx.emitted_ids.contains(cand_key)) {
-                        try eReview(&ctx, rec.rkey, "parent_not_trunk", try std.fmt.allocPrint(a, "reply root {s} emitted as a Satellite; nested Satellite parenting impossible, emitted standalone", .{root}));
+                    const canon = ctx.emitted_ids.get(cand_key);
+                    // Byte-exact canonical id: a case-colliding root record
+                    // was skipped, so this is missing, not a Satellite.
+                    if (canon != null and std.mem.eql(u8, canon.?.id, cand)) {
+                        if (ctx.trunk_ids.contains(cand_key)) {
+                            page.parent = cand;
+                        } else {
+                            try eReview(&ctx, rec.rkey, "parent_not_trunk", try std.fmt.allocPrint(a, "reply root {s} emitted as a Satellite; nested Satellite parenting impossible, emitted standalone", .{root}));
+                        }
                     } else {
                         try eReview(&ctx, rec.rkey, "parent_missing", try std.fmt.allocPrint(a, "reply root {s} not emitted; emitted standalone", .{root}));
                     }
