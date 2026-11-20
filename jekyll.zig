@@ -503,6 +503,14 @@ fn parseConfig(a: std.mem.Allocator, source: []const u8) !Config {
         var indent: usize = 0;
         while (indent < line_raw.len and (line_raw[indent] == ' ' or line_raw[indent] == '\t')) indent += 1;
         if (indent == 0) {
+            if (in_include and line.len > 1 and line[0] == '-') {
+                // YAML allows top-level list items at column 0 under a key.
+                var entry = trimSpace(line[1..]);
+                if (std.mem.indexOf(u8, entry, " #")) |cp| entry = trimSpace(entry[0..cp]);
+                entry = stripQuotes(entry);
+                if (entry.len > 0) try cfg.include_paths.append(a, try a.dupe(u8, entry));
+                continue;
+            }
             current = null;
             const colon = std.mem.indexOfScalar(u8, line, ':') orelse continue;
             const key = trimSpace(line[0..colon]);
@@ -524,6 +532,7 @@ fn parseConfig(a: std.mem.Allocator, source: []const u8) !Config {
                 // `include: [a, b]`, `include: a`, or a `- item` block list.
                 in_include = true;
                 var v = trimSpace(value);
+                if (std.mem.indexOf(u8, v, " #")) |cp| v = trimSpace(v[0..cp]);
                 if (v.len >= 2 and v[0] == '[' and v[v.len - 1] == ']') {
                     var it2 = std.mem.splitScalar(u8, v[1 .. v.len - 1], ',');
                     while (it2.next()) |item| {
@@ -538,7 +547,9 @@ fn parseConfig(a: std.mem.Allocator, source: []const u8) !Config {
         }
         if (in_include) {
             if (line[0] == '-') {
-                const entry = stripQuotes(trimSpace(line[1..]));
+                var entry = trimSpace(line[1..]);
+                if (std.mem.indexOf(u8, entry, " #")) |cp| entry = trimSpace(entry[0..cp]);
+                entry = stripQuotes(entry);
                 if (entry.len > 0) try cfg.include_paths.append(a, try a.dupe(u8, entry));
             } else in_include = false;
             if (in_include) continue;
@@ -1455,7 +1466,8 @@ const EmitCtx = struct {
     static_set: std.StringHashMap(void),
     /// `_config.yml` include paths
     includes: []const []const u8,
-    /// non-Markdown collection member src → copied `content/`-relative dest
+    /// non-Markdown collection member link target (source path `_docs/x` or
+    /// public URL `docs/x`) → source path, for per-page asset copies
     member_assets: *std.StringHashMap([]const u8),
     baseurl: []const u8,
     review: *std.ArrayList(ReviewItem),
@@ -1519,7 +1531,8 @@ fn emitResolveTagTarget(ctx: *EmitCtx, tag_name: []const u8, arg: []const u8) ?E
         const with_md = std.fmt.allocPrint(ctx.a, "{s}.md", .{p}) catch return null;
         if (ctx.path_index.get(with_md)) |id| return .{ .entity = id };
     }
-    if (ctx.member_assets.get(p)) |dest| return .{ .asset = dest };
+    if (ctx.member_assets.get(p)) |src| return .{ .asset = src };
+    if (ctx.static_set.contains(p)) return .{ .asset = p };
     return null;
 }
 
@@ -1529,7 +1542,17 @@ fn emitResolveTagTarget(ctx: *EmitCtx, tag_name: []const u8, arg: []const u8) ?E
 fn emitIsPublicAssetPath(path: []const u8, includes: []const []const u8) bool {
     for (includes) |inc| {
         if (std.mem.startsWith(u8, path, inc) and
-            (path.len == inc.len or path[inc.len] == '/')) return true;
+            (path.len == inc.len or path[inc.len] == '/'))
+        {
+            // The include entry whitelists its own hidden name; components
+            // beyond it still follow the hidden-file rule.
+            var ok = true;
+            var jt = std.mem.splitScalar(u8, path[inc.len..], '/');
+            while (jt.next()) |seg| {
+                if (seg.len > 0 and (seg[0] == '.' or seg[0] == '_' or seg[0] == '#' or seg[0] == '~')) ok = false;
+            }
+            if (ok) return true;
+        }
     }
     var it = std.mem.splitScalar(u8, path, '/');
     while (it.next()) |seg| {
@@ -1677,10 +1700,16 @@ fn emitTransformBody(ctx: *EmitCtx, io: Io, src_root: Io.Dir, stage: Io.Dir, bod
                                 try ctx.links.append(a, .{ .source_path = ctx.page.source_path, .target = span, .result = id });
                                 try emitWikiLink(&out, a, id, null);
                             },
-                            .asset => |dest| {
-                                try ctx.links.append(a, .{ .source_path = ctx.page.source_path, .target = span, .result = dest });
-                                const label = std.fs.path.basename(arg);
-                                try out.appendSlice(a, try std.fmt.allocPrint(a, "[{s}](/{s})", .{ label, dest }));
+                            .asset => |src| {
+                                // Plain dest path — valid inline and inside
+                                // an HTML attribute.
+                                if (try emitCopyAsset(ctx, io, src_root, stage, src)) |page_dest| {
+                                    try ctx.links.append(a, .{ .source_path = ctx.page.source_path, .target = span, .result = page_dest });
+                                    try out.appendSlice(a, page_dest);
+                                } else {
+                                    try out.appendSlice(a, span);
+                                    try emitReportOnce(ctx, try std.fmt.allocPrint(a, "tag/{s}:{s}", .{ name, arg }), "unresolved_ref", try std.fmt.allocPrint(a, "{s} kept verbatim; asset not copied", .{span}));
+                                }
                             },
                         }
                     } else {
@@ -1727,10 +1756,15 @@ fn emitTransformBody(ctx: *EmitCtx, io: Io, src_root: Io.Dir, stage: Io.Dir, bod
                                     try ctx.links.append(a, .{ .source_path = ctx.page.source_path, .target = span, .result = id });
                                     try emitWikiLink(&out, a, id, if (is_img) null else text);
                                 },
-                                .asset => |adest| {
-                                    try ctx.links.append(a, .{ .source_path = ctx.page.source_path, .target = span, .result = adest });
-                                    if (is_img) try out.append(a, '!');
-                                    try out.appendSlice(a, try std.fmt.allocPrint(a, "[{s}](/{s})", .{ text, adest }));
+                                .asset => |src| {
+                                    if (try emitCopyAsset(ctx, io, src_root, stage, src)) |page_dest| {
+                                        try ctx.links.append(a, .{ .source_path = ctx.page.source_path, .target = span, .result = page_dest });
+                                        if (is_img) try out.append(a, '!');
+                                        try out.appendSlice(a, try std.fmt.allocPrint(a, "[{s}]({s})", .{ text, page_dest }));
+                                    } else {
+                                        try out.appendSlice(a, span);
+                                        try emitReportOnce(ctx, try std.fmt.allocPrint(a, "tag/{s}:{s}", .{ name, arg }), "unresolved_ref", try std.fmt.allocPrint(a, "{s} kept verbatim; asset not copied", .{span}));
+                                    }
                                 },
                             }
                         } else {
@@ -1793,15 +1827,16 @@ fn emitTransformBody(ctx: *EmitCtx, io: Io, src_root: Io.Dir, stage: Io.Dir, bod
                         continue;
                     }
                 }
-                // Non-Markdown collection member copied as an asset →
-                // root-relative markdown link.
+                // Non-Markdown collection member → per-page asset copy.
                 if (rel.len > 0) {
-                    if (ctx.member_assets.get(rel)) |mdest| {
-                        if (is_img) try out.append(a, '!');
-                        try out.appendSlice(a, try std.fmt.allocPrint(a, "[{s}](/{s})", .{ text, mdest }));
-                        try ctx.links.append(a, .{ .source_path = ctx.page.source_path, .target = dest, .result = mdest });
-                        i = paren_close + 1;
-                        continue;
+                    if (ctx.member_assets.get(rel)) |src| {
+                        if (try emitCopyAsset(ctx, io, src_root, stage, src)) |page_dest| {
+                            if (is_img) try out.append(a, '!');
+                            try out.appendSlice(a, try std.fmt.allocPrint(a, "[{s}]({s})", .{ text, page_dest }));
+                            try ctx.links.append(a, .{ .source_path = ctx.page.source_path, .target = dest, .result = page_dest });
+                            i = paren_close + 1;
+                            continue;
+                        }
                     }
                     try out.appendSlice(a, span);
                     try emitReportOnce(ctx, try std.fmt.allocPrint(a, "link/{s}", .{dest}), "unresolved_link", try std.fmt.allocPrint(a, "link {s} kept verbatim; target not found", .{dest}));
@@ -1882,7 +1917,7 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
     var inv: Inventory = .{};
     try scan(io, a, root, &cfg, &inv, all_paths.items);
 
-    const baseurl = cfg.baseurl orelse "";
+    const baseurl = std.mem.trimEnd(u8, cfg.baseurl orelse "", "/");
     var review: std.ArrayList(ReviewItem) = .empty;
     var links: std.ArrayList(EmitLink) = .empty;
     var routes: std.ArrayList(RouteEntry) = .empty;
@@ -1895,6 +1930,11 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
     for (inv.static_files.items) |f| {
         if (!emitIsPublicAssetPath(f, cfg.include_paths.items)) continue;
         try static_set.put(f, {});
+    }
+    // `_config.yml include:` can republish hidden dirs the scan otherwise
+    // marks ignored (e.g. `include: [_static]`).
+    for (inv.ignored.items) |f| {
+        if (emitIsPublicAssetPath(f, cfg.include_paths.items)) try static_set.put(f, {});
     }
 
     var epages: std.ArrayList(EmitPage) = .empty;
@@ -2045,13 +2085,15 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
                     dest = try std.fmt.allocPrint(a, "content/{s}.assets/{s}", .{ try emitSanitizeSegment(a, col.name), dest_name });
                 }
                 try member_asset_dests.put(dest, {});
-                // `{% link %}` / markdown destinations resolve to the copied
-                // asset (`content/` prefix dropped for root-relative links).
-                try member_assets.put(m, dest["content/".len..]);
                 const data = readFileAlloc(io, root, m, a) catch |err| {
                     try review.append(a, .{ .source_path = m, .kind = "member_copy_failed", .detail = try std.fmt.allocPrint(a, "static collection member could not be read: {s}", .{@errorName(err)}) });
                     continue;
                 };
+                // Link targets (source path `_docs/x` and public URL `docs/x`)
+                // resolve to the member's source path; a per-page copy is
+                // registered on first reference (emitCopyAsset).
+                try member_assets.put(m, m);
+                try member_assets.put(try std.fmt.allocPrint(a, "{s}/{s}", .{ col.name, std.fs.path.basename(m) }), m);
                 try pending_member_copies.append(a, .{ .src = m, .dest = dest, .data = data });
                 try asset_copies.append(a, .{ .source_path = m, .dest = dest });
                 continue;
