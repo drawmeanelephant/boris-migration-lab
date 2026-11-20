@@ -516,6 +516,22 @@ fn safeKind(io: Io, a: std.mem.Allocator, root: Io.Dir, rel: []const u8, unclass
 /// Rejects relative paths that escape `--root`: absolute paths, drive-style
 /// prefixes, and `..` components (a hostile `contentDir` could otherwise
 /// point the scanner at arbitrary files outside the project).
+/// Collapses `.` and empty components so `./content`, `content/./`, and
+/// `content//` dedupe with `content`. Must not see a `..` segment — callers
+/// run `isUnsafeRelPath` first.
+fn normalizeRelPath(a: std.mem.Allocator, p: []const u8) ![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    var it = std.mem.splitScalar(u8, p, '/');
+    var first = true;
+    while (it.next()) |seg| {
+        if (seg.len == 0 or std.mem.eql(u8, seg, ".")) continue;
+        if (!first) try out.append(a, '/');
+        try out.appendSlice(a, seg);
+        first = false;
+    }
+    return out.items;
+}
+
 fn isUnsafeRelPath(p: []const u8) bool {
     if (p.len == 0 or p[0] == '/' or p[0] == '\\' or std.mem.indexOfScalar(u8, p, ':') != null) return true;
     var it = std.mem.splitScalar(u8, p, '/');
@@ -893,11 +909,12 @@ fn scanSite(io: Io, a: std.mem.Allocator, root: Io.Dir) !Inventory {
     var scanned_dirs = std.StringHashMap(void).init(a);
     var content_scanned = false;
     for (cfg.languages) |lang| {
-        const content_dir = langContentDir(lang);
-        if (isUnsafeRelPath(content_dir)) {
-            try unclassified.append(a, try std.fmt.allocPrint(a, "languages.{s} contentDir {s}: outside project root; not scanned", .{ lang.code, content_dir }));
+        const content_dir_raw = langContentDir(lang);
+        if (isUnsafeRelPath(content_dir_raw)) {
+            try unclassified.append(a, try std.fmt.allocPrint(a, "languages.{s} contentDir {s}: outside project root; not scanned", .{ lang.code, content_dir_raw }));
             continue;
         }
+        const content_dir = try normalizeRelPath(a, content_dir_raw);
         if (scanned_dirs.contains(content_dir)) continue;
         try scanned_dirs.put(try a.dupe(u8, content_dir), {});
         var scan_lang = lang.code;
@@ -1667,6 +1684,37 @@ test "hugo: shared contentDir claimed by two languages scans once" {
     try std.testing.expect(std.mem.indexOf(u8, json, "\"pages\": 2") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"path\": \"content/about.md\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"path\": \"content/about.fr.md\"") != null);
+}
+
+test "hugo: equivalent contentDir spellings dedupe" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer {
+        tmp.dir.close(io);
+        tmp.parent_dir.deleteTree(io, &tmp.sub_path) catch {};
+        tmp.parent_dir.close(io);
+    }
+    const root = try tmpBase(a, &tmp, "equiv-dir");
+    try Io.Dir.cwd().createDirPath(io, try std.fmt.allocPrint(a, "{s}/content", .{root}));
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fmt.allocPrint(a, "{s}/config.toml", .{root}), .data =
+        \\defaultContentLanguage = "en"
+        \\[languages.en]
+        \\
+        \\[languages.fr]
+        \\contentDir = "./content"
+        \\
+    });
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fmt.allocPrint(a, "{s}/content/about.md", .{root}), .data = "en\n" });
+    const out = try std.fmt.allocPrint(a, "{s}-out", .{root});
+    try run(io, a, .{ .root_dir = root, .out_dir = out, .quiet = true });
+    var o = try Io.Dir.cwd().openDir(io, out, .{});
+    defer o.close(io);
+    const json = try readFileAlloc(io, o, "inventory.json", a);
+    // en (shared default) and fr ("./content") resolve to one scan, not two.
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"pages\": 1") != null);
 }
 
 test "hugo: contentDir outside root is not scanned" {
