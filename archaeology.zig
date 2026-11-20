@@ -520,10 +520,21 @@ pub fn parseFrontmatterLite(allocator: std.mem.Allocator, source: []const u8) !F
         if (i < source.len and source[i] == '\n') i += 1;
         if (line.len > 0 and line[line.len - 1] == '\r') line = line[0 .. line.len - 1];
 
-        if (std.mem.eql(u8, trimSpace(line), "---")) {
-            fm.present = true;
-            fm.body_offset = i;
-            break;
+        // Closer: `---` at column 0 up to trailing whitespace — an
+        // indented `---` is nested YAML content, not the delimiter.
+        if (std.mem.startsWith(u8, line, "---")) {
+            var close_ok = true;
+            for (line[3..]) |c| {
+                if (c != ' ' and c != '\t') {
+                    close_ok = false;
+                    break;
+                }
+            }
+            if (close_ok) {
+                fm.present = true;
+                fm.body_offset = i;
+                break;
+            }
         }
 
         if (line.len == 0) continue;
