@@ -70,12 +70,27 @@ page under `--out/provenance/<entity-id>.json`, and `report.json` +
 output equal to, inside, or an ancestor of `--root`; ownership marker; atomic
 rerun replacement).
 
+### Site walk
+
+Emit walks `--root` the way Jekyll's entry filter does and never follows
+symlinks. It prunes names that start with `.`, `#` or end in `~`, Jekyll's
+default excludes (`.sass-cache`, `.jekyll-cache`, `gemfiles`, `Gemfile`,
+`Gemfile.lock`, `node_modules`, `vendor/bundle|cache|gems|ruby`), and
+`_config.yml` `exclude:` entries (exact path or `*` glob). `include:` entries
+are kept. Each pruned file or directory is listed once in `excluded`. A
+directory whose name starts with `_` (other than `_posts`, `_drafts`, a
+declared collection, or `_layouts`/`_includes`/`_plugins`/`_data`) is one
+`not_emitted` row. A non-Markdown file with front matter (`.html`, feeds, …)
+is rendered by Jekyll, so it is `unsupported`, not converted, and never
+copied as an asset. The construct counts in the report come from the
+inventory scan of the same filtered path list.
+
 ### Two-level graph
 
 | Source | Boris page | Entity id |
 |--------|-----------|-----------|
 | (any emitted post or draft) | generated Trunk `posts` (`generated_trunk`) | `posts` |
-| `_posts/YYYY-MM-DD-slug.md` | Satellite, `parent: posts` | `posts/<slug>` |
+| `[<dirs>/]_posts/YYYY-MM-DD-slug.md` | Satellite, `parent: posts`; `<dirs>` become provenance categories | `posts/<slug>` |
 | `_drafts/<name>.md` | Satellite, `parent: posts`, `status: draft` | `posts/<name>` (a leading date is dropped) |
 | output collection `<name>` with ≥1 Markdown member | generated Trunk | `<name>` |
 | `_<name>/<path>.md` member | Satellite, `parent: <name>` | `<name>/<path with / → ->` (nested paths flattened, reported) |
@@ -96,6 +111,9 @@ Only `id`, `title`, `parent`, `status`, `tags`, `published_at`, `summary` are
 written.
 
 - `title`: front matter `title`, else the slug / file stem (`title_from_filename`).
+  Scalars undo quotes and `\"`; `|` / `>` block scalars (any chomping or
+  indent indicator) are folded to one line. The same applies to `excerpt`
+  and `description`.
 - `status`: `draft` for `_drafts/` and `published: false` (a trailing
   `# comment` is ignored); otherwise `published`.
 - `tags`: Jekyll `tags` (flow, block, or space-separated string). Tokens
@@ -115,7 +133,11 @@ the report next to the Boris route (`<entity-id>.html`).
 
 ### Body
 
-- `{% post_url X %}` and `{% link path %}` that resolve to an emitted page
+- Whitespace-control forms (`{%- … -%}`, `{{- … -}}`) are read like the
+  plain forms, including `{%- raw -%}` / `{%- endraw -%}`. An unclosed
+  `{%` / `{{` is `human_review` (`liquid_unclosed`).
+- `{% post_url X %}` (by file stem, path inside `_posts/`, or
+  `<dirs>/<stem>` for nested posts) and `{% link path %}` that resolve to an emitted page
   become `[[entity-id]]`; the Markdown form `[label]({% … %})` becomes
   `[[entity-id|label]]`. A label that cannot be a wiki label (image syntax,
   `|`, brackets, or a line break) or a destination with a fragment or title
@@ -132,8 +154,14 @@ the report next to the Boris route (`<entity-id>.html`).
 - `{% include %}`, `{{ site.data.* }}`, `{% raw %}`, fenced Liquid, and all
   other Liquid stay verbatim. Includes are **not** converted to Boris
   `{{include}}` because Liquid includes take parameters.
+- Any other in-site Markdown destination (no scheme, not `#…`) that does
+  not resolve to a copyable static file stays verbatim and is
+  `human_review`: `local_image_unresolved` for images,
+  `local_link_unresolved` for links (including links to rendered pages and
+  `.md` sources). Boris rejects these, so the page needs a fix before it compiles.
 - Every call site is listed in `report.json` `liquid_sites` (and the page
-  sidecar) with line, construct row, class, original text, and landing.
+  sidecar) with its source-file line, construct row, class, original text,
+  and landing.
 
 ### Not emitted (reported in `not_emitted`)
 

@@ -742,7 +742,7 @@ const usage_text =
     \\  {% raw %} and fenced-code Liquid are counted as inert text.
     \\
     \\Jekyll emit (site source → Boris Markdown):
-    \\  --mode=jekyll       Convert posts, drafts, output collections, and pages
+    \\  --mode=jekyll      Convert posts, drafts, output collections, and pages
     \\  --root=DIR         Jekyll site source root (required; never modified)
     \\  Writes: content/**, provenance/<entity-id>.json, report.json, REPORT.md
     \\  Aliases: jekyll-emit

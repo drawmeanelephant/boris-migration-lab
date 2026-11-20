@@ -77,6 +77,12 @@ const EmitPage = struct {
     provenance_keys: []const []const u8 = &.{},
     raw_frontmatter: []const u8 = "",
     body_src: []const u8 = "",
+    /// Source line (1-based) of the first body byte.
+    body_line: usize = 1,
+    /// Directories above a nested `_posts/` / `_drafts/` (Jekyll categories).
+    posts_prefix: []const u8 = "",
+    /// Path inside `_posts/` / `_drafts/`.
+    posts_rel: []const u8 = "",
     body: []const u8 = "",
     class: Class = .exact,
     review: std.ArrayList([]const u8) = .empty,
@@ -110,6 +116,10 @@ const Plan = struct {
     post_targets: std.ArrayList(Target) = .empty,
     link_targets: std.ArrayList(Target) = .empty,
     data_files: std.ArrayList([]const u8) = .empty,
+    /// Pruned by Jekyll's exclude rules (dot paths, defaults, `exclude:`).
+    excluded: std.ArrayList([]const u8) = .empty,
+    /// Non-Markdown files with front matter: Jekyll renders them.
+    rendered: std.ArrayList([]const u8) = .empty,
 };
 
 // ---------------------------------------------------------------------------
@@ -388,6 +398,155 @@ fn resolveLocal(a: std.mem.Allocator, page_dir: []const u8, dest: []const u8) !?
     return try std.mem.join(a, "/", segs.items);
 }
 
+/// Jekyll whitespace control: `{%- tag -%}` / `{{- x -}}`.
+fn stripWsControl(s: []const u8) []const u8 {
+    var t = trimSpace(s);
+    if (t.len > 0 and t[0] == '-') t = t[1..];
+    if (t.len > 0 and t[t.len - 1] == '-') t = t[0 .. t.len - 1];
+    return trimSpace(t);
+}
+
+/// Markdown destination that points into the site (no scheme, `//`, or `#`).
+fn isLocalDest(dest: []const u8) bool {
+    if (dest.len == 0 or dest[0] == '#' or std.mem.startsWith(u8, dest, "//")) return false;
+    if (std.mem.indexOfScalar(u8, dest, ':')) |ci| {
+        if (ci > 0 and std.mem.indexOfScalar(u8, dest[0..ci], '/') == null) return false;
+    }
+    return true;
+}
+
+/// True when the `[` that opens the link text just emitted is preceded by `!`.
+fn destIsImage(out: []const u8) bool {
+    var depth: usize = 0;
+    var k = out.len;
+    var steps: usize = 0;
+    while (k > 0 and steps < 1024) : (steps += 1) {
+        k -= 1;
+        switch (out[k]) {
+            ']' => depth += 1,
+            '[' => {
+                if (depth == 0) return k > 0 and out[k - 1] == '!';
+                depth -= 1;
+            },
+            else => {},
+        }
+    }
+    return false;
+}
+
+fn isBorisPageExt(path: []const u8) bool {
+    for ([_][]const u8{ ".md", ".mdx", ".textile", ".cook" }) |ext| {
+        if (std.ascii.endsWithIgnoreCase(path, ext)) return true;
+    }
+    return false;
+}
+
+fn globMatch(p: []const u8, s: []const u8) bool {
+    if (p.len == 0) return s.len == 0;
+    if (p[0] == '*') {
+        var k: usize = 0;
+        while (k <= s.len) : (k += 1) {
+            if (globMatch(p[1..], s[k..])) return true;
+        }
+        return false;
+    }
+    return s.len > 0 and p[0] == s[0] and globMatch(p[1..], s[1..]);
+}
+
+/// Jekyll's default `exclude` list (Jekyll 4).
+const default_excludes = [_][]const u8{ ".sass-cache", ".jekyll-cache", "gemfiles", "Gemfile", "Gemfile.lock", "node_modules", "vendor/bundle", "vendor/cache", "vendor/gems", "vendor/ruby" };
+
+const SiteFilter = struct {
+    exclude: []const []const u8 = &.{},
+    include: []const []const u8 = &.{},
+
+    /// Mirrors Jekyll's EntryFilter: `include:` wins, then dot/`#`/`~`
+    /// names, the default excludes, and `exclude:` (exact path or glob).
+    fn excluded(self: SiteFilter, rel: []const u8) bool {
+        const base = std.fs.path.basename(rel);
+        for (self.include) |inc| {
+            const pat = std.mem.trim(u8, inc, "/");
+            if (pat.len > 0 and (globMatch(pat, rel) or globMatch(pat, base))) return false;
+        }
+        if (base.len > 0 and (base[0] == '.' or base[0] == '#' or base[base.len - 1] == '~')) return true;
+        for (default_excludes) |e| if (globMatch(e, rel)) return true;
+        for (self.exclude) |e| {
+            const pat = std.mem.trim(u8, e, "/");
+            if (pat.len > 0 and globMatch(pat, rel)) return true;
+        }
+        return false;
+    }
+};
+
+/// Site walk that prunes excluded entries (recorded once each; directories
+/// get a trailing `/`) and never follows symlinks.
+fn walkSite(
+    io: Io,
+    a: std.mem.Allocator,
+    dir: Io.Dir,
+    prefix: []const u8,
+    filter: SiteFilter,
+    out: *std.ArrayList([]const u8),
+    excluded: *std.ArrayList([]const u8),
+) !void {
+    var it = dir.iterate();
+    while (try it.next(io)) |entry| {
+        const child = if (prefix.len == 0)
+            try a.dupe(u8, entry.name)
+        else
+            try std.fmt.allocPrint(a, "{s}/{s}", .{ prefix, entry.name });
+        if (filter.excluded(child)) {
+            switch (entry.kind) {
+                .directory => try excluded.append(a, try std.fmt.allocPrint(a, "{s}/", .{child})),
+                .file => try excluded.append(a, child),
+                else => {},
+            }
+            continue;
+        }
+        switch (entry.kind) {
+            .directory => {
+                var sub = try dir.openDir(io, entry.name, .{ .iterate = true, .follow_symlinks = false });
+                defer sub.close(io);
+                try walkSite(io, a, sub, child, filter, out, excluded);
+            },
+            .file => try out.append(a, child),
+            else => {},
+        }
+    }
+}
+
+/// Top-level text value of a front-matter key: a scalar (quotes and `\"`
+/// escapes undone) or a `|` / `>` block scalar folded to one line.
+fn frontmatterText(a: std.mem.Allocator, raw_fm: []const u8, key: []const u8) !?[]const u8 {
+    var it = std.mem.splitScalar(u8, raw_fm, '\n');
+    while (it.next()) |line_crlf| {
+        const line_raw = std.mem.trimEnd(u8, line_crlf, "\r");
+        if (line_raw.len == 0 or line_raw[0] == ' ' or line_raw[0] == '\t') continue;
+        const colon = std.mem.indexOfScalar(u8, line_raw, ':') orelse continue;
+        if (!std.mem.eql(u8, trimSpace(line_raw[0..colon]), key)) continue;
+        const v = trimSpace(line_raw[colon + 1 ..]);
+        const is_block = v.len > 0 and (v[0] == '|' or v[0] == '>') and
+            std.mem.trimStart(u8, v[1..], "-+0123456789").len == 0;
+        if (!is_block) {
+            const plain = stripQuotes(v);
+            if (plain.len == 0) return null;
+            return try unescapeYamlDq(a, plain);
+        }
+        var buf: std.ArrayList(u8) = .empty;
+        while (it.next()) |next_crlf| {
+            const next = std.mem.trimEnd(u8, next_crlf, "\r");
+            if (next.len > 0 and next[0] != ' ' and next[0] != '\t') break;
+            const t = trimSpace(next);
+            if (t.len == 0) continue;
+            if (buf.items.len > 0) try buf.append(a, ' ');
+            try buf.appendSlice(a, t);
+        }
+        if (buf.items.len == 0) return null;
+        return try buf.toOwnedSlice(a);
+    }
+    return null;
+}
+
 /// `dir` names a directory component of `path` (case-insensitive).
 fn isDirPrefix(dir: []const u8, path: []const u8) bool {
     return path.len > dir.len and path[dir.len] == '/' and std.ascii.startsWithIgnoreCase(path, dir);
@@ -420,8 +579,10 @@ const Rewriter = struct {
         try self.page.flag(self.a, class, code);
     }
 
+    /// A static file that can be copied as a page asset. Boris page
+    /// sources would be discovered as pages, so they are never copied.
     fn isStatic(self: *Rewriter, path: []const u8) bool {
-        return containsStr(self.plan.static_files.items, path);
+        return !isBorisPageExt(path) and containsStr(self.plan.static_files.items, path);
     }
 
     /// Page-local asset reference for a static source file; copies are
@@ -555,7 +716,9 @@ const Rewriter = struct {
             if (in_raw) {
                 if (c == '{' and i + 1 < body.len and body[i + 1] == '%') {
                     const rest = body[i + 2 ..];
-                    if (std.mem.startsWith(u8, trimSpace(rest[0..@min(rest.len, 16)]), "endraw")) {
+                    const head = rest[0..@min(rest.len, 24)];
+                    const name = trimSpace(if (head.len > 0 and head[0] == '-') head[1..] else head);
+                    if (std.mem.startsWith(u8, name, "endraw")) {
                         if (jekyll.findClose(rest, "%}")) |off| {
                             in_raw = false;
                             try self.out.appendSlice(a, body[i .. i + 2 + off + 2]);
@@ -584,11 +747,13 @@ const Rewriter = struct {
                 }
                 const rest = body[i + 2 ..];
                 const off = jekyll.findClose(rest, closer) orelse {
+                    const nl = std.mem.indexOfScalarPos(u8, body, i, '\n') orelse body.len;
+                    try self.site("Other {% … %} / {{ … }} Liquid", body[i..nl], "verbatim; delimiter never closes", .human_review, "liquid_unclosed");
                     try self.out.appendSlice(a, body[i..]);
                     return;
                 };
                 const full = body[i .. i + 2 + off + 2];
-                const inner = trimSpace(rest[0..off]);
+                const inner = stripWsControl(rest[0..off]);
                 var after = i + 2 + off + 2;
                 if (is_tag) {
                     try self.tag(body, full, inner, &after, &in_raw);
@@ -599,11 +764,12 @@ const Rewriter = struct {
                 continue;
             }
             if (!in_fence and c == ']' and i + 1 < body.len and body[i + 1] == '(') {
-                // Markdown destination: copy page-local static files.
+                // Markdown destination: copy page-local static files; any other
+                // in-site destination is left verbatim for review.
                 var e = i + 2;
                 while (e < body.len and isPathChar(body[e])) e += 1;
                 const dest = body[i + 2 .. e];
-                if (e < body.len and (body[e] == ')' or body[e] == ' ') and dest.len > 0) {
+                if (e < body.len and (body[e] == ')' or body[e] == ' ') and isLocalDest(dest)) {
                     if (try resolveLocal(a, self.page_src_dir, try asset_filename.urlDecodeAlloc(a, dest))) |rel| {
                         if (self.isStatic(rel)) {
                             const ref = try self.assetRef(rel);
@@ -612,6 +778,11 @@ const Rewriter = struct {
                             i = e;
                             continue;
                         }
+                    }
+                    if (destIsImage(self.out.items)) {
+                        try self.site("assets/ and other static files", dest, "verbatim; local image not found", .human_review, "local_image_unresolved");
+                    } else {
+                        try self.site("assets/ and other static files", dest, "verbatim; local link does not resolve to an emitted page or static file", .human_review, "local_link_unresolved");
                     }
                 }
             }
@@ -736,6 +907,7 @@ fn buildPlan(io: Io, a: std.mem.Allocator, root: Io.Dir, cfg: *jekyll.Config, al
     var plan: Plan = .{};
     var candidates: std.ArrayList(EmitPage) = .empty;
 
+    var underscore_dirs: std.ArrayList([]const u8) = .empty;
     for (all_paths) |p| {
         if (std.mem.eql(u8, p, "_config.yml")) continue;
         const top = jekyll.topComponent(p);
@@ -757,40 +929,78 @@ fn buildPlan(io: Io, a: std.mem.Allocator, root: Io.Dir, cfg: *jekyll.Config, al
             try plan.not_emitted.append(a, .{ .path = p, .reason = "plugin; never executed", .class = .unsupported });
             continue;
         }
-        if (std.mem.eql(u8, top, "_posts")) {
-            if (jekyll.isMd(base) and jekyll.parsePostName(base) != null) {
-                try candidates.append(a, .{ .source_path = p, .kind = .post });
-            } else if (jekyll.parsePostName(base) != null) {
-                try plan.not_emitted.append(a, .{ .path = p, .reason = "non-Markdown post; not converted", .class = .human_review });
-            } else {
-                try plan.not_emitted.append(a, .{ .path = p, .reason = "post filename does not match YYYY-MM-DD-slug; Jekyll ignores it", .class = .human_review });
+        if (top.len < p.len) {
+            if (jekyll.findCollection(cfg, top)) |col| {
+                if (!col.output) {
+                    try plan.not_emitted.append(a, .{ .path = p, .reason = "collection with output: false; Jekyll writes no page", .class = .unsupported });
+                } else if (jekyll.isMd(base)) {
+                    try candidates.append(a, .{ .source_path = p, .kind = .collection, .collection = col.name });
+                } else {
+                    try plan.not_emitted.append(a, .{ .path = p, .reason = "non-Markdown collection member; not converted", .class = .unsupported });
+                }
+                continue;
+            }
+        }
+        // `_posts/` and `_drafts/` may sit under category directories
+        // (`blog/_posts/…`); any other underscore directory is ignored.
+        var seg_start: usize = 0;
+        var special: ?[]const u8 = null;
+        var special_start: usize = 0;
+        var other_dir: ?[]const u8 = null;
+        while (seg_start < p.len) {
+            const slash = std.mem.indexOfScalarPos(u8, p, seg_start, '/') orelse break;
+            const seg = p[seg_start..slash];
+            if (seg.len > 0 and seg[0] == '_') {
+                if (std.mem.eql(u8, seg, "_posts") or std.mem.eql(u8, seg, "_drafts")) {
+                    special = seg;
+                    special_start = seg_start;
+                } else {
+                    other_dir = p[0 .. slash + 1];
+                }
+                break;
+            }
+            seg_start = slash + 1;
+        }
+        if (other_dir) |d| {
+            if (!containsStr(underscore_dirs.items, d)) {
+                try underscore_dirs.append(a, d);
+                try plan.not_emitted.append(a, .{ .path = d, .reason = "underscore directory Jekyll does not process", .class = .unsupported });
             }
             continue;
         }
-        if (std.mem.eql(u8, top, "_drafts")) {
-            if (jekyll.isMd(base)) {
-                try candidates.append(a, .{ .source_path = p, .kind = .draft });
+        if (special) |seg| {
+            const prefix = if (special_start == 0) "" else p[0 .. special_start - 1];
+            const rel = p[special_start + seg.len + 1 ..];
+            if (std.mem.eql(u8, seg, "_posts")) {
+                if (jekyll.isMd(base) and jekyll.parsePostName(base) != null) {
+                    try candidates.append(a, .{ .source_path = p, .kind = .post, .posts_prefix = prefix, .posts_rel = rel });
+                } else if (jekyll.parsePostName(base) != null) {
+                    try plan.not_emitted.append(a, .{ .path = p, .reason = "non-Markdown post; not converted", .class = .human_review });
+                } else {
+                    try plan.not_emitted.append(a, .{ .path = p, .reason = "post filename does not match YYYY-MM-DD-slug; Jekyll ignores it", .class = .human_review });
+                }
+            } else if (jekyll.isMd(base)) {
+                try candidates.append(a, .{ .source_path = p, .kind = .draft, .posts_prefix = prefix, .posts_rel = rel });
             } else {
                 try plan.not_emitted.append(a, .{ .path = p, .reason = "non-Markdown draft; not converted", .class = .human_review });
             }
             continue;
         }
-        if (jekyll.findCollection(cfg, top)) |col| {
-            if (!col.output) {
-                try plan.not_emitted.append(a, .{ .path = p, .reason = "collection with output: false; Jekyll writes no page", .class = .unsupported });
-            } else if (jekyll.isMd(base)) {
-                try candidates.append(a, .{ .source_path = p, .kind = .collection, .collection = col.name });
-            } else {
-                try plan.not_emitted.append(a, .{ .path = p, .reason = "non-Markdown collection member; not converted", .class = .unsupported });
-            }
-            continue;
-        }
-        if (top.len > 0 and (top[0] == '_' or top[0] == '.')) {
-            try plan.not_emitted.append(a, .{ .path = p, .reason = "underscore/dot path Jekyll does not process", .class = .unsupported });
+        if (base.len > 0 and base[0] == '_') {
+            try plan.not_emitted.append(a, .{ .path = p, .reason = "underscore file Jekyll does not process", .class = .unsupported });
             continue;
         }
         if (jekyll.isMd(base)) {
             try candidates.append(a, .{ .source_path = p, .kind = .page });
+            continue;
+        }
+        // Any other file with front matter is rendered by Jekyll (HTML,
+        // feeds, …): not converted, and never copied as a raw asset.
+        var head: [5]u8 = undefined;
+        const got = root.readFile(io, p, &head) catch head[0..0];
+        if (std.mem.startsWith(u8, got, "---\n") or std.mem.startsWith(u8, got, "---\r\n")) {
+            try plan.rendered.append(a, p);
+            try plan.not_emitted.append(a, .{ .path = p, .reason = "non-Markdown page with front matter (Jekyll renders it); not converted", .class = .unsupported });
             continue;
         }
         try plan.static_files.append(a, p);
@@ -807,7 +1017,9 @@ fn buildPlan(io: Io, a: std.mem.Allocator, root: Io.Dir, cfg: *jekyll.Config, al
             try plan.static_files.append(a, cand.source_path.?);
             continue;
         }
-        try kept.append(a, cand);
+        var keep = cand;
+        if (fm.present) keep.body_line = 1 + std.mem.count(u8, source[0..fm.body_offset], "\n");
+        try kept.append(a, keep);
         try sources.append(a, source);
         try fms.append(a, fm);
     }
@@ -892,9 +1104,13 @@ fn buildPlan(io: Io, a: std.mem.Allocator, root: Io.Dir, cfg: *jekyll.Config, al
         try plan.pages.append(a, page);
 
         if (cand.kind == .post) {
-            try plan.post_targets.append(a, .{ .key = stemOf(path), .id = r.id });
-            const sub = withoutExt(path["_posts/".len..]);
-            if (!std.mem.eql(u8, sub, stemOf(path))) try plan.post_targets.append(a, .{ .key = sub, .id = r.id });
+            const stem = stemOf(path);
+            try plan.post_targets.append(a, .{ .key = stem, .id = r.id });
+            const sub = withoutExt(cand.posts_rel);
+            if (!std.mem.eql(u8, sub, stem)) try plan.post_targets.append(a, .{ .key = sub, .id = r.id });
+            if (cand.posts_prefix.len > 0) {
+                try plan.post_targets.append(a, .{ .key = try std.fmt.allocPrint(a, "{s}/{s}", .{ cand.posts_prefix, stem }), .id = r.id });
+            }
         }
         try plan.link_targets.append(a, .{ .key = path, .id = r.id });
     };
@@ -911,9 +1127,9 @@ fn convertPage(a: std.mem.Allocator, plan: *const Plan, page: *EmitPage) !void {
     const fm_src = try std.fmt.allocPrint(a, "---\n{s}---\n", .{raw});
 
     // Title: frontmatter, else slug / file stem.
-    const fm_title = jekyll.frontmatterScalar(fm_src, "title");
+    const fm_title = try frontmatterText(a, raw, "title");
     if (fm_title != null and trimSpace(fm_title.?).len > 0) {
-        page.title = try unescapeYamlDq(a, trimSpace(fm_title.?));
+        page.title = trimSpace(fm_title.?);
     } else {
         page.title = page.slug orelse stemOf(path);
         try page.flag(a, .transformed, "title_from_filename");
@@ -943,6 +1159,8 @@ fn convertPage(a: std.mem.Allocator, plan: *const Plan, page: *EmitPage) !void {
             for (list) |c| if (!containsStr(cats.items, c)) try cats.append(a, c);
         }
     }
+    var dirs = std.mem.tokenizeScalar(u8, page.posts_prefix, '/');
+    while (dirs.next()) |d| if (!containsStr(cats.items, d)) try cats.append(a, d);
     page.categories = try cats.toOwnedSlice(a);
     page.permalink = jekyll.frontmatterScalar(fm_src, "permalink");
     page.layout = jekyll.frontmatterScalar(fm_src, "layout");
@@ -960,12 +1178,17 @@ fn convertPage(a: std.mem.Allocator, plan: *const Plan, page: *EmitPage) !void {
 
     // Body.
     var body = page.body_src;
-    while (body.len > 0 and (body[0] == '\n' or body[0] == '\r')) body = body[1..];
+    var skipped_lines: usize = 0;
+    while (body.len > 0 and (body[0] == '\n' or body[0] == '\r')) {
+        if (body[0] == '\n') skipped_lines += 1;
+        body = body[1..];
+    }
     var rw: Rewriter = .{
         .a = a,
         .plan = plan,
         .page = page,
         .page_src_dir = std.fs.path.dirname(path) orelse "",
+        .line = page.body_line + skipped_lines,
     };
     try rw.run(body);
     page.body = try rw.out.toOwnedSlice(a);
@@ -977,7 +1200,7 @@ fn convertPage(a: std.mem.Allocator, plan: *const Plan, page: *EmitPage) !void {
             if (jekyll.frontmatterScalar(fm_src, "date") != null) try page.flag(a, .transformed, "frontmatter_date_provenance_only");
             for ([_][]const u8{ "excerpt", "description" }) |k| {
                 if (page.summary != null) break;
-                if (jekyll.frontmatterScalar(fm_src, k)) |v| {
+                if (try frontmatterText(a, raw, k)) |v| {
                     const line = try oneLine(a, v, max_summary_bytes);
                     if (line.len > 0 and !std.mem.eql(u8, line, "|") and !std.mem.eql(u8, line, ">")) {
                         page.summary = line;
@@ -1276,7 +1499,9 @@ fn reportJson(a: std.mem.Allocator, root_dir: []const u8, cfg: jekyll.Config, in
         if (i + 1 < plan.not_emitted.items.len) try buf.append(a, ',');
         try buf.append(a, '\n');
     }
-    try buf.appendSlice(a, "  ],\n  \"constructs\": [\n");
+    try buf.appendSlice(a, "  ],\n  \"excluded\": ");
+    try appendStrArray(&buf, a, plan.excluded.items);
+    try buf.appendSlice(a, ",\n  \"constructs\": [\n");
     for (rows, 0..) |r, i| {
         try buf.appendSlice(a, "    { \"construct\": ");
         try jsonStr(&buf, a, r.name);
@@ -1388,6 +1613,13 @@ fn reportMd(a: std.mem.Allocator, root_dir: []const u8, cfg: jekyll.Config, inv:
     }
     if (!any) try buf.appendSlice(a, "- none\n");
 
+    try buf.appendSlice(a, "\n## Excluded\n\nPruned like Jekyll does: dot/`#`/`~` names, the default `exclude` list, and `_config.yml` `exclude:`.\n\n");
+    for (plan.excluded.items) |e| {
+        try buf.appendSlice(a, "- `");
+        try cell(&buf, a, e);
+        try buf.appendSlice(a, "`\n");
+    }
+    if (plan.excluded.items.len == 0) try buf.appendSlice(a, "- none\n");
     try buf.appendSlice(a, "\n## Not emitted\n\n| Path | Class | Reason |\n| --- | --- | --- |\n");
     for (plan.not_emitted.items) |n| {
         try buf.appendSlice(a, "| `");
@@ -1412,17 +1644,22 @@ pub fn run(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
     defer root.close(io);
 
     var cfg: jekyll.Config = .{};
+    var filter: SiteFilter = .{};
     if (root.statFile(io, "_config.yml", .{ .follow_symlinks = false })) |st| {
         if (st.kind == .file) {
             const bytes = try jekyll.readFileAlloc(io, root, "_config.yml", a);
             cfg = try jekyll.parseConfig(a, bytes);
             cfg.found = true;
+            filter.exclude = (try frontmatterList(a, bytes, "exclude")) orelse &.{};
+            filter.include = (try frontmatterList(a, bytes, "include")) orelse &.{};
         }
     } else |_| {}
 
     var all_paths: std.ArrayList([]const u8) = .empty;
-    try jekyll.collectUnderDir(io, a, root, "", &all_paths);
+    var excluded: std.ArrayList([]const u8) = .empty;
+    try walkSite(io, a, root, "", filter, &all_paths, &excluded);
     std.mem.sort([]const u8, all_paths.items, {}, jekyll.lessStr);
+    std.mem.sort([]const u8, excluded.items, {}, jekyll.lessStr);
 
     // Inventory counts drive the construct table so emit and inventory agree.
     var inv_cfg = cfg;
@@ -1432,6 +1669,7 @@ pub fn run(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
     try jekyll.scan(io, a, root, &inv_cfg, &inv, all_paths.items);
 
     var plan = try buildPlan(io, a, root, &cfg, all_paths.items);
+    plan.excluded = excluded;
     for (plan.pages.items) |*p| {
         if (p.kind == .generated_trunk) {
             p.body = try trunkBody(a, p.*);
@@ -1773,4 +2011,104 @@ test "jekyll: emit refuses to publish inside the source tree" {
     const out = try std.fmt.allocPrint(a, "fixtures/mini-jekyll/.zig-cache-tmp-{s}-emit", .{tmp.sub_path});
     try std.testing.expectError(error.InputOutputOverlap, run(io, a, .{ .root_dir = "fixtures/mini-jekyll", .out_dir = out, .quiet = true }));
     try std.testing.expectError(error.InputOutputOverlap, run(io, a, .{ .root_dir = "fixtures/mini-jekyll", .out_dir = "fixtures", .quiet = true }));
+}
+
+test "jekyll: emit whitespace-control Liquid, unclosed delimiters, and local destinations" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var plan: Plan = .{};
+    try plan.post_targets.append(a, .{ .key = "2024-01-02-x", .id = "posts/x" });
+    try plan.static_files.append(a, "img/ok.png");
+    try plan.static_files.append(a, "NOTES.md");
+    var page: EmitPage = .{ .kind = .page, .source_path = "p.md", .entity_id = "p", .body_line = 5 };
+    var rw: Rewriter = .{ .a = a, .plan = &plan, .page = &page, .page_src_dir = "", .line = page.body_line };
+    try rw.run(
+        \\{%- raw -%}{% post_url 2024-01-02-x %}{%- endraw -%} {%- post_url 2024-01-02-x -%}
+        \\{% raw %}lit{%- endraw -%} {% post_url 2024-01-02-x %}
+        \\![ok](/img/ok.png) ![m](/assets/missing.png) [n](/NOTES.md) [u](../up/) [e](https://example.com/a.png) [f](#frag) [mail](mailto:x@example.com)
+        \\{% oops
+        \\
+    );
+    const out = rw.out.items;
+    try expectContains(out, "{%- raw -%}{% post_url 2024-01-02-x %}{%- endraw -%} [[posts/x]]\n");
+    try expectContains(out, "{% raw %}lit{%- endraw -%} [[posts/x]]\n");
+    try expectContains(out, "![ok](p.assets/img/ok.png) ![m](/assets/missing.png) [n](/NOTES.md) [u](../up/) [e](https://example.com/a.png) [f](#frag) [mail](mailto:x@example.com)");
+    for ([_][]const u8{ "local_image_unresolved", "local_link_unresolved", "liquid_unclosed" }) |code| {
+        try std.testing.expect(containsStr(page.review.items, code));
+    }
+    try std.testing.expect(!containsStr(page.review.items, "liquid_unsupported"));
+    var n_local: usize = 0;
+    var saw_post_url_line6 = false;
+    for (page.sites.items) |site| {
+        if (std.mem.eql(u8, site.construct, "assets/ and other static files")) n_local += 1;
+        if (std.mem.eql(u8, site.construct, "{% post_url YYYY-MM-DD-slug %} (resolves)") and site.line == 6) saw_post_url_line6 = true;
+    }
+    // missing image, /NOTES.md (a page source, never an asset), ../up/
+    try std.testing.expectEqual(@as(usize, 3), n_local);
+    try std.testing.expect(saw_post_url_line6);
+}
+
+test "jekyll: emit block-scalar front matter text" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const raw = "excerpt: >-\n  Folded\n  text here\ndescription: |2\n  Kept\nother: x\ntitle: \"Q \\\"x\\\"\"\nempty: |\n";
+    try std.testing.expectEqualStrings("Folded text here", (try frontmatterText(a, raw, "excerpt")).?);
+    try std.testing.expectEqualStrings("Kept", (try frontmatterText(a, raw, "description")).?);
+    try std.testing.expectEqualStrings("Q \"x\"", (try frontmatterText(a, raw, "title")).?);
+    try std.testing.expect((try frontmatterText(a, raw, "empty")) == null);
+    try std.testing.expect((try frontmatterText(a, raw, "missing")) == null);
+}
+
+test "jekyll: emit honors excludes, skips rendered non-Markdown pages, finds nested _posts" {
+    const io = std.testing.io;
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var tmp = std.testing.tmpDir(.{});
+    defer cleanupTmp(io, &tmp);
+    const base = try std.fmt.allocPrint(a, ".zig-cache/tmp/{s}", .{tmp.sub_path});
+    const fm_page = "---\ntitle: X\n---\n\nBody.\n";
+    const files = [_][2][]const u8{
+        .{ "site/_config.yml", "title: Ex\nexclude: [secret, \"*.tmp.md\"]\ninclude:\n  - .well-known\n" },
+        .{ "site/secret/s.md", fm_page },
+        .{ "site/draft.tmp.md", fm_page },
+        .{ "site/node_modules/pkg/README.md", fm_page },
+        .{ "site/vendor/bundle/gem/doc.md", fm_page },
+        .{ "site/vendor/keep.md", fm_page },
+        .{ "site/.git/config", "[core]\n" },
+        .{ "site/.git/objects/ab", "x" },
+        .{ "site/.well-known/security.txt", "Contact: mailto:x@example.com\n" },
+        .{ "site/docs/_private/p.md", fm_page },
+        .{ "site/blog.html", "---\nlayout: default\n---\n{{ content }}\n" },
+        .{ "site/NOTES.md", "No front matter.\n" },
+        .{ "site/index.md", "---\ntitle: Home\n---\n\n[Blog](/blog.html) [Notes](/NOTES.md) {% post_url blog/2024-03-01-nested %}\n" },
+        .{ "site/blog/_posts/2024-03-01-nested.md", "---\ntitle: Nested\nexcerpt: >-\n  Folded\n  excerpt\n---\n\nBody.\n" },
+    };
+    for (files) |f| {
+        try ensureParentTest(io, tmp.dir, f[0]);
+        try tmp.dir.writeFile(io, .{ .sub_path = f[0], .data = f[1] });
+    }
+    const src = try std.fmt.allocPrint(a, "{s}/site", .{base});
+    const out = try std.fmt.allocPrint(a, "{s}/out", .{base});
+    try run(io, a, .{ .root_dir = src, .out_dir = out, .quiet = true });
+
+    const report = try readOut(io, a, out, "report.json");
+    try expectContains(report, "\"excluded\": [\".git/\", \"draft.tmp.md\", \"node_modules/\", \"secret/\", \"vendor/bundle/\"]");
+    try std.testing.expect(std.mem.indexOf(u8, report, ".git/config") == null);
+    try expectContains(report, "{ \"path\": \"blog.html\", \"class\": \"unsupported\"");
+    try expectContains(report, "{ \"path\": \"docs/_private/\", \"class\": \"unsupported\"");
+    try expectContains(report, "\"unreferenced_static_files\": [\".well-known/security.txt\", \"NOTES.md\"]");
+    for ([_][]const u8{ "content/secret/s.md", "content/node_modules/pkg/readme.md", "content/vendor/bundle/gem/doc.md", "content/docs/_private/p.md", "content/index.assets/blog.html", "content/index.assets/NOTES.md" }) |rel| {
+        try std.testing.expectError(error.FileNotFound, Io.Dir.cwd().statFile(io, try std.fmt.allocPrint(a, "{s}/{s}", .{ out, rel }), .{}));
+    }
+    _ = try readOut(io, a, out, "content/vendor/keep.md");
+
+    const index = try readOut(io, a, out, "content/index.md");
+    try expectContains(index, "[Blog](/blog.html) [Notes](/NOTES.md) [[posts/nested]]");
+    try expectContains(report, "local_link_unresolved");
+    const nested = try readOut(io, a, out, "content/posts/nested.md");
+    try expectContains(nested, "parent: posts\nstatus: published\npublished_at: 2024-03-01T00:00:00Z\nsummary: \"Folded excerpt\"");
+    try expectContains(try readOut(io, a, out, "provenance/posts/nested.json"), "\"categories\": [\"blog\"]");
 }
