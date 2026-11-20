@@ -30,6 +30,7 @@ const astro_import_apply = @import("astro_import_apply.zig");
 const hugo = @import("hugo.zig");
 const ghost = @import("ghost.zig");
 const mkdocs = @import("mkdocs.zig");
+const atproto = @import("atproto.zig");
 
 pub const ExitCode = enum(u8) {
     success = 0,
@@ -64,6 +65,7 @@ pub const Mode = enum {
     jekyll_inventory,
     ghost_inventory,
     mkdocs_inventory,
+    atproto_inventory,
 
     pub fn parse(s: []const u8) ?Mode {
         for (table) |entry| {
@@ -170,6 +172,7 @@ pub const table = [_]Entry{
     .{ .tag = .jekyll_inventory, .names = &.{ "jekyll-inventory", "jekyll-inv", "jekyll-archaeology" } },
     .{ .tag = .ghost_inventory, .names = &.{ "ghost-inventory", "ghost-inv" } },
     .{ .tag = .mkdocs_inventory, .names = &.{ "mkdocs-inventory", "mkdocs-inv" } },
+    .{ .tag = .atproto_inventory, .names = &.{ "atproto-inventory", "atproto-inv" } },
 };
 
 const mode_list = blk: {
@@ -587,6 +590,25 @@ fn run_mkdocs_inventory(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
     return ExitCode.success.int();
 }
 
+fn run_atproto_inventory(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
+    atproto.run(io, gpa, .{
+        .root_dir = opts.root_dir,
+        .out_dir = opts.out_dir,
+        .quiet = opts.quiet,
+    }) catch |err| {
+        std.log.err("migration-lab (atproto-inventory) failed: {s}", .{@errorName(err)});
+        return switch (err) {
+            error.InvalidAtprotoInput,
+            error.InputOutputOverlap,
+            error.InputSymlink,
+            error.OutputSymlink,
+            => ExitCode.usage.int(),
+            else => ExitCode.io_error.int(),
+        };
+    };
+    return ExitCode.success.int();
+}
+
 fn run_jekyll_inventory(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
     if (std.mem.eql(u8, opts.root_dir, opts.out_dir)) {
         std.log.err("--out must differ from --root", .{});
@@ -769,6 +791,16 @@ const usage_text =
     \\  Aliases: mkdocs-inv
     \\  Python YAML tags are recorded as unsupported, never evaluated.
     \\  No plugin/hook execution, no Markdown emit.
+    \\
+    \\AT Protocol inventory (read-only repo export scan):
+    \\  --mode=atproto-inventory  Parse repo.car (CAR v1 + MST); count
+    \\                     collections, post thread shapes, embed types,
+    \\                     blob refs with file presence under blobs/
+    \\  --root=DIR         Export root holding repo.car (required;
+    \\                     never modified; blobs/ optional, CID-named)
+    \\  Writes: inventory.json, INVENTORY.md
+    \\  Aliases: atproto-inv
+    \\  Offline only — no network, no did:plc resolution.
     \\
     \\Ghost inventory (read-only Ghost 5 export archaeology):
     \\  --mode=ghost-inventory  Parse ghost-export.json; never emit Markdown

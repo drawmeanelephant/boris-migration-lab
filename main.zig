@@ -17,6 +17,7 @@
 //!   frontmatter-review — Scan a content tree for unsupported frontmatter keys → JSON + MD report
 //!   hugo-inventory — Hugo project → inventory.json + INVENTORY.md (read-only)
 //!   mkdocs-inventory — MkDocs mkdocs.yml + docs tree → inventory.json + INVENTORY.md
+//!   atproto-inventory — AT Protocol repo.car + blobs/ → inventory.json + INVENTORY.md
 //!
 //! Never rewrites inputs. Not part of the Boris product compiler pipeline.
 //!
@@ -61,6 +62,7 @@ const publication = @import("publication.zig");
 const astro_import_plan = @import("astro_import_plan.zig");
 const astro_import_apply = @import("astro_import_apply.zig");
 const car = @import("car.zig");
+const atproto = @import("atproto.zig");
 const hugo = @import("hugo.zig");
 const ghost = @import("ghost.zig");
 const mkdocs = @import("mkdocs.zig");
@@ -572,6 +574,7 @@ test {
     _ = astro_import_apply;
     _ = link_audit;
     _ = car;
+    _ = atproto;
     _ = hugo;
     _ = jekyll;
     _ = ghost;
@@ -909,6 +912,21 @@ test "parseOptions: mkdocs-inventory flags" {
     try std.testing.expectEqualStrings("outputs/mkdocs-inv", o.out_dir);
     const o2 = try parseOptions(&.{ "boris-migration-lab", "--mode=mkdocs-inv", "--root=r", "--out=o" });
     try std.testing.expect(o2.mode == .mkdocs_inventory);
+}
+
+test "parseOptions: atproto-inventory flags" {
+    const o = try parseOptions(&.{
+        "boris-migration-lab",
+        "--mode=atproto-inventory",
+        "--root=fixtures/mini-atproto",
+        "--out=outputs/atproto-inv",
+    });
+    try std.testing.expect(o.mode == .atproto_inventory);
+    try std.testing.expectEqualStrings("fixtures/mini-atproto", o.root_dir);
+    const o2 = try parseOptions(&.{ "boris-migration-lab", "--mode=atproto-inv", "--root=r", "--out=o" });
+    try std.testing.expect(o2.mode == .atproto_inventory);
+    // Bare `atproto` is reserved for the emit slice and stays invalid.
+    try std.testing.expectError(error.InvalidValue, parseOptions(&.{ "x", "--mode=atproto" }));
 }
 
 test "parseOptions: unknown flag" {
