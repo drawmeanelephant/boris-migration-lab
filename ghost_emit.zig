@@ -123,6 +123,21 @@ fn escapeBlockStart(a: std.mem.Allocator, block: []const u8) ![]const u8 {
     return block;
 }
 
+/// CommonMark code span whose delimiter is longer than any backtick run in
+/// `raw`, padded when `raw` starts or ends with a backtick.
+fn codeSpan(a: std.mem.Allocator, raw: []const u8) ![]const u8 {
+    var longest: usize = 0;
+    var run: usize = 0;
+    for (raw) |c| {
+        run = if (c == '`') run + 1 else 0;
+        longest = @max(longest, run);
+    }
+    const fence = try a.alloc(u8, longest + 1);
+    @memset(fence, '`');
+    const pad: []const u8 = if (raw.len > 0 and (raw[0] == '`' or raw[raw.len - 1] == '`')) " " else "";
+    return try std.fmt.allocPrint(a, "{s}{s}{s}{s}{s}", .{ fence, pad, try neutralize(a, raw), pad, fence });
+}
+
 /// Text safe inside an HTML comment: no `--`, no newlines.
 fn commentSafe(a: std.mem.Allocator, s: []const u8) ![]const u8 {
     var out: std.ArrayList(u8) = .empty;
@@ -345,8 +360,7 @@ fn lexicalInline(ctx: *PageCtx, node: Value, out: *std.ArrayList(u8)) anyerror!v
             const raw = ghost.jsonGetString(child, "text");
             const fmt: i64 = if (ghost.jsonGet(child, "format")) |f| (if (f == .integer) f.integer else 0) else 0;
             if (fmt & 16 != 0) {
-                const fence: []const u8 = if (std.mem.indexOfScalar(u8, raw, '`') != null) "``" else "`";
-                try out.print(a, "{s}{s}{s}", .{ fence, try neutralize(a, raw), fence });
+                try out.appendSlice(a, try codeSpan(a, raw));
                 continue;
             }
             const text = try literalText(a, raw);
