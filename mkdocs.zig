@@ -1,7 +1,10 @@
-//! MkDocs `mkdocs.yml` + `docs/` tree → deterministic read-only inventory.
+//! MkDocs `mkdocs.yml` + `docs/` tree → deterministic inventory and
+//! proposed Boris Markdown.
 //!
-//! `--mode=mkdocs-inventory` writes `inventory.json` + `INVENTORY.md`.
-//! No Markdown emit, no plugin/hook/Python execution, no network. The
+//! `--mode=mkdocs-inventory` writes `inventory.json` + `INVENTORY.md` only.
+//! `--mode=mkdocs` also emits `content/**` (nav flattened to Trunk +
+//! Satellite pages), `report.json`, `REPORT.md`, `provenance_manifest.json`.
+//! No plugin/hook/Python execution, no network. The
 //! `nav:` block is parsed by a bounded indentation parser only; every other
 //! top-level key is reported by name. `!!python/...` tags are recorded as
 //! unsupported and never interpreted.
@@ -9,6 +12,10 @@
 const std = @import("std");
 const Io = std.Io;
 const publication = @import("publication.zig");
+const wordpress = @import("wordpress.zig");
+const asset_filename = @import("asset_filename.zig");
+const migration_semantics = @import("migration_semantics.zig");
+const product_boris = @import("product_boris.zig");
 
 pub const format_id = "boris-mkdocs-migration-lab";
 pub const schema_version: u32 = 1;
@@ -579,20 +586,14 @@ fn scanPage(a: std.mem.Allocator, page_path: []const u8, body: []const u8) !Scan
         }
 
         // Admonition: `!!! kind "title"` or `??? kind "title"`.
-        if (stripped.len > 4 and (std.mem.startsWith(u8, stripped, "!!!") or std.mem.startsWith(u8, stripped, "???")) and stripped[3] == ' ') {
-            const rest = trim(stripped[4..]);
-            var kind_end: usize = 0;
-            while (kind_end < rest.len and rest[kind_end] != ' ' and rest[kind_end] != '\t') kind_end += 1;
-            const kind = try a.dupe(u8, rest[0..kind_end]);
-            const aside = std.mem.eql(u8, kind, "note") or std.mem.eql(u8, kind, "tip") or
-                std.mem.eql(u8, kind, "warning") or std.mem.eql(u8, kind, "danger");
+        if (parseAdmonition(stripped)) |m| {
             try admonitions.append(a, .{
                 .page = page_path,
                 .line = line_no,
-                .kind = kind,
-                .collapsible = stripped[0] == '?',
-                .custom_title = try extractQuoted(a, rest[kind_end..]),
-                .class = if (aside) .transformed else .human_review,
+                .kind = try a.dupe(u8, m.kind),
+                .collapsible = m.collapsible,
+                .custom_title = if (m.title) |t| try a.dupe(u8, t) else null,
+                .class = if (asideKind(m.kind) != null) .transformed else .human_review,
             });
             continue;
         }
@@ -964,7 +965,7 @@ fn buildDispositions(a: std.mem.Allocator, inv: Inventory) ![]Disposition {
     }
     try rows.append(a, .{ .construct = "admonition !!!/??? with Aside kind", .class = .transformed, .count = aside_ok });
     try rows.append(a, .{ .construct = "admonition !!!/??? with no Aside kind", .class = .human_review, .count = aside_none });
-    try rows.append(a, .{ .construct = "pymdownx tabbed block === \"Label\"", .class = .transformed, .count = inv.tabs.len });
+    try rows.append(a, .{ .construct = "pymdownx tabbed block === \"Label\"", .class = .human_review, .count = inv.tabs.len });
 
     var snip_ok: usize = 0;
     var snip_missing: usize = 0;
@@ -1400,6 +1401,1449 @@ pub fn run(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
 }
 
 // ---------------------------------------------------------------------------
+// Emit (--mode=mkdocs): proposed Boris Markdown under content/
+// ---------------------------------------------------------------------------
+
+/// MkDocs admonition kind → Boris `Aside` kind (same mapping as starlight.zig).
+/// Kinds with no equivalent return null and are never re-typed.
+fn asideKind(kind: []const u8) ?[]const u8 {
+    if (std.mem.eql(u8, kind, "note")) return "note";
+    if (std.mem.eql(u8, kind, "tip")) return "tip";
+    if (std.mem.eql(u8, kind, "warning") or std.mem.eql(u8, kind, "caution")) return "warning";
+    if (std.mem.eql(u8, kind, "danger")) return "danger";
+    return null;
+}
+
+fn classRank(c: Class) u8 {
+    return switch (c) {
+        .exact => 0,
+        .transformed => 1,
+        .unsupported => 2,
+        .human_review => 3,
+    };
+}
+
+fn worse(x: Class, y: Class) Class {
+    return if (classRank(y) > classRank(x)) y else x;
+}
+
+const Role = enum {
+    trunk,
+    satellite,
+    generated_trunk,
+    unlisted_trunk,
+
+    fn jsonName(self: Role) []const u8 {
+        return @tagName(self);
+    }
+};
+
+const External = struct {
+    title: []const u8,
+    url: []const u8,
+};
+
+const FmField = struct {
+    key: []const u8,
+    value: []const u8,
+};
+
+const PagePlan = struct {
+    /// docs_dir-relative source path; null for generated Trunks.
+    source: ?[]const u8,
+    /// content/-relative output path.
+    out_path: []const u8,
+    id: []const u8,
+    role: Role = .unlisted_trunk,
+    placed: bool = false,
+    parent: ?usize = null,
+    nav_title: ?[]const u8 = null,
+    nav_depth: usize = 0,
+    nav_trail: []const u8 = "",
+    title: []const u8 = "",
+    title_source: []const u8 = "",
+    tags: []const []const u8 = &.{},
+    dropped: []const FmField = &.{},
+    children: std.ArrayList(usize) = .empty,
+    externals: std.ArrayList(External) = .empty,
+    class: Class = .transformed,
+};
+
+const Event = struct {
+    /// Source path (pages, includes) or generated Trunk id.
+    page: []const u8,
+    line: usize,
+    construct: []const u8,
+    class: Class,
+    detail: []const u8,
+};
+
+const IncludePlan = struct {
+    source: []const u8,
+    out_path: []const u8,
+};
+
+const AssetCopy = struct {
+    page: []const u8,
+    source: []const u8,
+    out_path: []const u8,
+};
+
+const EmitPlan = struct {
+    pages: std.ArrayList(PagePlan) = .empty,
+    events: std.ArrayList(Event) = .empty,
+    includes: std.ArrayList(IncludePlan) = .empty,
+    assets: std.ArrayList(AssetCopy) = .empty,
+    used_paths: std.ArrayList([]const u8) = .empty,
+
+    fn event(self: *EmitPlan, a: std.mem.Allocator, page: []const u8, line: usize, construct: []const u8, class: Class, detail: []const u8) !void {
+        try self.events.append(a, .{ .page = page, .line = line, .construct = construct, .class = class, .detail = detail });
+    }
+
+    fn bySource(self: *const EmitPlan, source: []const u8) ?usize {
+        for (self.pages.items, 0..) |p, i| {
+            if (p.source) |s| {
+                if (std.mem.eql(u8, s, source)) return i;
+            }
+        }
+        return null;
+    }
+};
+
+/// Claim a unique content-relative `<stem>.md` path (ASCII case-insensitive,
+/// so case-folding filesystems cannot merge two pages).
+fn claimPath(a: std.mem.Allocator, plan: *EmitPlan, stem: []const u8) ![]const u8 {
+    var n: usize = 1;
+    while (true) : (n += 1) {
+        const candidate = if (n == 1)
+            try std.fmt.allocPrint(a, "{s}.md", .{stem})
+        else
+            try std.fmt.allocPrint(a, "{s}-{d}.md", .{ stem, n });
+        var taken = false;
+        for (plan.used_paths.items) |u| {
+            if (std.ascii.eqlIgnoreCase(u, candidate)) {
+                taken = true;
+                break;
+            }
+        }
+        if (!taken) {
+            try plan.used_paths.append(a, candidate);
+            return candidate;
+        }
+    }
+}
+
+/// docs-relative page source → sanitized content-relative stem.
+/// `X/README.md` becomes `X/index` when the directory has no `index.md`;
+/// a top-level `includes/` directory is renamed (Boris reserves it for
+/// include fragments, which are never discovered as pages).
+fn pageStem(a: std.mem.Allocator, source: []const u8, files: []const []const u8) ![]const u8 {
+    var stem = source;
+    if (std.mem.endsWith(u8, stem, ".markdown")) {
+        stem = stem[0 .. stem.len - ".markdown".len];
+    } else if (std.mem.endsWith(u8, stem, ".md")) {
+        stem = stem[0 .. stem.len - ".md".len];
+    }
+    const dir = std.fs.path.dirname(stem);
+    var base = std.fs.path.basename(stem);
+    if (std.ascii.eqlIgnoreCase(base, "README")) {
+        const sibling = if (dir) |d| try std.fmt.allocPrint(a, "{s}/index.md", .{d}) else "index.md";
+        if (!fileExists(files, sibling)) base = "index";
+    }
+    var buf: std.ArrayList(u8) = .empty;
+    if (dir) |d| {
+        var it = std.mem.splitScalar(u8, d, '/');
+        var first = true;
+        while (it.next()) |seg| {
+            if (seg.len == 0) continue;
+            const clean = try asset_filename.sanitizeSegment(a, seg);
+            if (!first) try buf.append(a, '/');
+            if (first and std.mem.eql(u8, clean, "includes")) {
+                try buf.appendSlice(a, "includes-page");
+            } else {
+                try buf.appendSlice(a, clean);
+            }
+            first = false;
+        }
+        if (!first) try buf.append(a, '/');
+    }
+    try buf.appendSlice(a, try asset_filename.sanitizeSegment(a, base));
+    return try buf.toOwnedSlice(a);
+}
+
+fn titleSlug(a: std.mem.Allocator, title: []const u8) ![]const u8 {
+    const lower = try asset_filename.asciiLowerAlloc(a, title);
+    const clean = try asset_filename.sanitizeSegment(a, lower);
+    if (std.mem.eql(u8, clean, "asset")) return "section";
+    return clean;
+}
+
+fn stemOf(out_path: []const u8) []const u8 {
+    return out_path[0 .. out_path.len - ".md".len];
+}
+
+// ---- Source front matter (emit side) --------------------------------------
+
+const SrcLine = struct {
+    text: []const u8,
+    no: usize,
+};
+
+const ParsedSource = struct {
+    title: ?[]const u8 = null,
+    tags: []const []const u8 = &.{},
+    dropped: []const FmField = &.{},
+    h1: ?[]const u8 = null,
+    body: []const SrcLine = &.{},
+};
+
+fn unquote(s: []const u8) []const u8 {
+    return std.mem.trim(u8, trim(s), "'\"");
+}
+
+fn parseSource(a: std.mem.Allocator, text: []const u8) !ParsedSource {
+    var all: std.ArrayList(SrcLine) = .empty;
+    var it = std.mem.splitScalar(u8, text, '\n');
+    var no: usize = 0;
+    while (it.next()) |raw| {
+        no += 1;
+        // Keep trailing spaces: two of them are a Markdown hard break.
+        try all.append(a, .{ .text = std.mem.trimEnd(u8, raw, "\r"), .no = no });
+    }
+    // A trailing newline yields one empty final element; drop it.
+    if (all.items.len > 0 and all.items[all.items.len - 1].text.len == 0 and std.mem.endsWith(u8, text, "\n")) {
+        _ = all.pop();
+    }
+
+    var out: ParsedSource = .{};
+    var body_start: usize = 0;
+    if (all.items.len > 0 and std.mem.eql(u8, rtrim(all.items[0].text), "---")) {
+        var close: ?usize = null;
+        for (all.items[1..], 1..) |l, i| {
+            if (std.mem.eql(u8, rtrim(l.text), "---") or std.mem.eql(u8, rtrim(l.text), "...")) {
+                close = i;
+                break;
+            }
+        }
+        if (close) |c| {
+            body_start = c + 1;
+            var tags: std.ArrayList([]const u8) = .empty;
+            var dropped: std.ArrayList(FmField) = .empty;
+            var cur_key: ?[]const u8 = null;
+            var cur_items: std.ArrayList(u8) = .empty;
+            var i: usize = 1;
+            while (i <= c) : (i += 1) {
+                const at_end = i == c;
+                const line = if (at_end) "" else all.items[i].text;
+                const stripped = trim(line);
+                const top_level = !at_end and stripped.len > 0 and lineIndent(line) == 0 and stripped[0] != '-' and stripped[0] != '#';
+                if (at_end or top_level) {
+                    // Flush the block-list items gathered for the previous key.
+                    if (cur_key) |k| {
+                        if (cur_items.items.len > 0) {
+                            if (std.mem.eql(u8, k, "tags")) {
+                                var ti = std.mem.splitScalar(u8, cur_items.items, '\n');
+                                while (ti.next()) |t| if (t.len > 0) try tags.append(a, t);
+                            } else {
+                                try dropped.append(a, .{ .key = k, .value = try a.dupe(u8, cur_items.items) });
+                            }
+                        }
+                    }
+                    cur_key = null;
+                    cur_items = .empty;
+                    if (at_end) break;
+                    const colon = std.mem.indexOfScalar(u8, stripped, ':') orelse {
+                        try dropped.append(a, .{ .key = "(malformed)", .value = stripped });
+                        continue;
+                    };
+                    const key = trim(stripped[0..colon]);
+                    const value = trim(stripped[colon + 1 ..]);
+                    if (std.mem.eql(u8, key, "title")) {
+                        const t = unquote(value);
+                        if (t.len > 0) out.title = t;
+                    } else if (std.mem.eql(u8, key, "tags")) {
+                        if (value.len == 0) {
+                            cur_key = key;
+                        } else if (value[0] == '[' and value[value.len - 1] == ']') {
+                            var ti = std.mem.splitScalar(u8, value[1 .. value.len - 1], ',');
+                            while (ti.next()) |t| {
+                                const tt = unquote(t);
+                                if (tt.len > 0) try tags.append(a, tt);
+                            }
+                        } else {
+                            try tags.append(a, unquote(value));
+                        }
+                    } else if (value.len == 0) {
+                        cur_key = key;
+                    } else {
+                        try dropped.append(a, .{ .key = key, .value = value });
+                    }
+                    continue;
+                }
+                if (stripped.len == 0 or stripped[0] == '#') continue;
+                if (cur_key) |k| {
+                    const item = if (stripped[0] == '-') trim(stripped[1..]) else stripped;
+                    if (cur_items.items.len > 0) try cur_items.append(a, '\n');
+                    try cur_items.appendSlice(a, if (std.mem.eql(u8, k, "tags")) unquote(item) else item);
+                }
+            }
+            out.tags = try tags.toOwnedSlice(a);
+            out.dropped = try dropped.toOwnedSlice(a);
+        }
+    }
+    out.body = all.items[body_start..];
+
+    var in_fence = false;
+    for (out.body) |l| {
+        const s = trim(l.text);
+        if (std.mem.startsWith(u8, s, "```") or std.mem.startsWith(u8, s, "~~~")) in_fence = !in_fence;
+        if (in_fence) continue;
+        if (std.mem.startsWith(u8, s, "# ")) {
+            const h = trim(s[2..]);
+            if (h.len > 0) out.h1 = h;
+            break;
+        }
+    }
+    return out;
+}
+
+// ---- Nav → Trunk / Satellite plan -----------------------------------------
+
+fn joinTrail(a: std.mem.Allocator, parts: []const []const u8, last: []const u8) ![]const u8 {
+    var buf: std.ArrayList(u8) = .empty;
+    for (parts) |p| {
+        try buf.appendSlice(a, p);
+        try buf.appendSlice(a, " / ");
+    }
+    try buf.appendSlice(a, last);
+    return try buf.toOwnedSlice(a);
+}
+
+/// Direct child page of section `ei` whose basename is index.md/README.md.
+/// Direct child page of section `ei` whose basename is `want`.
+fn ownPageEntry(nav: []const NavEntry, ei: usize, want: []const u8) ?usize {
+    const e = nav[ei];
+    var j = ei + 1;
+    while (j < nav.len and nav[j].depth > e.depth) : (j += 1) {
+        if (nav[j].depth != e.depth + 1 or nav[j].kind != .page or nav[j].target == null) continue;
+        if (std.ascii.eqlIgnoreCase(std.fs.path.basename(nav[j].target.?), want)) return j;
+    }
+    return null;
+}
+
+fn navTarget(t: []const u8) []const u8 {
+    return if (std.mem.startsWith(u8, t, "./")) t[2..] else t;
+}
+
+fn buildPlan(a: std.mem.Allocator, inv: Inventory) !EmitPlan {
+    var plan: EmitPlan = .{};
+
+    for (inv.pages) |p| {
+        const out_path = try claimPath(a, &plan, try pageStem(a, p.path, inv.files));
+        try plan.pages.append(a, .{ .source = p.path, .out_path = out_path, .id = stemOf(out_path) });
+        const natural = try std.fmt.allocPrint(a, "{s}", .{p.path});
+        if (!std.mem.eql(u8, natural, out_path)) {
+            try plan.event(a, p.path, 0, "page path", .transformed, try std.fmt.allocPrint(a, "emitted as content/{s}", .{out_path}));
+        }
+    }
+
+    const nav = inv.config.nav;
+    var trail: std.ArrayList([]const u8) = .empty;
+    var cur_trunk: ?usize = null;
+    for (nav, 0..) |e, ei| {
+        trail.shrinkRetainingCapacity(@min(trail.items.len, e.depth - 1));
+        if (e.depth == 1) cur_trunk = null;
+        const where = try std.fmt.allocPrint(a, "mkdocs.yml:{d}", .{e.line});
+        switch (e.kind) {
+            .section => {
+                const title = e.title orelse "";
+                if (e.depth == 1) {
+                    // MkDocs prefers index.md; README.md is the index only
+                    // without one. Skip candidates that are missing or
+                    // already placed as Satellites.
+                    for ([_][]const u8{ "index.md", "readme.md" }) |want| {
+                        const oj = ownPageEntry(nav, ei, want) orelse continue;
+                        const pi = plan.bySource(navTarget(nav[oj].target.?)) orelse continue;
+                        const p = &plan.pages.items[pi];
+                        if (p.placed and p.role != .trunk) continue;
+                        p.placed = true;
+                        p.role = .trunk;
+                        cur_trunk = pi;
+                        try plan.event(a, where, e.line, "nav: section with own page", .transformed, try std.fmt.allocPrint(a, "section \"{s}\": {s} is the Trunk; nested pages become its Satellites", .{ title, p.id }));
+                        break;
+                    }
+                    if (cur_trunk == null) {
+                        const out_path = try claimPath(a, &plan, try titleSlug(a, title));
+                        try plan.pages.append(a, .{
+                            .source = null,
+                            .out_path = out_path,
+                            .id = stemOf(out_path),
+                            .role = .generated_trunk,
+                            .placed = true,
+                            .nav_depth = e.depth,
+                            .nav_trail = title,
+                            .title = title,
+                            .title_source = "nav_section",
+                        });
+                        cur_trunk = plan.pages.items.len - 1;
+                        try plan.event(a, where, e.line, "nav: section without own page", .transformed, try std.fmt.allocPrint(a, "section \"{s}\" has no page of its own; generated Trunk {s} ({s})", .{ title, stemOf(out_path), migration_semantics.ProposedEntityKind.generated_trunk.name() }));
+                    }
+                } else {
+                    try plan.event(a, where, e.line, "nav: section nested below the top level", .transformed, try std.fmt.allocPrint(a, "section \"{s}\" (depth {d}) collapsed; its pages become Satellites of {s}", .{ title, e.depth, plan.pages.items[cur_trunk.?].id }));
+                }
+                try trail.append(a, title);
+            },
+            .page => {
+                const target = navTarget(e.target.?);
+                const pi = plan.bySource(target) orelse {
+                    try plan.event(a, where, e.line, "nav: missing page target", .human_review, try std.fmt.allocPrint(a, "nav target {s} is not a page under docs_dir", .{target}));
+                    continue;
+                };
+                const p = &plan.pages.items[pi];
+                if (p.placed) {
+                    if (cur_trunk == pi and p.nav_depth == 0) {
+                        // The section's own page, already promoted to Trunk.
+                        p.nav_title = e.title;
+                        p.nav_depth = e.depth;
+                        p.nav_trail = try joinTrail(a, trail.items, e.title orelse target);
+                    } else {
+                        try plan.event(a, where, e.line, "nav: page listed more than once", .human_review, try std.fmt.allocPrint(a, "{s} already placed; first nav placement kept", .{target}));
+                    }
+                    continue;
+                }
+                p.placed = true;
+                p.nav_title = e.title;
+                p.nav_depth = e.depth;
+                p.nav_trail = try joinTrail(a, trail.items, e.title orelse target);
+                if (cur_trunk) |ti| {
+                    p.role = .satellite;
+                    p.parent = ti;
+                    try plan.pages.items[ti].children.append(a, pi);
+                    if (e.depth >= 3) {
+                        try plan.event(a, where, e.line, "nav: entry three or more levels deep", .transformed, try std.fmt.allocPrint(a, "{s} flattened from depth {d} to a Satellite of {s}", .{ target, e.depth, plan.pages.items[ti].id }));
+                    }
+                } else {
+                    p.role = .trunk;
+                }
+            },
+            .external => {
+                const host = cur_trunk orelse plan.bySource("index.md");
+                const title = e.title orelse e.target.?;
+                if (host) |hi| {
+                    try plan.pages.items[hi].externals.append(a, .{ .title = title, .url = e.target.? });
+                    try plan.event(a, where, e.line, "nav: external link", .transformed, try std.fmt.allocPrint(a, "\"{s}\" becomes a Markdown link on {s}", .{ title, plan.pages.items[hi].id }));
+                } else {
+                    try plan.event(a, where, e.line, "nav: external link", .human_review, try std.fmt.allocPrint(a, "\"{s}\" has no landing page to carry it (no index.md)", .{title}));
+                }
+            },
+        }
+    }
+
+    for (plan.pages.items) |*p| {
+        if (p.placed) continue;
+        p.placed = true;
+        p.role = .unlisted_trunk;
+        try plan.event(a, p.source.?, 0, "page not in nav", .transformed, "not listed in nav:; emitted as a standalone Trunk");
+    }
+    return plan;
+}
+
+// ---- Body transform --------------------------------------------------------
+
+const Ctx = struct {
+    a: std.mem.Allocator,
+    inv: *const Inventory,
+    plan: *EmitPlan,
+    /// docs-relative path of the file being transformed.
+    source: []const u8,
+    /// Owning page; null while transforming an include fragment.
+    page: ?usize,
+};
+
+/// Source text placed into an HTML comment: no `--` and no `>`.
+fn commentSafeAppend(buf: *std.ArrayList(u8), a: std.mem.Allocator, s: []const u8) !void {
+    var prev: u8 = 0;
+    for (s) |c| {
+        if (c == '\n' or c == '\r') {
+            try buf.append(a, ' ');
+        } else if (c == '>') {
+            try buf.append(a, ')');
+        } else if (c == '-' and prev == '-') {
+            try buf.appendSlice(a, " -");
+        } else {
+            try buf.append(a, c);
+        }
+        prev = c;
+    }
+}
+
+fn reviewComment(ctx: Ctx, out: *std.ArrayList(u8), msg: []const u8) !void {
+    try out.appendSlice(ctx.a, "<!-- boris-migration-review: ");
+    try commentSafeAppend(out, ctx.a, msg);
+    try out.appendSlice(ctx.a, " -->");
+}
+
+fn ensureBlankLine(a: std.mem.Allocator, out: *std.ArrayList(u8)) !void {
+    if (out.items.len == 0) return;
+    if (out.items[out.items.len - 1] != '\n') try out.append(a, '\n');
+    if (out.items.len < 2 or out.items[out.items.len - 2] != '\n') try out.append(a, '\n');
+}
+
+/// Escape literal text so it cannot become Boris syntax (`{{…}}` directives,
+/// `[[…]]` wiki-links, or PascalCase component tags).
+fn literalAppend(ctx: Ctx, out: *std.ArrayList(u8), s: []const u8, line: usize) !void {
+    var escaped = false;
+    for (s, 0..) |c, i| {
+        const next: u8 = if (i + 1 < s.len) s[i + 1] else 0;
+        if ((c == '{' and next == '{') or (c == '[' and next == '[')) {
+            try out.append(ctx.a, c);
+            try out.append(ctx.a, '\\');
+            escaped = true;
+            continue;
+        }
+        if (c == '<' and (std.ascii.isUpper(next) or (next == '/' and i + 2 < s.len and std.ascii.isUpper(s[i + 2])))) {
+            try out.appendSlice(ctx.a, "&lt;");
+            escaped = true;
+            continue;
+        }
+        try out.append(ctx.a, c);
+    }
+    if (escaped) try ctx.plan.event(ctx.a, ctx.source, line, "Boris-significant literal text", .transformed, "escaped {{, [[ or <Tag so it stays literal");
+}
+
+fn wikiLabelAppend(a: std.mem.Allocator, out: *std.ArrayList(u8), label: []const u8) !void {
+    for (label) |c| {
+        if (c == '|' or c == '[' or c == ']') continue;
+        try out.append(a, c);
+    }
+}
+
+fn hasLinkScheme(url: []const u8) bool {
+    return std.mem.indexOf(u8, url, "://") != null or std.mem.startsWith(u8, url, "//") or
+        std.mem.startsWith(u8, url, "mailto:") or std.mem.startsWith(u8, url, "tel:") or
+        std.mem.startsWith(u8, url, "data:");
+}
+
+fn headingExists(inv: *const Inventory, source: []const u8, frag: []const u8) bool {
+    const p = pageByPath(inv.pages, source) orelse return false;
+    return fileExists(p.headings, frag);
+}
+
+/// True when `child` lies inside directory `dir` (ASCII case-insensitive).
+fn pathUnder(child: []const u8, dir: []const u8) bool {
+    return child.len > dir.len and child[dir.len] == '/' and std.ascii.eqlIgnoreCase(child[0..dir.len], dir);
+}
+
+/// Boris link-audits relative hrefs (EROUTEMISSING), so an unresolved link
+/// keeps only its label plus a review marker naming the original target.
+fn unresolvedLinkAppend(ctx: Ctx, out: *std.ArrayList(u8), label: []const u8, url: []const u8, why: []const u8, line: usize) !void {
+    try literalAppend(ctx, out, label, line);
+    try out.append(ctx.a, ' ');
+    try reviewComment(ctx, out, try std.fmt.allocPrint(ctx.a, "{s}: {s}", .{ why, url }));
+}
+
+fn emitLink(ctx: Ctx, out: *std.ArrayList(u8), is_img: bool, label: []const u8, dest_raw: []const u8, original: []const u8, line: usize) !void {
+    const a = ctx.a;
+    var url = dest_raw;
+    var title_part: []const u8 = "";
+    if (url.len > 0 and url[0] == '<') {
+        const close = std.mem.indexOfScalar(u8, url, '>') orelse url.len;
+        title_part = if (close + 1 < url.len) trim(url[close + 1 ..]) else "";
+        url = url[1..@min(close, url.len)];
+    } else if (std.mem.indexOfAny(u8, url, " \t")) |sp| {
+        title_part = trim(url[sp..]);
+        url = url[0..sp];
+    }
+    if (url.len == 0 or hasLinkScheme(url)) {
+        try out.appendSlice(a, original);
+        return;
+    }
+    const base_dir = std.fs.path.dirname(ctx.source) orelse "";
+
+    if (is_img) {
+        const lookup = if (std.mem.indexOfScalar(u8, url, '%') != null) try asset_filename.urlDecodeAlloc(a, url) else url;
+        const resolved = if (url[0] == '/') null else try resolveRelative(a, base_dir, lookup);
+        if (ctx.page != null and resolved != null and fileExists(ctx.inv.files, resolved.?)) {
+            const page = ctx.plan.pages.items[ctx.page.?];
+            const sanitized = try asset_filename.sanitizeWithinTree(a, resolved.?);
+            const stem = stemOf(page.out_path);
+            // Two sources that sanitize alike get distinct published names.
+            var within: []const u8 = sanitized;
+            var out_rel = try std.fmt.allocPrint(a, "{s}.assets/{s}", .{ stem, within });
+            var n: usize = 2;
+            var reuse = false;
+            var dir_clash = false;
+            while (true) : (n += 1) {
+                var clash = false;
+                for (ctx.plan.assets.items) |x| {
+                    if (std.ascii.eqlIgnoreCase(x.out_path, out_rel)) {
+                        if (std.mem.eql(u8, x.source, resolved.?)) reuse = true else clash = true;
+                        break;
+                    }
+                    // A file path cannot also be a directory of another asset.
+                    if (pathUnder(x.out_path, out_rel) or pathUnder(out_rel, x.out_path)) {
+                        clash = true;
+                        dir_clash = true;
+                        break;
+                    }
+                }
+                if (!clash) break;
+                // A directory conflict cannot be fixed by renaming the
+                // basename: prefix the top-level segment instead (each n
+                // yields a fresh root, so this terminates).
+                within = if (dir_clash)
+                    try std.fmt.allocPrint(a, "{d}-{s}", .{ n, sanitized })
+                else if (std.fs.path.dirname(sanitized)) |d|
+                    try std.fmt.allocPrint(a, "{s}/{d}-{s}", .{ d, n, std.fs.path.basename(sanitized) })
+                else
+                    try std.fmt.allocPrint(a, "{d}-{s}", .{ n, sanitized });
+                out_rel = try std.fmt.allocPrint(a, "{s}.assets/{s}", .{ stem, within });
+            }
+            if (!reuse) try ctx.plan.assets.append(a, .{ .page = page.id, .source = resolved.?, .out_path = out_rel });
+            try out.appendSlice(a, "![");
+            try out.appendSlice(a, label);
+            try out.appendSlice(a, "](");
+            try out.appendSlice(a, std.fs.path.basename(stem));
+            try out.appendSlice(a, ".assets/");
+            try out.appendSlice(a, within);
+            if (title_part.len > 0) {
+                try out.append(a, ' ');
+                try out.appendSlice(a, title_part);
+            }
+            try out.append(a, ')');
+            try ctx.plan.event(a, ctx.source, line, "inline image under docs/", .transformed, try std.fmt.allocPrint(a, "{s} copied to content/{s}", .{ url, out_rel }));
+            return;
+        }
+        // Boris rejects unresolved local images (EASSET): keep the alt text.
+        const why: []const u8 = if (ctx.page == null) "image inside a snippet fragment is not materialised" else "image not found under docs_dir";
+        try literalAppend(ctx, out, label, line);
+        try out.append(a, ' ');
+        try reviewComment(ctx, out, try std.fmt.allocPrint(a, "{s}: {s}", .{ why, url }));
+        try ctx.plan.event(a, ctx.source, line, "inline image under docs/", .human_review, try std.fmt.allocPrint(a, "{s}: {s}; reference replaced by alt text", .{ why, url }));
+        return;
+    }
+
+    var path_part = url;
+    var frag: ?[]const u8 = null;
+    if (std.mem.indexOfScalar(u8, url, '#')) |h| {
+        path_part = url[0..h];
+        frag = url[h + 1 ..];
+    }
+
+    if (path_part.len == 0) {
+        if (ctx.page) |pi| {
+            if (frag) |f| {
+                if (headingExists(ctx.inv, ctx.source, f)) {
+                    try out.appendSlice(a, "[[");
+                    try out.appendSlice(a, ctx.plan.pages.items[pi].id);
+                    try out.append(a, '#');
+                    try out.appendSlice(a, f);
+                    try out.append(a, '|');
+                    try wikiLabelAppend(a, out, label);
+                    try out.appendSlice(a, "]]");
+                    try ctx.plan.event(a, ctx.source, line, "heading anchor #fragment", .transformed, try std.fmt.allocPrint(a, "#{s} → validated wiki section link", .{f}));
+                    return;
+                }
+            }
+        }
+        const why = try std.fmt.allocPrint(a, "#{s} does not match a heading on this page", .{frag orelse ""});
+        try unresolvedLinkAppend(ctx, out, label, url, why, line);
+        try ctx.plan.event(a, ctx.source, line, "heading anchor #fragment", .human_review, try std.fmt.allocPrint(a, "{s}; link replaced by its label", .{why}));
+        return;
+    }
+
+    var target_pi: ?usize = null;
+    var resolved: ?[]const u8 = null;
+    if (path_part[0] != '/') {
+        const lookup = if (std.mem.indexOfScalar(u8, path_part, '%') != null) try asset_filename.urlDecodeAlloc(a, path_part) else path_part;
+        resolved = try resolveRelative(a, base_dir, lookup);
+        if (resolved) |r| {
+            target_pi = ctx.plan.bySource(r);
+            if (target_pi == null and !isMarkdownName(r)) {
+                // Directory-style link: MkDocs serves its index.md / README.md.
+                for ([_][]const u8{ "index.md", "README.md" }) |idx| {
+                    const cand = try std.fmt.allocPrint(a, "{s}/{s}", .{ r, idx });
+                    if (ctx.plan.bySource(cand)) |pi| {
+                        target_pi = pi;
+                        resolved = cand;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    const ti = target_pi orelse {
+        const why: []const u8 = if (path_part[0] == '/')
+            "site-absolute link"
+        else if (resolved == null)
+            "link escapes docs_dir"
+        else if (fileExists(ctx.inv.files, resolved.?))
+            "link to a file that is not an emitted page"
+        else
+            "unresolved link target";
+        try unresolvedLinkAppend(ctx, out, label, url, why, line);
+        try ctx.plan.event(a, ctx.source, line, "relative .md page link", .human_review, try std.fmt.allocPrint(a, "{s}: {s}; link replaced by its label", .{ why, url }));
+        return;
+    };
+    const target = ctx.plan.pages.items[ti];
+    var keep_frag = false;
+    if (frag) |f| {
+        keep_frag = f.len > 0 and std.mem.indexOfAny(u8, f, "|]") == null and headingExists(ctx.inv, resolved.?, f);
+        if (!keep_frag) {
+            try ctx.plan.event(a, ctx.source, line, "heading anchor #fragment", .human_review, try std.fmt.allocPrint(a, "#{s} is not a heading on {s}; fragment dropped", .{ f, target.id }));
+        } else {
+            try ctx.plan.event(a, ctx.source, line, "heading anchor #fragment", .transformed, try std.fmt.allocPrint(a, "#{s} validated on {s}", .{ f, target.id }));
+        }
+    }
+    try out.appendSlice(a, "[[");
+    try out.appendSlice(a, target.id);
+    if (keep_frag) {
+        try out.append(a, '#');
+        try out.appendSlice(a, frag.?);
+    }
+    var label_buf: std.ArrayList(u8) = .empty;
+    try wikiLabelAppend(a, &label_buf, label);
+    if (trim(label_buf.items).len > 0) {
+        try out.append(a, '|');
+        try out.appendSlice(a, label_buf.items);
+    }
+    try out.appendSlice(a, "]]");
+    try ctx.plan.event(a, ctx.source, line, "relative .md page link", .transformed, try std.fmt.allocPrint(a, "{s} → [[{s}]]", .{ url, target.id }));
+}
+
+/// Index of the `)` closing a link destination that starts at `start`;
+/// balanced inner parentheses (`setup(v2).md`) belong to the destination.
+fn closingParen(line: []const u8, start: usize) ?usize {
+    var depth: usize = 0;
+    var k = start;
+    // `<...>` destinations are opaque.
+    if (k < line.len and line[k] == '<') k = std.mem.indexOfScalarPos(u8, line, k, '>') orelse return null;
+    while (k < line.len) : (k += 1) {
+        switch (line[k]) {
+            // A quoted link title after whitespace is opaque (backslash
+            // escapes included).
+            '"', '\'' => if (k > start and (line[k - 1] == ' ' or line[k - 1] == '\t')) {
+                const q = line[k];
+                k += 1;
+                while (k < line.len and line[k] != q) : (k += 1) {
+                    if (line[k] == '\\') k += 1;
+                }
+                if (k >= line.len) return null;
+            },
+            '(' => depth += 1,
+            ')' => {
+                if (depth == 0) return k;
+                depth -= 1;
+            },
+            else => {},
+        }
+    }
+    return null;
+}
+
+/// Rewrite inline links/images on one line; inline code spans stay verbatim.
+fn rewriteInline(ctx: Ctx, out: *std.ArrayList(u8), line: []const u8, line_no: usize) !void {
+    var i: usize = 0;
+    var seg: usize = 0;
+    while (i < line.len) {
+        const c = line[i];
+        if (c == '`') {
+            var tick: usize = 0;
+            while (i + tick < line.len and line[i + tick] == '`') tick += 1;
+            if (std.mem.indexOfPos(u8, line, i + tick, line[i .. i + tick])) |close| {
+                try literalAppend(ctx, out, line[seg..i], line_no);
+                try out.appendSlice(ctx.a, line[i .. close + tick]);
+                i = close + tick;
+                seg = i;
+            } else {
+                i += tick;
+            }
+            continue;
+        }
+        const is_img = c == '!' and i + 1 < line.len and line[i + 1] == '[';
+        if (c == '[' or is_img) {
+            const lb = if (is_img) i + 1 else i;
+            if (!is_img and lb + 1 < line.len and (line[lb + 1] == '!' or line[lb + 1] == '[')) {
+                i += 1;
+                continue;
+            }
+            const rb = std.mem.indexOfScalarPos(u8, line, lb + 1, ']') orelse {
+                i += 1;
+                continue;
+            };
+            if (rb + 1 >= line.len or line[rb + 1] != '(') {
+                i += 1;
+                continue;
+            }
+            const rp = closingParen(line, rb + 2) orelse {
+                i += 1;
+                continue;
+            };
+            try literalAppend(ctx, out, line[seg..i], line_no);
+            try emitLink(ctx, out, is_img, line[lb + 1 .. rb], trim(line[rb + 2 .. rp]), line[i .. rp + 1], line_no);
+            i = rp + 1;
+            seg = i;
+            continue;
+        }
+        i += 1;
+    }
+    try literalAppend(ctx, out, line[seg..], line_no);
+}
+
+const BlockMarker = struct {
+    kind: []const u8,
+    title: ?[]const u8,
+    collapsible: bool,
+};
+
+fn parseAdmonition(stripped: []const u8) ?BlockMarker {
+    if (stripped.len < 5) return null;
+    const collapsible = std.mem.startsWith(u8, stripped, "???");
+    if (!collapsible and !std.mem.startsWith(u8, stripped, "!!!")) return null;
+    var rest = stripped[3..];
+    if (collapsible and rest.len > 0 and rest[0] == '+') rest = rest[1..];
+    if (rest.len == 0 or rest[0] != ' ') return null;
+    rest = trim(rest);
+    var kind_end: usize = 0;
+    while (kind_end < rest.len and rest[kind_end] != ' ' and rest[kind_end] != '\t') kind_end += 1;
+    if (kind_end == 0) return null;
+    var title: ?[]const u8 = null;
+    const tail = trim(rest[kind_end..]);
+    if (tail.len >= 2 and tail[0] == '"' and tail[tail.len - 1] == '"') {
+        const t = tail[1 .. tail.len - 1];
+        if (t.len > 0) title = t;
+    }
+    return .{ .kind = rest[0..kind_end], .title = title, .collapsible = collapsible };
+}
+
+fn parseTab(stripped: []const u8) ?[]const u8 {
+    if (!std.mem.startsWith(u8, stripped, "===")) return null;
+    var rest = stripped[3..];
+    if (rest.len > 0 and (rest[0] == '!' or rest[0] == '+')) rest = rest[1..];
+    if (rest.len == 0 or rest[0] != ' ') return null;
+    rest = trim(rest);
+    if (rest.len < 2 or rest[0] != '"' or rest[rest.len - 1] != '"') return null;
+    return rest[1 .. rest.len - 1];
+}
+
+/// End (exclusive) of the indented block that starts at `start`; trailing
+/// blank lines are not part of the block.
+fn blockEnd(lines: []const SrcLine, start: usize, min_indent: usize) usize {
+    var j = start;
+    var end = start;
+    while (j < lines.len) : (j += 1) {
+        if (trim(lines[j].text).len == 0) continue;
+        if (lineIndent(lines[j].text) < min_indent) break;
+        end = j + 1;
+    }
+    return end;
+}
+
+fn dedent(a: std.mem.Allocator, lines: []const SrcLine, n: usize) ![]SrcLine {
+    const out = try a.alloc(SrcLine, lines.len);
+    for (lines, 0..) |l, i| {
+        out[i] = .{ .text = if (l.text.len >= n and lineIndent(l.text) >= n) l.text[n..] else trim(l.text), .no = l.no };
+    }
+    return out;
+}
+
+/// Details `summary` is plain double-quoted text without escapes, 1–256 bytes.
+fn summaryAppend(a: std.mem.Allocator, out: *std.ArrayList(u8), label: []const u8) !void {
+    const start = out.items.len;
+    for (label) |c| {
+        if (out.items.len - start >= 256) break;
+        if (c == '"') {
+            try out.append(a, '\'');
+        } else if (c >= 0x20 and c != 0x7f) {
+            try out.append(a, c);
+        }
+    }
+    // Never split a UTF-8 sequence at the byte cap.
+    while (out.items.len > start and (out.items[out.items.len - 1] & 0xC0) == 0x80) {
+        var k = out.items.len - 1;
+        while (k > start and (out.items[k] & 0xC0) == 0x80) k -= 1;
+        const lead = out.items[k];
+        const need: usize = if (lead >= 0xF0) 4 else if (lead >= 0xE0) 3 else if (lead >= 0xC0) 2 else 1;
+        if (out.items.len - k >= need) break;
+        out.shrinkRetainingCapacity(k);
+    }
+    if (out.items.len == start) try out.appendSlice(a, "Tab");
+}
+
+fn includeFor(ctx: Ctx, resolved: []const u8) ![]const u8 {
+    for (ctx.plan.includes.items) |inc| {
+        if (std.mem.eql(u8, inc.source, resolved)) return inc.out_path;
+    }
+    const within = try asset_filename.sanitizeWithinTree(ctx.a, resolved);
+    var out_path = try std.fmt.allocPrint(ctx.a, "includes/{s}", .{within});
+    var n: usize = 2;
+    while (true) : (n += 1) {
+        var taken = false;
+        for (ctx.plan.includes.items) |inc| {
+            if (std.ascii.eqlIgnoreCase(inc.out_path, out_path)) taken = true;
+        }
+        if (!taken) break;
+        out_path = try std.fmt.allocPrint(ctx.a, "includes/{d}-{s}", .{ n, within });
+    }
+    try ctx.plan.includes.append(ctx.a, .{ .source = resolved, .out_path = out_path });
+    return out_path;
+}
+
+fn transformLines(ctx: Ctx, out: *std.ArrayList(u8), lines: []const SrcLine, in_component: bool) anyerror!void {
+    const a = ctx.a;
+    var in_fence = false;
+    var fence_char: u8 = 0;
+    var fence_len: usize = 0;
+    var i: usize = 0;
+    while (i < lines.len) {
+        const l = lines[i];
+        const line = l.text;
+        const stripped = trim(line);
+
+        if (stripped.len >= 3 and (stripped[0] == '`' or stripped[0] == '~')) {
+            var run_len: usize = 0;
+            while (run_len < stripped.len and stripped[run_len] == stripped[0]) run_len += 1;
+            if (run_len >= 3) {
+                if (!in_fence) {
+                    in_fence = true;
+                    fence_char = stripped[0];
+                    fence_len = run_len;
+                } else if (stripped[0] == fence_char and run_len >= fence_len and trim(stripped[run_len..]).len == 0) {
+                    in_fence = false;
+                }
+                try out.appendSlice(a, line);
+                try out.append(a, '\n');
+                i += 1;
+                continue;
+            }
+        }
+        if (in_fence) {
+            try out.appendSlice(a, line);
+            try out.append(a, '\n');
+            i += 1;
+            continue;
+        }
+
+        const indent = lineIndent(line);
+        const adm = parseAdmonition(stripped);
+        const tab = if (adm == null) parseTab(stripped) else null;
+        if (adm != null or tab != null) {
+            const end = blockEnd(lines, i + 1, indent + 4);
+            var body_start = i + 1;
+            while (body_start < end and trim(lines[body_start].text).len == 0) body_start += 1;
+            const body = try dedent(a, lines[body_start..end], indent + 4);
+            if (in_component) {
+                // Boris rejects nested Aside/Details: keep the source literal.
+                for (lines[i..end]) |raw| {
+                    try out.appendSlice(a, raw.text);
+                    try out.append(a, '\n');
+                }
+                try ctx.plan.event(a, ctx.source, l.no, if (adm != null) "admonition !!!/??? nested in a component" else "tabbed block nested in a component", .human_review, "Boris components cannot nest; inner block left as literal source");
+                i = end;
+                continue;
+            }
+            try ensureBlankLine(a, out);
+            if (adm) |m| {
+                if (asideKind(m.kind)) |k| {
+                    try out.appendSlice(a, "<Aside kind=\"");
+                    try out.appendSlice(a, k);
+                    try out.appendSlice(a, "\">\n\n");
+                    if (m.title) |t| {
+                        try out.appendSlice(a, "**");
+                        try mdTextAppend(out, a, t);
+                        try out.appendSlice(a, "**\n\n");
+                    }
+                    try transformLines(ctx, out, body, true);
+                    try ensureBlankLine(a, out);
+                    try out.appendSlice(a, "</Aside>\n");
+                    var detail: std.ArrayList(u8) = .empty;
+                    try detail.print(a, "{s} {s} → <Aside kind=\"{s}\">", .{ if (m.collapsible) "???" else "!!!", m.kind, k });
+                    if (m.title != null) try detail.appendSlice(a, "; custom title kept as a bold lead line");
+                    if (m.collapsible) try detail.appendSlice(a, "; collapsibility dropped");
+                    try ctx.plan.event(a, ctx.source, l.no, "admonition !!!/??? with Aside kind", .transformed, try detail.toOwnedSlice(a));
+                } else {
+                    // Never re-type: flag for the author and keep the body.
+                    try reviewComment(ctx, out, try std.fmt.allocPrint(a, "MkDocs admonition kind \"{s}\" has no Boris Aside equivalent; body kept as plain Markdown", .{m.kind}));
+                    try out.appendSlice(a, "\n\n");
+                    if (m.title) |t| {
+                        try out.appendSlice(a, "**");
+                        try mdTextAppend(out, a, t);
+                        try out.appendSlice(a, "**\n\n");
+                    }
+                    try transformLines(ctx, out, body, false);
+                    try ctx.plan.event(a, ctx.source, l.no, "admonition !!!/??? with no Aside kind", .human_review, try std.fmt.allocPrint(a, "kind \"{s}\" not re-typed; review comment + plain body", .{m.kind}));
+                }
+            } else {
+                try out.appendSlice(a, "<Details summary=\"");
+                try summaryAppend(a, out, tab.?);
+                try out.appendSlice(a, "\">\n\n");
+                try transformLines(ctx, out, body, true);
+                try ensureBlankLine(a, out);
+                try out.appendSlice(a, "</Details>\n");
+                try ctx.plan.event(a, ctx.source, l.no, "pymdownx tabbed block === \"Label\"", .human_review, try std.fmt.allocPrint(a, "tab \"{s}\" → sequential <Details>; tab-group exclusivity lost", .{tab.?}));
+            }
+            i = end;
+            continue;
+        }
+
+        if (std.mem.startsWith(u8, stripped, "--8<--")) {
+            const rest = trim(stripped["--8<--".len..]);
+            var target: []const u8 = rest;
+            if (rest.len >= 2 and (rest[0] == '"' or rest[0] == '\'') and rest[rest.len - 1] == rest[0]) target = rest[1 .. rest.len - 1];
+            var resolved: ?[]const u8 = null;
+            if (target.len > 0) {
+                if (fileExists(ctx.inv.files, target)) {
+                    resolved = target;
+                } else if (try resolveRelative(a, std.fs.path.dirname(ctx.source) orelse "", target)) |r| {
+                    if (fileExists(ctx.inv.files, r)) resolved = r;
+                }
+            }
+            if (resolved) |r| {
+                const inc = try includeFor(ctx, r);
+                try out.appendSlice(a, "{{include ");
+                try out.appendSlice(a, inc);
+                try out.appendSlice(a, "}}\n");
+                try ctx.plan.event(a, ctx.source, l.no, "snippet --8<-- present target", .transformed, try std.fmt.allocPrint(a, "{s} → {{{{include {s}}}}}", .{ target, inc }));
+            } else {
+                try reviewComment(ctx, out, try std.fmt.allocPrint(a, "EINCLUDEMISSING snippet \"{s}\" not found under docs_dir", .{target}));
+                try out.append(a, '\n');
+                try ctx.plan.event(a, ctx.source, l.no, "snippet --8<-- missing target", .human_review, try std.fmt.allocPrint(a, "{s} not found; review marker left in place", .{if (target.len > 0) target else "(block form)"}));
+            }
+            i += 1;
+            continue;
+        }
+
+        try rewriteInline(ctx, out, line, l.no);
+        try out.append(a, '\n');
+        i += 1;
+    }
+}
+
+// ---- Page assembly ---------------------------------------------------------
+
+fn buildPageFrontmatter(a: std.mem.Allocator, p: PagePlan, parent: ?[]const u8) ![]u8 {
+    const fm = try wordpress.buildFrontmatter(a, p.title, parent, "published", p.tags);
+    return try std.fmt.allocPrint(a, "---\nid: {s}\n{s}", .{ p.id, fm["---\n".len..] });
+}
+
+fn provenanceAppend(a: std.mem.Allocator, out: *std.ArrayList(u8), p: PagePlan) !void {
+    try ensureBlankLine(a, out);
+    try out.appendSlice(a, "<!-- boris-migration-provenance\nsource_format: mkdocs\nsource_path: ");
+    try commentSafeAppend(out, a, p.source orelse "(generated)");
+    try out.appendSlice(a, "\nrole: ");
+    try out.appendSlice(a, p.role.jsonName());
+    if (p.nav_trail.len > 0) {
+        try out.appendSlice(a, "\nnav_trail: ");
+        try commentSafeAppend(out, a, p.nav_trail);
+    }
+    try out.appendSlice(a, "\n-->\n");
+}
+
+fn externalsAppend(a: std.mem.Allocator, out: *std.ArrayList(u8), p: PagePlan) !void {
+    if (p.externals.items.len == 0) return;
+    try ensureBlankLine(a, out);
+    try out.appendSlice(a, "## External links\n\n");
+    for (p.externals.items) |x| {
+        try out.appendSlice(a, "- [");
+        try mdTextAppend(out, a, x.title);
+        try out.appendSlice(a, "](<");
+        for (x.url) |c| {
+            if (c != '<' and c != '>' and c >= 0x20) try out.append(a, c);
+        }
+        try out.appendSlice(a, ">)\n");
+    }
+}
+
+fn clampTags(a: std.mem.Allocator, plan: *EmitPlan, source: []const u8, tags: []const []const u8) ![]const []const u8 {
+    var kept: std.ArrayList([]const u8) = .empty;
+    for (tags) |t| {
+        var dup = false;
+        for (kept.items) |k| {
+            if (std.mem.eql(u8, k, t)) dup = true;
+        }
+        if (dup) continue;
+        if (t.len > 64 or kept.items.len >= 32) {
+            try plan.event(a, source, 0, "front matter tags", .human_review, try std.fmt.allocPrint(a, "tag \"{s}\" exceeds Boris bounds (32 tags, 64 bytes); dropped", .{t}));
+            continue;
+        }
+        try kept.append(a, t);
+    }
+    return try kept.toOwnedSlice(a);
+}
+
+fn clampTitle(t: []const u8) []const u8 {
+    if (t.len <= 512) return t;
+    var end: usize = 512;
+    while (end > 0 and (t[end] & 0xC0) == 0x80) end -= 1;
+    return t[0..end];
+}
+
+const Rendered = struct {
+    out_path: []const u8,
+    bytes: []const u8,
+};
+
+fn renderPages(io: Io, a: std.mem.Allocator, docs: Io.Dir, inv: *const Inventory, plan: *EmitPlan) ![]Rendered {
+    var rendered: std.ArrayList(Rendered) = .empty;
+    const bodies = try a.alloc(std.ArrayList(u8), plan.pages.items.len);
+    for (bodies) |*b| b.* = .empty;
+
+    // Pass 1: titles and front matter (wiki labels default to titles, and
+    // every page must know its own title before any body is rewritten).
+    const parsed = try a.alloc(?ParsedSource, plan.pages.items.len);
+    for (plan.pages.items, 0..) |*p, i| {
+        parsed[i] = null;
+        const source = p.source orelse continue;
+        const text = try readFileAlloc(io, docs, source, a);
+        const src = try parseSource(a, text);
+        parsed[i] = src;
+        if (src.title) |t| {
+            p.title = t;
+            p.title_source = "front_matter";
+        } else if (p.nav_title) |t| {
+            p.title = t;
+            p.title_source = "nav";
+        } else if (src.h1) |t| {
+            p.title = t;
+            p.title_source = "h1";
+        } else {
+            p.title = std.fs.path.stem(source);
+            p.title_source = "filename";
+        }
+        p.title = clampTitle(p.title);
+        p.tags = try clampTags(a, plan, source, src.tags);
+        p.dropped = src.dropped;
+        for (src.dropped) |d| {
+            try plan.event(a, source, 0, "other front matter keys", .unsupported, try std.fmt.allocPrint(a, "front matter key \"{s}\" dropped; kept in provenance_manifest.json", .{d.key}));
+        }
+    }
+
+    // Pass 2: bodies.
+    for (plan.pages.items, 0..) |p, i| {
+        const out = &bodies[i];
+        if (parsed[i]) |src| {
+            try transformLines(.{ .a = a, .inv = inv, .plan = plan, .source = p.source.?, .page = i }, out, src.body, false);
+        } else {
+            try out.appendSlice(a, "# ");
+            try mdTextAppend(out, a, p.title);
+            try out.appendSlice(a, "\n\n");
+            try out.appendSlice(a, "<!-- boris-migration-review: generated landing page for an MkDocs nav section with no page of its own -->\n");
+            if (p.children.items.len > 0) {
+                try out.append(a, '\n');
+                for (p.children.items) |ci| {
+                    try out.appendSlice(a, "- [[");
+                    try out.appendSlice(a, plan.pages.items[ci].id);
+                    try out.appendSlice(a, "]]\n");
+                }
+            }
+        }
+    }
+
+    for (plan.pages.items, 0..) |p, i| {
+        const out = &bodies[i];
+        try externalsAppend(a, out, p);
+        try provenanceAppend(a, out, p);
+        const parent_id: ?[]const u8 = if (p.parent) |pi| plan.pages.items[pi].id else null;
+        const fm = try buildPageFrontmatter(a, p, parent_id);
+        try rendered.append(a, .{
+            .out_path = try std.fmt.allocPrint(a, "content/{s}", .{p.out_path}),
+            .bytes = try std.fmt.allocPrint(a, "{s}\n{s}", .{ fm, std.mem.trimStart(u8, out.items, "\n") }),
+        });
+    }
+
+    // Include fragments (the list can grow while nested snippets resolve).
+    var k: usize = 0;
+    while (k < plan.includes.items.len) : (k += 1) {
+        const inc = plan.includes.items[k];
+        const text = try readFileAlloc(io, docs, inc.source, a);
+        var bytes: []const u8 = text;
+        if (isMarkdownName(inc.source)) {
+            const src = try parseSource(a, text);
+            var out: std.ArrayList(u8) = .empty;
+            try transformLines(.{ .a = a, .inv = inv, .plan = plan, .source = inc.source, .page = null }, &out, src.body, false);
+            bytes = try out.toOwnedSlice(a);
+        } else {
+            try plan.event(a, inc.source, 0, "snippet --8<-- present target", .human_review, "non-Markdown snippet included verbatim as Markdown");
+        }
+        try rendered.append(a, .{ .out_path = try std.fmt.allocPrint(a, "content/{s}", .{inc.out_path}), .bytes = bytes });
+    }
+
+    for (plan.pages.items) |*p| {
+        for (plan.events.items) |e| {
+            const key = p.source orelse p.id;
+            if (std.mem.eql(u8, e.page, key)) p.class = worse(p.class, e.class);
+        }
+    }
+    return try rendered.toOwnedSlice(a);
+}
+
+// ---- Reports ---------------------------------------------------------------
+
+fn emitReportJson(a: std.mem.Allocator, opts: RunOptions, cfg_sha: []const u8, inv: Inventory, plan: *const EmitPlan, dispositions: []const Disposition) ![]u8 {
+    var buf: std.ArrayList(u8) = .empty;
+    try buf.appendSlice(a, "{\n  \"format\": ");
+    try jsonEscapeAppend(&buf, a, format_id);
+    try buf.print(a, ",\n  \"schema_version\": {d},\n  \"mode\": \"emit\",\n  \"tool_version\": ", .{schema_version});
+    try jsonEscapeAppend(&buf, a, tool_version);
+    try buf.appendSlice(a, ",\n  \"source\": {\n    \"root\": ");
+    try jsonEscapeAppend(&buf, a, opts.root_dir);
+    try buf.appendSlice(a, ",\n    \"config\": \"mkdocs.yml\",\n    \"config_sha256\": ");
+    try jsonEscapeAppend(&buf, a, cfg_sha);
+    try buf.appendSlice(a, ",\n    \"docs_dir\": ");
+    try jsonEscapeAppend(&buf, a, inv.config.docs_dir);
+
+    var roles: [4]usize = @splat(0);
+    var review: usize = 0;
+    for (plan.pages.items) |p| {
+        roles[
+            @as(usize, switch (p.role) {
+                .trunk => 0,
+                .satellite => 1,
+                .generated_trunk => 2,
+                .unlisted_trunk => 3,
+            })
+        ] += 1;
+        if (p.class == .human_review) review += 1;
+    }
+    var review_events: usize = 0;
+    for (plan.events.items) |e| {
+        if (e.class == .human_review) review_events += 1;
+    }
+    try buf.print(a, "\n  }},\n  \"counts\": {{\n    \"pages\": {d},\n    \"trunks\": {d},\n    \"satellites\": {d},\n    \"generated_trunks\": {d},\n    \"unlisted_trunks\": {d},\n    \"pages_needing_review\": {d},\n    \"includes\": {d},\n    \"assets\": {d},\n    \"events\": {d},\n    \"human_review_events\": {d}\n  }},\n  \"dispositions\": [\n", .{ plan.pages.items.len, roles[0], roles[1], roles[2], roles[3], review, plan.includes.items.len, plan.assets.items.len, plan.events.items.len, review_events });
+    for (dispositions, 0..) |d, i| {
+        try buf.appendSlice(a, "    { \"construct\": ");
+        try jsonEscapeAppend(&buf, a, d.construct);
+        try buf.appendSlice(a, ", \"class\": ");
+        try jsonEscapeAppend(&buf, a, d.class.jsonName());
+        try buf.print(a, ", \"count\": {d} }}", .{d.count});
+        if (i + 1 < dispositions.len) try buf.append(a, ',');
+        try buf.append(a, '\n');
+    }
+    try buf.appendSlice(a, "  ],\n  \"pages\": [\n");
+    for (plan.pages.items, 0..) |p, i| {
+        try buf.appendSlice(a, "    { \"id\": ");
+        try jsonEscapeAppend(&buf, a, p.id);
+        try buf.appendSlice(a, ", \"output\": ");
+        try jsonEscapeAppend(&buf, a, try std.fmt.allocPrint(a, "content/{s}", .{p.out_path}));
+        try buf.appendSlice(a, ", \"source\": ");
+        try jsonStrOrNull(&buf, a, p.source);
+        try buf.appendSlice(a, ", \"role\": ");
+        try jsonEscapeAppend(&buf, a, p.role.jsonName());
+        try buf.appendSlice(a, ", \"parent\": ");
+        try jsonStrOrNull(&buf, a, if (p.parent) |pi| plan.pages.items[pi].id else null);
+        try buf.appendSlice(a, ", \"title\": ");
+        try jsonEscapeAppend(&buf, a, p.title);
+        try buf.appendSlice(a, ", \"title_source\": ");
+        try jsonEscapeAppend(&buf, a, p.title_source);
+        try buf.print(a, ", \"nav_depth\": {d}, \"nav_trail\": ", .{p.nav_depth});
+        try jsonEscapeAppend(&buf, a, p.nav_trail);
+        try buf.appendSlice(a, ", \"class\": ");
+        try jsonEscapeAppend(&buf, a, p.class.jsonName());
+        try buf.appendSlice(a, " }");
+        if (i + 1 < plan.pages.items.len) try buf.append(a, ',');
+        try buf.append(a, '\n');
+    }
+    try buf.appendSlice(a, "  ],\n  \"includes\": [\n");
+    for (plan.includes.items, 0..) |inc, i| {
+        try buf.appendSlice(a, "    { \"source\": ");
+        try jsonEscapeAppend(&buf, a, inc.source);
+        try buf.appendSlice(a, ", \"output\": ");
+        try jsonEscapeAppend(&buf, a, try std.fmt.allocPrint(a, "content/{s}", .{inc.out_path}));
+        try buf.appendSlice(a, " }");
+        if (i + 1 < plan.includes.items.len) try buf.append(a, ',');
+        try buf.append(a, '\n');
+    }
+    try buf.appendSlice(a, "  ],\n  \"assets\": [\n");
+    for (plan.assets.items, 0..) |x, i| {
+        try buf.appendSlice(a, "    { \"page\": ");
+        try jsonEscapeAppend(&buf, a, x.page);
+        try buf.appendSlice(a, ", \"source\": ");
+        try jsonEscapeAppend(&buf, a, x.source);
+        try buf.appendSlice(a, ", \"output\": ");
+        try jsonEscapeAppend(&buf, a, try std.fmt.allocPrint(a, "content/{s}", .{x.out_path}));
+        try buf.appendSlice(a, " }");
+        if (i + 1 < plan.assets.items.len) try buf.append(a, ',');
+        try buf.append(a, '\n');
+    }
+    try buf.appendSlice(a, "  ],\n  \"events\": [\n");
+    for (plan.events.items, 0..) |e, i| {
+        try buf.appendSlice(a, "    { \"page\": ");
+        try jsonEscapeAppend(&buf, a, e.page);
+        try buf.print(a, ", \"line\": {d}, \"construct\": ", .{e.line});
+        try jsonEscapeAppend(&buf, a, e.construct);
+        try buf.appendSlice(a, ", \"class\": ");
+        try jsonEscapeAppend(&buf, a, e.class.jsonName());
+        try buf.appendSlice(a, ", \"detail\": ");
+        try jsonEscapeAppend(&buf, a, e.detail);
+        try buf.appendSlice(a, " }");
+        if (i + 1 < plan.events.items.len) try buf.append(a, ',');
+        try buf.append(a, '\n');
+    }
+    try buf.appendSlice(a, "  ]\n}\n");
+    return try buf.toOwnedSlice(a);
+}
+
+fn emitProvenanceJson(a: std.mem.Allocator, plan: *const EmitPlan) ![]u8 {
+    var buf: std.ArrayList(u8) = .empty;
+    try buf.appendSlice(a, "{\n  \"format\": \"boris-mkdocs-provenance\",\n  \"schema_version\": 1,\n  \"records\": [\n");
+    for (plan.pages.items, 0..) |p, i| {
+        try buf.appendSlice(a, "    { \"id\": ");
+        try jsonEscapeAppend(&buf, a, p.id);
+        try buf.appendSlice(a, ", \"source\": ");
+        try jsonStrOrNull(&buf, a, p.source);
+        try buf.appendSlice(a, ", \"nav_title\": ");
+        try jsonStrOrNull(&buf, a, p.nav_title);
+        try buf.appendSlice(a, ", \"dropped_front_matter\": [");
+        for (p.dropped, 0..) |d, j| {
+            if (j > 0) try buf.appendSlice(a, ", ");
+            try buf.appendSlice(a, "{ \"key\": ");
+            try jsonEscapeAppend(&buf, a, d.key);
+            try buf.appendSlice(a, ", \"value\": ");
+            try jsonEscapeAppend(&buf, a, d.value);
+            try buf.appendSlice(a, " }");
+        }
+        try buf.appendSlice(a, "] }");
+        if (i + 1 < plan.pages.items.len) try buf.append(a, ',');
+        try buf.append(a, '\n');
+    }
+    try buf.appendSlice(a, "  ]\n}\n");
+    return try buf.toOwnedSlice(a);
+}
+
+fn emitReportMd(a: std.mem.Allocator, opts: RunOptions, cfg_sha: []const u8, plan: *const EmitPlan) ![]u8 {
+    var buf: std.ArrayList(u8) = .empty;
+    try buf.appendSlice(a, "# MkDocs emit report\n\n");
+    try buf.appendSlice(a, "Proposed Boris Markdown under `content/`. Source is never modified; no plugin, hook, or Python tag is executed. Nested `nav:` is flattened to Trunk + Satellite pages (a Satellite never parents another Satellite).\n\n");
+    try buf.appendSlice(a, "| Field | Value |\n| --- | --- |\n| Root | `");
+    try buf.appendSlice(a, opts.root_dir);
+    try buf.appendSlice(a, "` |\n| Config SHA-256 | `");
+    try buf.appendSlice(a, cfg_sha);
+    try buf.appendSlice(a, "` |\n\n## Pages\n\n| Id | Role | Parent | Source | Title source | Class |\n| --- | --- | --- | --- | --- | --- |\n");
+    for (plan.pages.items) |p| {
+        try buf.appendSlice(a, "| `");
+        try buf.appendSlice(a, p.id);
+        try buf.appendSlice(a, "` | ");
+        try buf.appendSlice(a, p.role.jsonName());
+        try buf.appendSlice(a, " | ");
+        if (p.parent) |pi| {
+            try buf.appendSlice(a, "`");
+            try buf.appendSlice(a, plan.pages.items[pi].id);
+            try buf.appendSlice(a, "`");
+        }
+        try buf.appendSlice(a, " | ");
+        if (p.source) |s| {
+            try buf.appendSlice(a, "`");
+            try buf.appendSlice(a, s);
+            try buf.appendSlice(a, "`");
+        } else {
+            try buf.appendSlice(a, "(generated)");
+        }
+        try buf.appendSlice(a, " | ");
+        try buf.appendSlice(a, p.title_source);
+        try buf.appendSlice(a, " | ");
+        try buf.appendSlice(a, p.class.jsonName());
+        try buf.appendSlice(a, " |\n");
+    }
+    try buf.appendSlice(a, "\n## Needs review\n\n| Page | Line | Construct | Detail |\n| --- | ---: | --- | --- |\n");
+    for (plan.events.items) |e| {
+        if (e.class != .human_review and e.class != .unsupported) continue;
+        try buf.appendSlice(a, "| `");
+        try buf.appendSlice(a, e.page);
+        try buf.print(a, "` | {d} | ", .{e.line});
+        try mdTextAppend(&buf, a, e.construct);
+        try buf.appendSlice(a, " | ");
+        try mdTextAppend(&buf, a, e.detail);
+        try buf.appendSlice(a, " |\n");
+    }
+    try buf.appendSlice(a, "\n## Includes and assets\n\n| Kind | Source | Output |\n| --- | --- | --- |\n");
+    for (plan.includes.items) |inc| {
+        try buf.appendSlice(a, "| include | `");
+        try buf.appendSlice(a, inc.source);
+        try buf.appendSlice(a, "` | `content/");
+        try buf.appendSlice(a, inc.out_path);
+        try buf.appendSlice(a, "` |\n");
+    }
+    for (plan.assets.items) |x| {
+        try buf.appendSlice(a, "| asset | `");
+        try buf.appendSlice(a, x.source);
+        try buf.appendSlice(a, "` | `content/");
+        try buf.appendSlice(a, x.out_path);
+        try buf.appendSlice(a, "` |\n");
+    }
+    try buf.appendSlice(a, "\nEvery transform is listed in `report.json` (`events`). Lab provenance is not Boris frontmatter: dropped front matter lives in `provenance_manifest.json`. See `docs/contracts/mkdocs.md`.\n");
+    return try buf.toOwnedSlice(a);
+}
+
+pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+
+    var root = Io.Dir.cwd().openDir(io, opts.root_dir, .{}) catch |err| switch (err) {
+        error.FileNotFound, error.NotDir => return error.InvalidMkdocsInput,
+        else => return err,
+    };
+    defer root.close(io);
+    const yml = readFileAlloc(io, root, "mkdocs.yml", a) catch |err| switch (err) {
+        error.FileNotFound => return error.InvalidMkdocsInput,
+        else => return err,
+    };
+    const cfg_sha = try sha256Hex(a, yml);
+    const inv = try scanInventory(io, a, opts.root_dir);
+    const dispositions = try buildDispositions(a, inv);
+
+    var out_dir = stripTrailingSlashes(opts.out_dir);
+    if (out_dir.len == 0) out_dir = opts.out_dir;
+    const docs_dir_path = if (std.fs.path.isAbsolute(inv.config.docs_dir))
+        inv.config.docs_dir
+    else
+        try std.fmt.allocPrint(a, "{s}/{s}", .{ opts.root_dir, inv.config.docs_dir });
+    const inputs = [_][]const u8{ opts.root_dir, docs_dir_path };
+    var pub_ = try publication.Publication.begin(io, a, out_dir, &inputs, format_id);
+    defer {
+        pub_.abandon(io, a);
+        pub_.deinit(a);
+    }
+
+    var docs = try root.openDir(io, inv.config.docs_dir, .{});
+    defer docs.close(io);
+
+    var plan = try buildPlan(a, inv);
+    const rendered = try renderPages(io, a, docs, &inv, &plan);
+
+    const inv_json = try emitInventoryJson(a, opts, cfg_sha, inv, dispositions);
+    const inv_md = try emitInventoryMd(a, opts, cfg_sha, inv, dispositions);
+    const report_json = try emitReportJson(a, opts, cfg_sha, inv, &plan, dispositions);
+    const report_md = try emitReportMd(a, opts, cfg_sha, &plan);
+    const prov_json = try emitProvenanceJson(a, &plan);
+
+    {
+        var stage = try Io.Dir.cwd().openDir(io, pub_.stage_path, .{});
+        defer stage.close(io);
+        for (rendered) |r| {
+            if (std.fs.path.dirname(r.out_path)) |d| try stage.createDirPath(io, d);
+            try stage.writeFile(io, .{ .sub_path = r.out_path, .data = r.bytes });
+        }
+        for (plan.assets.items) |x| {
+            const bytes = try readFileAlloc(io, docs, x.source, a);
+            const dest = try std.fmt.allocPrint(a, "content/{s}", .{x.out_path});
+            if (std.fs.path.dirname(dest)) |d| try stage.createDirPath(io, d);
+            try stage.writeFile(io, .{ .sub_path = dest, .data = bytes });
+        }
+        try stage.writeFile(io, .{ .sub_path = "inventory.json", .data = inv_json });
+        try stage.writeFile(io, .{ .sub_path = "INVENTORY.md", .data = inv_md });
+        try stage.writeFile(io, .{ .sub_path = "report.json", .data = report_json });
+        try stage.writeFile(io, .{ .sub_path = "REPORT.md", .data = report_md });
+        try stage.writeFile(io, .{ .sub_path = "provenance_manifest.json", .data = prov_json });
+    }
+    try pub_.commit(io, a);
+
+    if (!opts.quiet) {
+        std.debug.print("mkdocs: wrote {s}/content/ ({d} pages, {d} includes, {d} assets), report.json, REPORT.md, provenance_manifest.json\n", .{ out_dir, plan.pages.items.len, plan.includes.items.len, plan.assets.items.len });
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -1710,4 +3154,377 @@ test "mkdocs: missing mkdocs.yml is bad input" {
         .out_dir = out,
         .quiet = true,
     }));
+}
+
+// ---- Emit tests ------------------------------------------------------------
+
+fn planPage(plan: *const EmitPlan, id: []const u8) ?PagePlan {
+    for (plan.pages.items) |p| {
+        if (std.mem.eql(u8, p.id, id)) return p;
+    }
+    return null;
+}
+
+fn parentId(plan: *const EmitPlan, p: PagePlan) ?[]const u8 {
+    return if (p.parent) |pi| plan.pages.items[pi].id else null;
+}
+
+fn writeTestFile(io: Io, path: []const u8, data: []const u8) !void {
+    if (std.fs.path.dirname(path)) |d| try Io.Dir.cwd().createDirPath(io, d);
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = data });
+}
+
+/// Synthetic hostile project: sections without own pages at depth 1 and 3,
+/// duplicate/missing nav entries, extra front matter, Boris-looking literals.
+fn writeHostileProject(io: Io, a: std.mem.Allocator, root: []const u8) !void {
+    const files = [_][2][]const u8{
+        .{
+            "mkdocs.yml",
+            \\site_name: Hostile
+            \\nav:
+            \\  - Home: index.md
+            \\  - Topics:
+            \\      - topics/alpha.md
+            \\      - Deeper:
+            \\          - Even Deeper:
+            \\              - topics/deep/beta.md
+            \\      - Docs: https://example.com/docs
+            \\  - Again: topics/alpha.md
+            \\  - Missing: nowhere.md
+            \\  - includes/page.md
+            \\  - Ref:
+            \\      - ref/README.md
+            \\      - ref/index.md
+            \\  - Sec:
+            \\      - sec/README.md
+            \\      - sec/index.md
+            \\      - sec/inner.md
+            \\
+        },
+        .{
+            "docs/index.md",
+            \\---
+            \\title: Home
+            \\date: 2024-01-02
+            \\authors:
+            \\  - someone
+            \\tags:
+            \\  - one
+            \\  - "two words"
+            \\---
+            \\
+            \\# Home
+            \\
+            \\Literal {{include x.md}} and [[not-a-link]] and <Widget> stay text.
+            \\Code `{{keep}} [[keep]] <Keep>` is verbatim.
+            \\
+            \\Broken [gone](gone.md), bad [frag](topics/alpha.md#nope), [dir](topics/).
+            \\
+            \\![missing](img/none.png)
+            \\
+            \\!!! note
+            \\    Outer note.
+            \\
+            \\    !!! tip
+            \\        Nested tip stays literal.
+            \\
+            \\!!! info "Heads up"
+            \\    Info has no Aside kind.
+            \\
+        },
+        .{ "docs/topics/alpha.md", "# Alpha\n\n=== \"Tab \"one\"\"\n\n    Tab body.\n" },
+        .{ "docs/topics/index.md", "# Topics index (not in nav)\n" },
+        .{ "docs/topics/deep/beta.md", "# Beta\n\nBack to [alpha](../alpha.md#alpha).\n" },
+        .{ "docs/includes/page.md", "# Includes page\n" },
+        .{ "docs/ref/README.md", "# Ref readme\n" },
+        .{ "docs/ref/index.md", "# Ref index\n" },
+        .{ "docs/setup(v2).md", "# Setup v2\n" },
+        .{ "docs/edge.md", "# Edge\n\nHard break  \nnext. [v2](setup(v2).md)\n\n![a](img/a%20b.png) ![b](img/a-b.png)\n" },
+        .{ "docs/img/a b.png", "A" },
+        .{ "docs/img/a-b.png", "B" },
+        .{ "docs/img/2-a-b.png/c.png", "C" },
+        .{ "docs/titled.md", "# Titled\n\n[t](edge.md \"a (b\") then [u](edge.md).\n![c](img/2-a-b.png/c.png) ![a](img/a%20b.png) ![b](img/a-b.png)\n" },
+        .{ "docs/sec/README.md", "# Sec readme\n" },
+        .{ "docs/img/q-r", "Q" },
+        .{ "docs/img/q r/z.png", "Z" },
+        .{ "docs/img/it's a.png", "I" },
+        .{ "docs/paren.md", "# Paren\n\n[e](edge.md \"a \\\"(b)\\\" c\") tail ![x](img/q-r) ![y](img/q%20r/z.png) ![s](<img/it's a.png>)\n" },
+        .{ "docs/sec/inner.md", "# Inner\n" },
+    };
+    for (files) |f| {
+        const path = try std.fmt.allocPrint(a, "{s}/{s}", .{ root, f[0] });
+        try writeTestFile(io, path, f[1]);
+    }
+}
+
+test "mkdocs: emit flattens nav to Trunk + Satellites (fixture)" {
+    const gpa = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const io = std.testing.io;
+
+    const inv = try scanInventory(io, a, fixture_root);
+    const plan = try buildPlan(a, inv);
+
+    try std.testing.expectEqual(@as(usize, 8), plan.pages.items.len);
+    const expect = [_]struct { id: []const u8, role: Role, parent: ?[]const u8 }{
+        .{ .id = "index", .role = .trunk, .parent = null },
+        .{ .id = "about", .role = .trunk, .parent = null },
+        .{ .id = "guide/index", .role = .trunk, .parent = null },
+        .{ .id = "guide/setup", .role = .satellite, .parent = "guide/index" },
+        // depth-3 page: flattened, never a satellite of a satellite.
+        .{ .id = "guide/advanced/deep", .role = .satellite, .parent = "guide/index" },
+        // README.md section index is emitted as index.md.
+        .{ .id = "reference/index", .role = .trunk, .parent = null },
+        .{ .id = "reference/api", .role = .satellite, .parent = "reference/index" },
+        .{ .id = "orphan", .role = .unlisted_trunk, .parent = null },
+    };
+    for (expect) |e| {
+        const p = planPage(&plan, e.id) orelse return error.TestExpectedPage;
+        try std.testing.expectEqual(e.role, p.role);
+        if (e.parent) |want| {
+            try std.testing.expectEqualStrings(want, parentId(&plan, p).?);
+        } else {
+            try std.testing.expect(p.parent == null);
+        }
+    }
+    // Two-level graph: every parent is a Trunk.
+    for (plan.pages.items) |p| {
+        if (p.parent) |pi| try std.testing.expect(plan.pages.items[pi].parent == null);
+    }
+    // The root external nav link lands on the home Trunk.
+    try std.testing.expectEqual(@as(usize, 1), planPage(&plan, "index").?.externals.items.len);
+}
+
+test "mkdocs: emit converts fixture constructs and stays deterministic" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer {
+        tmp.dir.close(io);
+        tmp.parent_dir.deleteTree(io, &tmp.sub_path) catch {};
+        tmp.parent_dir.close(io);
+    }
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const yml_before = try readPathAlloc(io, fixture_root ++ "/mkdocs.yml", a);
+    const out_a = try std.fmt.allocPrint(a, ".zig-cache/tmp/{s}/mkdocs-a", .{tmp.sub_path});
+    const out_b = try std.fmt.allocPrint(a, ".zig-cache/tmp/{s}/mkdocs-b", .{tmp.sub_path});
+    try runEmit(io, gpa, .{ .root_dir = fixture_root, .out_dir = out_a, .quiet = true });
+    try runEmit(io, gpa, .{ .root_dir = fixture_root, .out_dir = out_b, .quiet = true });
+    try std.testing.expectEqualStrings(yml_before, try readPathAlloc(io, fixture_root ++ "/mkdocs.yml", a));
+
+    for ([_][]const u8{ "report.json", "REPORT.md", "provenance_manifest.json", "inventory.json", "content/index.md", "content/reference/api.md", "content/guide/advanced/deep.md" }) |name| {
+        try std.testing.expectEqualStrings(try readOutFile(io, out_a, name, a), try readOutFile(io, out_b, name, a));
+    }
+
+    const home = try readOutFile(io, out_a, "content/index.md", a);
+    try std.testing.expect(std.mem.startsWith(u8, home, "---\nid: index\ntitle: Mini MkDocs Home\nstatus: published\ntags: [fixture, mkdocs]\n---\n"));
+    try std.testing.expect(std.mem.indexOf(u8, home, "[[guide/setup|Setup guide]]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, home, "[[guide/advanced/deep#deep-details|deep details]]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, home, "[[index#overview|local anchor]]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, home, "![Hero image](index.assets/img/hero.png)") != null);
+    try std.testing.expect(std.mem.indexOf(u8, home, "- [Example](<https://example.com/>)") != null);
+    _ = try readOutFile(io, out_a, "content/index.assets/img/hero.png", a);
+
+    const setup = try readOutFile(io, out_a, "content/guide/setup.md", a);
+    try std.testing.expect(std.mem.indexOf(u8, setup, "parent: guide/index\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, setup, "<Aside kind=\"note\">") != null);
+    try std.testing.expect(std.mem.indexOf(u8, setup, "<Aside kind=\"warning\">\n\n**Custom title**") != null);
+    try std.testing.expect(std.mem.indexOf(u8, setup, "!!!") == null);
+
+    const deep = try readOutFile(io, out_a, "content/guide/advanced/deep.md", a);
+    try std.testing.expect(std.mem.indexOf(u8, deep, "parent: guide/index\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, deep, "<Aside kind=\"tip\">") != null);
+    // `abstract` is never re-typed to a Boris kind.
+    try std.testing.expect(std.mem.indexOf(u8, deep, "boris-migration-review: MkDocs admonition kind \"abstract\"") != null);
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, deep, "<Aside"));
+
+    const api = try readOutFile(io, out_a, "content/reference/api.md", a);
+    try std.testing.expect(std.mem.indexOf(u8, api, "<Details summary=\"Request\">") != null);
+    try std.testing.expect(std.mem.indexOf(u8, api, "{{include includes/snippets/shared.md}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, api, "EINCLUDEMISSING snippet \"snippets/missing.md\"") != null);
+    _ = try readOutFile(io, out_a, "content/includes/snippets/shared.md", a);
+    // Snippet fragments are not pages.
+    try std.testing.expectError(error.FileNotFound, readOutFile(io, out_a, "content/snippets/shared.md", a));
+
+    const report = try readOutFile(io, out_a, "report.json", a);
+    try std.testing.expect(std.mem.indexOf(u8, report, "\"mode\": \"emit\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, report, "\"satellites\": 3") != null);
+    try std.testing.expect(std.mem.indexOf(u8, report, "\"unlisted_trunks\": 1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, report, "\"construct\": \"nav: entry three or more levels deep\", \"class\": \"transformed\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, report, "\"construct\": \"pymdownx tabbed block === \\\"Label\\\"\", \"class\": \"human_review\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, report, "\"construct\": \"snippet --8<-- missing target\", \"class\": \"human_review\"") != null);
+    // Closed frontmatter only: lab provenance never becomes a key.
+    for ([_][]const u8{ "content/index.md", "content/guide/setup.md", "content/reference/index.md", "content/orphan.md" }) |name| {
+        const page = try readOutFile(io, out_a, name, a);
+        const fm_end = std.mem.indexOf(u8, page[4..], "\n---\n").? + 4;
+        var it = std.mem.splitScalar(u8, page[4..fm_end], '\n');
+        while (it.next()) |l| {
+            const key = l[0..std.mem.indexOfScalar(u8, l, ':').?];
+            try std.testing.expect(migration_semantics.isBorisKey(key));
+        }
+    }
+}
+
+test "mkdocs: emit handles hostile nav, links, and literals" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer {
+        tmp.dir.close(io);
+        tmp.parent_dir.deleteTree(io, &tmp.sub_path) catch {};
+        tmp.parent_dir.close(io);
+    }
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const root = try std.fmt.allocPrint(a, ".zig-cache/tmp/{s}/hostile", .{tmp.sub_path});
+    try writeHostileProject(io, a, root);
+    const inv = try scanInventory(io, a, root);
+    const plan = try buildPlan(a, inv);
+
+    // Section without own page → generated Trunk; deep pages flatten onto it.
+    const topics = planPage(&plan, "topics").?;
+    try std.testing.expectEqual(Role.generated_trunk, topics.role);
+    try std.testing.expectEqualStrings("topics", parentId(&plan, planPage(&plan, "topics/alpha").?).?);
+    try std.testing.expectEqualStrings("topics", parentId(&plan, planPage(&plan, "topics/deep/beta").?).?);
+    try std.testing.expectEqual(@as(usize, 1), topics.externals.items.len);
+    try std.testing.expectEqual(Role.unlisted_trunk, planPage(&plan, "topics/index").?.role);
+    // Boris reserves content/includes/ for fragments.
+    try std.testing.expectEqual(Role.trunk, planPage(&plan, "includes-page/page").?.role);
+
+    // A missing index.md does not displace a usable README.md.
+    try std.testing.expectEqual(Role.trunk, planPage(&plan, "sec/index").?.role);
+    try std.testing.expectEqualStrings("sec/index", parentId(&plan, planPage(&plan, "sec/inner").?).?);
+    // index.md wins over a README.md listed first.
+    try std.testing.expectEqual(Role.trunk, planPage(&plan, "ref/index").?.role);
+    try std.testing.expectEqualStrings("ref/index", parentId(&plan, planPage(&plan, "ref/README").?).?);
+
+    const out = try std.fmt.allocPrint(a, ".zig-cache/tmp/{s}/hostile-out", .{tmp.sub_path});
+    try runEmit(io, gpa, .{ .root_dir = root, .out_dir = out, .quiet = true });
+    const titled = try readOutFile(io, out, "content/titled.md", a);
+    try std.testing.expect(std.mem.indexOf(u8, titled, "[[edge|t]] then [[edge|u]].") != null);
+    try std.testing.expect(std.mem.indexOf(u8, titled, "titled.assets/img/2-a-b.png/c.png) ![a](titled.assets/img/a-b.png) ![b](titled.assets/3-img/a-b.png)") != null);
+    try std.testing.expectEqualStrings("B", try readOutFile(io, out, "content/titled.assets/3-img/a-b.png", a));
+    const paren = try readOutFile(io, out, "content/paren.md", a);
+    try std.testing.expect(std.mem.indexOf(u8, paren, "[[edge|e]] tail ![x](paren.assets/img/q-r) ![y](paren.assets/2-img/q-r/z.png) ![s](paren.assets/img/it-s-a.png)\n") != null);
+    try std.testing.expectEqualStrings("Z", try readOutFile(io, out, "content/paren.assets/2-img/q-r/z.png", a));
+    const edge = try readOutFile(io, out, "content/edge.md", a);
+    try std.testing.expect(std.mem.indexOf(u8, edge, "Hard break  \nnext. [[setup-v2|v2]]\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, edge, "![a](edge.assets/img/a-b.png) ![b](edge.assets/img/2-a-b.png)") != null);
+    try std.testing.expectEqualStrings("A", try readOutFile(io, out, "content/edge.assets/img/a-b.png", a));
+    try std.testing.expectEqualStrings("B", try readOutFile(io, out, "content/edge.assets/img/2-a-b.png", a));
+    const home = try readOutFile(io, out, "content/index.md", a);
+    try std.testing.expect(std.mem.startsWith(u8, home, "---\nid: index\ntitle: Home\nstatus: published\ntags: [one, \"two words\"]\n---\n"));
+    try std.testing.expect(std.mem.indexOf(u8, home, "Literal {\\{include x.md}} and [\\[not-a-link]] and &lt;Widget> stay text.") != null);
+    try std.testing.expect(std.mem.indexOf(u8, home, "`{{keep}} [[keep]] <Keep>`") != null);
+    try std.testing.expect(std.mem.indexOf(u8, home, "Broken gone <!-- boris-migration-review: unresolved link target: gone.md -->") != null);
+    try std.testing.expect(std.mem.indexOf(u8, home, "[[topics/alpha|frag]]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, home, "[[topics/index|dir]]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, home, "](img/none.png)") == null);
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, home, "<Aside"));
+    try std.testing.expect(std.mem.indexOf(u8, home, "\n!!! tip\n    Nested tip stays literal.\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, home, "kind \"info\" has no Boris Aside equivalent") != null);
+
+    const generated = try readOutFile(io, out, "content/topics.md", a);
+    try std.testing.expect(std.mem.indexOf(u8, generated, "- [[topics/alpha]]\n- [[topics/deep/beta]]\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, generated, "- [Docs](<https://example.com/docs>)") != null);
+    const alpha = try readOutFile(io, out, "content/topics/alpha.md", a);
+    try std.testing.expect(std.mem.indexOf(u8, alpha, "<Details summary=\"Tab 'one'\">") != null);
+
+    const report = try readOutFile(io, out, "report.json", a);
+    for ([_][]const u8{
+        "nav: page listed more than once",
+        "nav: missing page target",
+        "nav: section without own page",
+        "nav: section nested below the top level",
+        "admonition !!!/??? nested in a component",
+        "front matter key \\\"authors\\\" dropped",
+        "unresolved link target: gone.md",
+        "#nope is not a heading on topics/alpha; fragment dropped",
+        "image not found under docs_dir: img/none.png",
+    }) |needle| {
+        if (std.mem.indexOf(u8, report, needle) == null) {
+            std.debug.print("missing in report.json: {s}\n", .{needle});
+            return error.TestExpectedReportEntry;
+        }
+    }
+    const prov = try readOutFile(io, out, "provenance_manifest.json", a);
+    try std.testing.expect(std.mem.indexOf(u8, prov, "{ \"key\": \"date\", \"value\": \"2024-01-02\" }") != null);
+}
+
+fn borisCompile(io: Io, gpa: std.mem.Allocator, content: []const u8, html: []const u8) !void {
+    // The product `boris` binary is a pinned external prerequisite (BORIS_BIN
+    // or PATH); a missing binary is a failure, never a skip.
+    const boris_bin = (try product_boris.resolve(io, gpa)) orelse return error.MissingProductBorisBinary;
+    const argv = [_][]const u8{ boris_bin, "--input", content, "--html-dir", html, "--html-layout", "layouts/main.html", "--quiet" };
+    const result = try std.process.run(gpa, io, .{
+        .argv = &argv,
+        .stdout_limit = .limited(64 * 1024),
+        .stderr_limit = .limited(64 * 1024),
+    });
+    defer gpa.free(result.stdout);
+    defer gpa.free(result.stderr);
+    const code: u8 = switch (result.term) {
+        .exited => |c| c,
+        else => 255,
+    };
+    if (code != 0) std.debug.print("boris compile failed code={d} stderr={s} stdout={s}\n", .{ code, result.stderr, result.stdout });
+    try std.testing.expectEqual(@as(u8, 0), code);
+}
+
+test "mkdocs: generated content compiles with product Boris" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer {
+        tmp.dir.close(io);
+        tmp.parent_dir.deleteTree(io, &tmp.sub_path) catch {};
+        tmp.parent_dir.close(io);
+    }
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const base = try std.fmt.allocPrint(a, ".zig-cache/tmp/{s}", .{tmp.sub_path});
+
+    // Every emitted page compiles — review markers never break the build.
+    const out = try std.fmt.allocPrint(a, "{s}/fixture-out", .{base});
+    try runEmit(io, gpa, .{ .root_dir = fixture_root, .out_dir = out, .quiet = true });
+    const html = try std.fmt.allocPrint(a, "{s}/fixture-html", .{base});
+    try borisCompile(io, gpa, try std.fmt.allocPrint(a, "{s}/content", .{out}), html);
+    var html_dir = try Io.Dir.cwd().openDir(io, html, .{});
+    defer html_dir.close(io);
+    const deep = try readFileAlloc(io, html_dir, "guide/advanced/deep.html", a);
+    try std.testing.expect(std.mem.indexOf(u8, deep, "id=\"deep-details\"") != null);
+    const hero = try readFileAlloc(io, html_dir, "index.assets/img/hero.png", a);
+    try std.testing.expect(hero.len > 0);
+    const api = try readFileAlloc(io, html_dir, "reference/api.html", a);
+    try std.testing.expect(std.mem.indexOf(u8, api, "Shared snippet body included") != null);
+
+    const root = try std.fmt.allocPrint(a, "{s}/hostile", .{base});
+    try writeHostileProject(io, a, root);
+    const hostile_out = try std.fmt.allocPrint(a, "{s}/hostile-out", .{base});
+    try runEmit(io, gpa, .{ .root_dir = root, .out_dir = hostile_out, .quiet = true });
+    try borisCompile(io, gpa, try std.fmt.allocPrint(a, "{s}/content", .{hostile_out}), try std.fmt.allocPrint(a, "{s}/hostile-html", .{base}));
+}
+
+test "mkdocs: emit refuses source/output overlap" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    try std.testing.expectError(error.InputOutputOverlap, runEmit(io, gpa, .{
+        .root_dir = fixture_root,
+        .out_dir = fixture_root ++ "/docs/out",
+        .quiet = true,
+    }));
+    try std.testing.expectError(error.InputOutputOverlap, runEmit(io, gpa, .{
+        .root_dir = fixture_root,
+        .out_dir = "fixtures",
+        .quiet = true,
+    }));
+    try std.testing.expectError(error.FileNotFound, Io.Dir.cwd().access(io, fixture_root ++ "/docs/out", .{}));
 }
