@@ -1721,11 +1721,13 @@ fn joinTrail(a: std.mem.Allocator, parts: []const []const u8, last: []const u8) 
 /// Direct child page of section `ei` whose basename is index.md/README.md.
 fn ownPageEntry(nav: []const NavEntry, ei: usize) ?usize {
     const e = nav[ei];
-    var j = ei + 1;
-    while (j < nav.len and nav[j].depth > e.depth) : (j += 1) {
-        if (nav[j].depth != e.depth + 1 or nav[j].kind != .page or nav[j].target == null) continue;
-        const base = std.fs.path.basename(nav[j].target.?);
-        if (std.ascii.eqlIgnoreCase(base, "index.md") or std.ascii.eqlIgnoreCase(base, "readme.md")) return j;
+    // MkDocs prefers index.md; README.md is the index only without one.
+    for ([_][]const u8{ "index.md", "readme.md" }) |want| {
+        var j = ei + 1;
+        while (j < nav.len and nav[j].depth > e.depth) : (j += 1) {
+            if (nav[j].depth != e.depth + 1 or nav[j].kind != .page or nav[j].target == null) continue;
+            if (std.ascii.eqlIgnoreCase(std.fs.path.basename(nav[j].target.?), want)) return j;
+        }
     }
     return null;
 }
