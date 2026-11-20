@@ -29,6 +29,7 @@ const astro_import_plan = @import("astro_import_plan.zig");
 const astro_import_apply = @import("astro_import_apply.zig");
 const hugo = @import("hugo.zig");
 const ghost = @import("ghost.zig");
+const ghost_emit = @import("ghost_emit.zig");
 const mkdocs = @import("mkdocs.zig");
 const mastodon = @import("mastodon.zig");
 
@@ -64,6 +65,7 @@ pub const Mode = enum {
     hugo_inventory,
     jekyll_inventory,
     ghost_inventory,
+    ghost,
     mkdocs_inventory,
     mastodon_inventory,
     mastodon,
@@ -172,6 +174,7 @@ pub const table = [_]Entry{
     .{ .tag = .hugo_inventory, .names = &.{ "hugo-inventory", "hugo-inv" } },
     .{ .tag = .jekyll_inventory, .names = &.{ "jekyll-inventory", "jekyll-inv", "jekyll-archaeology" } },
     .{ .tag = .ghost_inventory, .names = &.{ "ghost-inventory", "ghost-inv" } },
+    .{ .tag = .ghost, .names = &.{"ghost"} },
     .{ .tag = .mkdocs_inventory, .names = &.{ "mkdocs-inventory", "mkdocs-inv" } },
     .{ .tag = .mastodon_inventory, .names = &.{ "mastodon-inventory", "mastodon-inv", "masto-inventory" } },
     .{ .tag = .mastodon, .names = &.{ "mastodon", "masto", "mastodon-emit" } },
@@ -608,6 +611,21 @@ fn run_jekyll_inventory(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
     return ExitCode.success.int();
 }
 
+fn run_ghost(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
+    ghost_emit.run(io, gpa, .{
+        .root_dir = opts.root_dir,
+        .out_dir = opts.out_dir,
+        .quiet = opts.quiet,
+    }) catch |err| {
+        std.log.err("migration-lab (ghost) failed: {s}", .{@errorName(err)});
+        return switch (err) {
+            error.InvalidGhostInput, error.InputOutputOverlap, error.InputSymlink, error.OutputSymlink => ExitCode.usage.int(),
+            else => ExitCode.io_error.int(),
+        };
+    };
+    return ExitCode.success.int();
+}
+
 fn run_ghost_inventory(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
     ghost.run(io, gpa, .{
         .root_dir = opts.root_dir,
@@ -810,6 +828,12 @@ const usage_text =
     \\  Writes: inventory.json, INVENTORY.md
     \\  Aliases: ghost-inv
     \\  users emails/passwords are never inventoried; no Ghost API, no network.
+    \\
+    \\Ghost emit (Ghost 5 export -> candidate Boris Markdown):
+    \\  --mode=ghost       Convert posts/pages under --out/content/{posts,pages}/
+    \\  --root=DIR         Same export root as ghost-inventory (never modified)
+    \\  Writes: content/, report.json, REPORT.md, provenance_manifest.json
+    \\  members/paid/tiers and scheduled posts emit as draft; never published.
     \\
     \\Mastodon archive (offline ActivityStreams export):
     \\  --mode=mastodon-inventory  Inventory outbox/actor/likes/bookmarks; never emit

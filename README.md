@@ -23,6 +23,7 @@ Standalone **migration laboratory** for bringing existing sites into Boris.
 | **hugo-inventory** | Hugo project root (`config.toml`/`hugo.toml` + `content/`) | Read-only `inventory.json` + `INVENTORY.md` |
 | **jekyll-inventory** | Jekyll site source tree | Read-only `inventory.json` + `INVENTORY.md` (posts, drafts, collections, Liquid, `_data` refs) |
 | **ghost-inventory** | Unpacked Ghost 5 export root (`ghost-export.json` + `content/images/`) | Read-only `inventory.json` + `INVENTORY.md` |
+| **ghost** | Unpacked Ghost 5 export root (same as `ghost-inventory`) | Candidate Boris Markdown under `content/{posts,pages}/` + sibling `.assets/`, `report.json`, `REPORT.md`, `provenance_manifest.json` |
 | **mkdocs-inventory** | MkDocs project root (`mkdocs.yml` + `docs/`) | Read-only `inventory.json` + `INVENTORY.md` |
 | **mastodon-inventory** | Unpacked Mastodon archive (`outbox.json`, `actor.json`, `likes.json`, `bookmarks.json`, `media_attachments/`) | Read-only `inventory.json` + `INVENTORY.md` |
 | **mastodon** | Unpacked Mastodon archive | Boris Markdown under `content/mastodon/` (+ `{stem}.assets/`) + inventory, `report.json`, `REPORT.md`, `provenance_manifest.json` |
@@ -230,6 +231,11 @@ zig build run -- --mode=ghost-inventory \
   --root=./fixtures/mini-ghost \
   --out=./.ghost-inventory
 
+# Ghost 5 export → candidate Boris Markdown (posts, pages, media, reports)
+zig build run -- --mode=ghost \
+  --root=./fixtures/mini-ghost \
+  --out=./.ghost-out
+
 # MkDocs project → read-only nav/link/extension inventory
 zig build run -- --mode=mkdocs-inventory \
   --root=./fixtures/mini-mkdocs \
@@ -255,10 +261,10 @@ zig build test   # with BORIS_BIN exported or `boris` on PATH (see Boris pins)
 |------|---------|---------|
 | `-h`, `--help` | | Print usage; exit 0 |
 | `-q`, `--quiet` | off | Suppress progress lines |
-| `--mode=MODE` | `astro` | `astro`, `astro-import-plan`, `astro-import-apply`, `wordpress` (`wp` / `wxr`), `wordpress-theme` (`wp-theme` / `kubrick-theme`), `instagram` (`ig` / `takeout`), `obsidian` (`obs` / `vault`), `tinderbox-inventory` (`tbx-inventory` / `tinderbox-inv`), `tinderbox` (`tinderbox-emit` / `tbx`), `notion` (`md-csv` / `notion-export`), `filed` (`filed-fyi`), `filed-scan`, `starlight` (`sl` / `evcc`), `asset-filename` (`assets` / `asset-compat` / `filename-compat`), `theme-archaeology` (`theme` / `theme-arch` / `theme-inventory`), `theme-materialize` (`materialize` / `theme-materialise`), `link-audit` (`links` / `output-audit`), `frontmatter-review` (`fm-review` / `fmreview`), `hugo-inventory` (`hugo-inv`), `jekyll-inventory` (`jekyll-inv` / `jekyll-archaeology`), `ghost-inventory` (`ghost-inv`), `mkdocs-inventory` (`mkdocs-inv`), `mastodon-inventory` (`mastodon-inv` / `masto-inventory`), or `mastodon` (`masto` / `mastodon-emit`) |
+| `--mode=MODE` | `astro` | `astro`, `astro-import-plan`, `astro-import-apply`, `wordpress` (`wp` / `wxr`), `wordpress-theme` (`wp-theme` / `kubrick-theme`), `instagram` (`ig` / `takeout`), `obsidian` (`obs` / `vault`), `tinderbox-inventory` (`tbx-inventory` / `tinderbox-inv`), `tinderbox` (`tinderbox-emit` / `tbx`), `notion` (`md-csv` / `notion-export`), `filed` (`filed-fyi`), `filed-scan`, `starlight` (`sl` / `evcc`), `asset-filename` (`assets` / `asset-compat` / `filename-compat`), `theme-archaeology` (`theme` / `theme-arch` / `theme-inventory`), `theme-materialize` (`materialize` / `theme-materialise`), `link-audit` (`links` / `output-audit`), `frontmatter-review` (`fm-review` / `fmreview`), `hugo-inventory` (`hugo-inv`), `jekyll-inventory` (`jekyll-inv` / `jekyll-archaeology`), `ghost-inventory` (`ghost-inv`), `ghost`, `mkdocs-inventory` (`mkdocs-inv`), `mastodon-inventory` (`mastodon-inv` / `masto-inventory`), or `mastodon` (`masto` / `mastodon-emit`) |
 | `--out=DIR` | `migration-report` | Output directory (**must differ from inputs**); must be explicit for `astro-import-plan` |
 | `--root=DIR` | `.` | Astro archaeology root, Starlight project root, asset-filename content tree, theme scan root, Hugo project root, or generated HTML tree for `link-audit`; must be explicit for `astro-import-plan` |
-| `--root=DIR` | `.` | Astro archaeology root, Starlight project root, asset-filename content tree, theme scan root, Jekyll site source root, generated HTML tree for `link-audit`, MkDocs project root for `mkdocs-inventory`, unpacked Ghost export root for `ghost-inventory`, or unpacked Mastodon archive for `mastodon` / `mastodon-inventory`; must be explicit for `astro-import-plan` |
+| `--root=DIR` | `.` | Astro archaeology root, Starlight project root, asset-filename content tree, theme scan root, Jekyll site source root, generated HTML tree for `link-audit`, MkDocs project root for `mkdocs-inventory`, unpacked Ghost export root for `ghost-inventory` / `ghost`, or unpacked Mastodon archive for `mastodon` / `mastodon-inventory`; must be explicit for `astro-import-plan` |
 | `--content-root=RELATIVE_DIR` | | Required by `astro-import-plan` and `astro-import-apply`; approved plain-Markdown root relative to `--root` |
 | `--project-id=ID` | | Required by `astro-import-plan` and `astro-import-apply`; stable importer identity namespace |
 | `--plan=FILE` | | Required by `astro-import-apply`; reviewed `import_plan.json` with adjacent `source_snapshot.json` |
@@ -347,7 +353,11 @@ Exit codes: **0** success, **2** usage, **3** I/O error.
 19. **Ghost** — read-only inventory of an unpacked Ghost 5 Admin export. Never
     mutates `ghost-export.json` or `content/images/`, never calls the Ghost API
     or the network, and never copies `users` emails, password hashes, or tokens
-    into the inventory. See [`docs/contracts/ghost.md`](docs/contracts/ghost.md).
+    into the inventory. `--mode=ghost` emits candidate Boris Markdown from the
+    same export: `members`/`paid`/`tiers` and `scheduled` rows land as
+    `status: draft` (never `published`), `__GHOST_URL__` links resolve to
+    `[[entity-id|label]]` or are reported, and local images are copied into
+    sibling `<stem>.assets/` trees. See [`docs/contracts/ghost.md`](docs/contracts/ghost.md).
 20. **MkDocs** — `mkdocs.yml` is inventory only. The `nav:` block is parsed
     by a bounded indentation parser; `!!python/...` YAML tags are recorded as
     `unsupported` and never evaluated. No plugin, macro, hook, theme, or

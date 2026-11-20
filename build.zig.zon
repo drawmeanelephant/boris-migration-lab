@@ -43,6 +43,7 @@
         "hugo.zig",
         "jekyll.zig",
         "ghost.zig",
+        "ghost_emit.zig",
         "mkdocs.zig",
         "mastodon.zig",
         "migration_semantics.zig",
