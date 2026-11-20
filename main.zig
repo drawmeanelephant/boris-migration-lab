@@ -65,6 +65,7 @@ const astro_import_apply = @import("astro_import_apply.zig");
 const hugo = @import("hugo.zig");
 const hugo_emit = @import("hugo_emit.zig");
 const ghost = @import("ghost.zig");
+const mastodon = @import("mastodon.zig");
 const mkdocs = @import("mkdocs.zig");
 const modes = @import("modes.zig");
 
@@ -578,6 +579,7 @@ test {
     _ = jekyll;
     _ = ghost;
     _ = mkdocs;
+    _ = mastodon;
 }
 
 test "parseOptions: defaults and astro flags" {
@@ -733,6 +735,23 @@ test "parseOptions: ghost-inventory flags" {
 
     const o2 = try parseOptions(&.{ "boris-migration-lab", "--mode=ghost-inv", "--root=./g" });
     try std.testing.expect(o2.mode == .ghost_inventory);
+}
+
+test "parseOptions: mastodon flags" {
+    const o = try parseOptions(&.{
+        "boris-migration-lab",
+        "--mode=mastodon",
+        "--root=fixtures/mini-mastodon",
+        "--out=./.masto",
+    });
+    try std.testing.expect(o.mode == .mastodon);
+    try std.testing.expectEqualStrings("fixtures/mini-mastodon", o.root_dir);
+    try std.testing.expectEqualStrings("./.masto", o.out_dir);
+
+    const o2 = try parseOptions(&.{ "boris-migration-lab", "--mode=mastodon-inventory", "--root=./m" });
+    try std.testing.expect(o2.mode == .mastodon_inventory);
+    const o3 = try parseOptions(&.{ "boris-migration-lab", "--mode=masto" });
+    try std.testing.expect(o3.mode == .mastodon);
 }
 
 test "parseOptions: notion flags" {
