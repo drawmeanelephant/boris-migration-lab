@@ -55,11 +55,21 @@ exports `blobs/` alongside.
 Concrete emit decisions the table leaves open:
 
 - Page id `bsky-<rkey>` for feed posts and `std-<rkey>` for
-  `site.standard.document`; rkeys are already URL-safe (base32-ish
-  `3k…` strings) and pass `sanitizeSegment` unchanged.
-- `app.bsky.feed.post` body is the `text` field verbatim; facets only
-  contribute `#tag` values to `tags`. Rich-text link facets stay as
-  inline URLs in the text.
+  `site.standard.document`; rkeys are validated against the atproto
+  grammar `[A-Za-z0-9._:~-]{1,512}` (bare `.`/`..` excluded — invalid
+  rkeys are reported, not emitted) and the id passes `sanitizeSegment`.
+  Case-insensitive id collisions report `id_collision` and the later
+  record is skipped.
+- `app.bsky.feed.post` body is the `text` field as literal text —
+  Markdown punctuation escaped and Boris `[[`/`{{`/`<Component` syntax
+  neutralized. Document `text` keeps authored Markdown but gets the same
+  Boris-syntax neutralization. Bodies over 1 MiB truncate with a
+  `body_too_large` row.
+- Embed/external URIs must be `http(s)` without markup-breaking
+  characters or they are reported (`external_uri_unsafe`) and the title
+  emits unlinked. A reply whose root did not emit a Trunk page is
+  reported (`parent_missing` / `parent_not_trunk`) and emitted
+  standalone — Boris Satellites cannot parent Satellites.
 - Self-thread detection: `reply.root.uri` starts with the repo's own
   `at://<did>/` DID. Foreign-root replies never get a `parent:`.
 - `status: published` everywhere — repo records are public by

@@ -20,6 +20,7 @@
 //!   mkdocs-inventory — MkDocs mkdocs.yml + docs tree → inventory.json + INVENTORY.md
 //!   mkdocs     — MkDocs project → Boris Markdown (Trunk/Satellite nav) + reports
 //!   jekyll — Jekyll site source → Boris Markdown + provenance sidecars + review reports
+//!   atproto — AT Protocol repo.car + blobs/ → content/ + report.json + provenance.json
 //!   atproto-inventory — AT Protocol repo.car + blobs/ → inventory.json + INVENTORY.md
 //!
 //! Never rewrites inputs. Not part of the Boris product compiler pipeline.
@@ -992,8 +993,8 @@ test "parseOptions: atproto-inventory flags" {
     try std.testing.expectEqualStrings("fixtures/mini-atproto", o.root_dir);
     const o2 = try parseOptions(&.{ "boris-migration-lab", "--mode=atproto-inv", "--root=r", "--out=o" });
     try std.testing.expect(o2.mode == .atproto_inventory);
-    // Bare `atproto` is reserved for the emit slice and stays invalid.
-    try std.testing.expectError(error.InvalidValue, parseOptions(&.{ "x", "--mode=atproto" }));
+    const o3 = try parseOptions(&.{ "boris-migration-lab", "--mode=atproto", "--root=r", "--out=o" });
+    try std.testing.expect(o3.mode == .atproto);
 }
 
 test "parseOptions: unknown flag" {
