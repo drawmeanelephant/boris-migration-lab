@@ -584,7 +584,7 @@ const Rewriter = struct {
                 while (e < body.len and isPathChar(body[e])) e += 1;
                 const dest = body[i + 2 .. e];
                 if (e < body.len and (body[e] == ')' or body[e] == ' ') and dest.len > 0) {
-                    if (try resolveLocal(a, self.page_src_dir, dest)) |rel| {
+                    if (try resolveLocal(a, self.page_src_dir, try asset_filename.urlDecodeAlloc(a, dest))) |rel| {
                         if (self.isStatic(rel)) {
                             const ref = try self.assetRef(rel);
                             try self.out.appendSlice(a, "](");
@@ -671,7 +671,7 @@ const Rewriter = struct {
             var e = after.*;
             if (e < body.len and body[e] == '/') {
                 while (e < body.len and isPathChar(body[e])) e += 1;
-                if (try resolveLocal(a, "", body[after.*..e])) |rel| {
+                if (try resolveLocal(a, "", try asset_filename.urlDecodeAlloc(a, body[after.*..e]))) |rel| {
                     if (self.isStatic(rel)) {
                         const ref = try self.assetRef(rel);
                         try self.site("{{ site.baseurl }}", body[after.* - full.len .. e], ref, .transformed, null);
@@ -1691,6 +1691,8 @@ test "jekyll: emit hostile tree: id collisions, bad dates, quoted titles and tag
         .{ "site/_drafts/2024-01-05-caf-post.md", "---\n---\n\nDraft with the same slug.\n" },
         .{ "site/notes/deep/page.md", "---\ntitle: Deep\n---\n\n[x|y]({% post_url 2024-02-30-bad-date %})\n" },
         .{ "site/plain.md", "No front matter: Jekyll copies this verbatim.\n" },
+        .{ "site/assets/hero image.png", "img\n" },
+        .{ "site/gallery.md", "---\ntitle: Gallery\n---\n\n![h](/assets/hero%20image.png)\n" },
         .{ "site/commented.md", "---\ntitle: Commented\npublished: false # not ready\n---\n\nHidden.\n" },
     };
     for (files) |f| {
@@ -1716,6 +1718,8 @@ test "jekyll: emit hostile tree: id collisions, bad dates, quoted titles and tag
     try expectContains(try readOut(io, a, out, "content/posts-2.md"), "[[posts/caf-post]]");
     try expectContains(try readOut(io, a, out, "content/posts/caf-post-2.md"), "title: caf-post\nparent: posts\nstatus: draft");
     try expectContains(try readOut(io, a, out, "content/commented.md"), "status: draft\n");
+    try expectContains(try readOut(io, a, out, "content/gallery.md"), "![h](gallery.assets/hero-image.png)");
+    try std.testing.expectEqualStrings("img\n", try readOut(io, a, out, "content/gallery.assets/hero-image.png"));
 
     try compileWithBoris(io, std.testing.allocator, try std.fmt.allocPrint(a, "{s}/content", .{out}), try std.fmt.allocPrint(a, "{s}/html", .{base}));
 }
