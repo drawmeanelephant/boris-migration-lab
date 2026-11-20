@@ -800,23 +800,47 @@ fn rewriteLink(ctx: BodyCtx, line: []const u8, start: usize) !?usize {
     return cp + 1;
 }
 
-fn rewriteLine(ctx: BodyCtx, line: []const u8) !void {
+/// Index of a backtick run of exactly `n` at or after `from`.
+fn findTickRun(line: []const u8, from: usize, n: usize) ?usize {
+    var j = from;
+    while (std.mem.indexOfScalarPos(u8, line, j, '`')) |k| {
+        var m: usize = 0;
+        while (k + m < line.len and line[k + m] == '`') m += 1;
+        if (m == n) return k;
+        j = k + m;
+    }
+    return null;
+}
+
+/// `open_tick` carries an inline code span that is still open from an
+/// earlier line of the same paragraph (its length in backticks, or 0).
+fn rewriteLine(ctx: BodyCtx, line: []const u8, open_tick: *usize) !void {
     const a = ctx.site.a;
     const out = ctx.out;
     const line_out_start = out.items.len;
     var i: usize = 0;
+    if (open_tick.* > 0) {
+        const close = findTickRun(line, 0, open_tick.*) orelse {
+            try out.appendSlice(a, line);
+            return;
+        };
+        i = close + open_tick.*;
+        try out.appendSlice(a, line[0..i]);
+        open_tick.* = 0;
+    }
     while (i < line.len) {
         const c = line[i];
         if (c == '`') {
             var n: usize = 1;
             while (i + n < line.len and line[i + n] == '`') n += 1;
-            const tick = line[i .. i + n];
-            if (std.mem.indexOfPos(u8, line, i + n, tick)) |close| {
+            if (findTickRun(line, i + n, n)) |close| {
                 try out.appendSlice(a, line[i .. close + n]);
                 i = close + n;
             } else {
-                try out.appendSlice(a, tick);
-                i += n;
+                // The span may close on a later line of this paragraph.
+                try out.appendSlice(a, line[i..]);
+                open_tick.* = n;
+                return;
             }
             continue;
         }
@@ -845,13 +869,16 @@ fn transformBody(ctx: BodyCtx, body: []const u8) !void {
     const a = ctx.site.a;
     var in_fence = false;
     var fence: hugo.Fence = .{ .char = 0, .len = 0 };
+    var open_tick: usize = 0;
     var it = std.mem.splitScalar(u8, body, '\n');
     var first = true;
     while (it.next()) |line| {
         if (!first) try ctx.out.append(a, '\n');
         first = false;
         const t = std.mem.trimStart(u8, std.mem.trimEnd(u8, line, "\r"), " \t");
+        if (t.len == 0) open_tick = 0;
         if (hugo.fenceMarker(t)) |m| {
+            open_tick = 0;
             if (!in_fence) {
                 in_fence = true;
                 fence = m;
@@ -864,7 +891,7 @@ fn transformBody(ctx: BodyCtx, body: []const u8) !void {
         if (in_fence) {
             try ctx.out.appendSlice(a, line);
         } else {
-            try rewriteLine(ctx, line);
+            try rewriteLine(ctx, line, &open_tick);
         }
     }
 }
@@ -1849,6 +1876,7 @@ test "hugo: synthesized landings, JSON/YAML lists, link-form refs, unresolved re
         \\Body with {{< youtube abc >}}.
         \\
     );
+    try writeTestFile(io, a, site_root, "content/docs/code.md", "---\ntitle: Code\n---\nSample `code\n{{< ref \"docs/guide.md\" >}}` stays literal, {{< ref \"docs/guide.md\" >}} does not.\n\nUnclosed ` tick.\n\nNext {{< ref \"docs/guide.md\" >}}.\n");
     try writeTestFile(io, a, site_root, "content/docs/kit/index.md", "---\ntitle: Kit\n---\n[Download](manual.pdf)\n");
     try writeTestFile(io, a, site_root, "content/docs/kit/manual.pdf", "pdf");
     try writeTestFile(io, a, site_root, "content/notes/deep/_index.md", "---\ntitle: Deep notes\n---\nNested only.\n");
@@ -1880,6 +1908,11 @@ test "hugo: synthesized landings, JSON/YAML lists, link-form refs, unresolved re
     try expectContains(guide, "tags: [one, two]\n");
     try expectContains(guide, "summary: \"The guide.\"\n");
     try expectContains(guide, "{{< youtube abc >}}");
+
+    const code_page = try hugo.readFileAlloc(io, od, "content/docs/code.md", a);
+    defer a.free(code_page);
+    try expectContains(code_page, "Sample `code\n{{< ref \"docs/guide.md\" >}}` stays literal, [[docs/guide]] does not.");
+    try expectContains(code_page, "Next [[docs/guide]].");
 
     const kit = try hugo.readFileAlloc(io, od, "content/docs/kit.md", a);
     defer a.free(kit);
