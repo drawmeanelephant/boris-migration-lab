@@ -183,12 +183,17 @@ fn htmlCardSafe(html: []const u8) bool {
     for (html) |c| lower_buf.appendAssumeCapacity(std.ascii.toLower(c));
     const lower = lower_buf.items;
     for (banned) |b| if (std.mem.indexOf(u8, lower, b) != null) return false;
-    // Inline event handlers (` onclick=` …).
+    // Inline event handlers (`onclick=`, `\tonerror =`, `/onload=` …).
     var i: usize = 0;
-    while (std.mem.indexOfPos(u8, lower, i, " on")) |p| : (i = p + 3) {
-        var j = p + 3;
-        while (j < lower.len and std.ascii.isAlphabetic(lower[j])) j += 1;
-        if (j > p + 3 and j < lower.len and lower[j] == '=') return false;
+    while (std.mem.indexOfPos(u8, lower, i, "on")) |p| : (i = p + 2) {
+        if (p == 0) continue;
+        const before = lower[p - 1];
+        if (!(std.ascii.isWhitespace(before) or before == '/' or before == '"' or before == '\'')) continue;
+        var j = p + 2;
+        while (j < lower.len and (std.ascii.isAlphanumeric(lower[j]) or lower[j] == '-' or lower[j] == '_')) j += 1;
+        if (j == p + 2) continue;
+        while (j < lower.len and std.ascii.isWhitespace(lower[j])) j += 1;
+        if (j < lower.len and lower[j] == '=') return false;
     }
     // Boris syntax inside raw HTML would be compiled, not shown.
     if (std.mem.indexOf(u8, html, "[[") != null or std.mem.indexOf(u8, html, "{{") != null) return false;
@@ -549,6 +554,24 @@ fn linkLabelStart(s: []const u8, close: usize) ?usize {
     return null;
 }
 
+/// True when `content`, `content/images`, or any segment of `rel` below
+/// `images_dir` is a symlink; such media could point outside the export.
+fn symlinkUnder(io: Io, a: std.mem.Allocator, images_dir: []const u8, rel: []const u8) !bool {
+    const content_dir = std.fs.path.dirname(images_dir) orelse images_dir;
+    for ([_][]const u8{ content_dir, images_dir }) |d| {
+        const st = Io.Dir.cwd().statFile(io, d, .{ .follow_symlinks = false }) catch continue;
+        if (st.kind == .sym_link) return true;
+    }
+    var end: usize = 0;
+    while (end < rel.len) {
+        end = std.mem.indexOfScalarPos(u8, rel, end + 1, '/') orelse rel.len;
+        const p = try std.fmt.allocPrint(a, "{s}/{s}", .{ images_dir, rel[0..end] });
+        const st = Io.Dir.cwd().statFile(io, p, .{ .follow_symlinks = false }) catch return false;
+        if (st.kind == .sym_link) return true;
+    }
+    return false;
+}
+
 fn materializeImage(ctx: *PageCtx, rel_raw: []const u8) !?[]const u8 {
     const a = ctx.a;
     var rel = rel_raw;
@@ -559,7 +582,11 @@ fn materializeImage(ctx: *PageCtx, rel_raw: []const u8) !?[]const u8 {
         return null;
     }
     const full = try std.fmt.allocPrint(a, "{s}/{s}", .{ ctx.images_dir, rel });
-    const st = Io.Dir.cwd().statFile(ctx.io, full, .{}) catch {
+    if (try symlinkUnder(ctx.io, a, ctx.images_dir, rel)) {
+        try ctx.note("image_symlink_refused", .human_review, rel);
+        return null;
+    }
+    const st = Io.Dir.cwd().statFile(ctx.io, full, .{ .follow_symlinks = false }) catch {
         try ctx.note("missing_image", .human_review, rel);
         return null;
     };
