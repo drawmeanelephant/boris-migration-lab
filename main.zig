@@ -2564,3 +2564,84 @@ fn copyTreeRecursive(io: Io, gpa: std.mem.Allocator, src_root: Io.Dir, dst_root:
         try dst_root.writeFile(io, .{ .sub_path = child, .data = data });
     }
 }
+
+test "parseOptions: mkdocs flags" {
+    const o = try parseOptions(&.{
+        "boris-migration-lab",
+        "--mode=mkdocs",
+        "--root=fixtures/mini-mkdocs",
+        "--out=outputs/mkdocs",
+    });
+    try std.testing.expect(o.mode == .mkdocs);
+    try std.testing.expectEqualStrings("fixtures/mini-mkdocs", o.root_dir);
+    const o2 = try parseOptions(&.{ "boris-migration-lab", "--mode=mkdocs-emit", "--root=r", "--out=o" });
+    try std.testing.expect(o2.mode == .mkdocs);
+}
+
+test "mkdocs: generated content compiles with product Boris" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer cleanupTestTmpDir(io, &tmp);
+
+    const test_root = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}/mkdocs-compile", .{tmp.sub_path});
+    defer gpa.free(test_root);
+    const lab_out = try std.fmt.allocPrint(gpa, "{s}/converted", .{test_root});
+    defer gpa.free(lab_out);
+    const html_out = try std.fmt.allocPrint(gpa, "{s}/html", .{test_root});
+    defer gpa.free(html_out);
+
+    try mkdocs.runEmit(io, gpa, .{
+        .root_dir = "fixtures/mini-mkdocs",
+        .out_dir = lab_out,
+        .quiet = true,
+    });
+
+    const boris_bin = (try product_boris.resolve(io, gpa)) orelse
+        return error.MissingProductBorisBinary;
+
+    const content_from_lab = try std.fmt.allocPrint(gpa, "{s}/content", .{lab_out});
+    defer gpa.free(content_from_lab);
+    const layout_from_lab = "layouts/main.html";
+
+    const argv = [_][]const u8{
+        boris_bin,
+        "--input",
+        content_from_lab,
+        "--html-dir",
+        html_out,
+        "--html-layout",
+        layout_from_lab,
+    };
+    const result = try std.process.run(gpa, io, .{
+        .argv = &argv,
+        .stdout_limit = .limited(64 * 1024),
+        .stderr_limit = .limited(64 * 1024),
+    });
+    defer gpa.free(result.stdout);
+    defer gpa.free(result.stderr);
+
+    const code: u8 = switch (result.term) {
+        .exited => |c| c,
+        else => 255,
+    };
+    if (code != 0) {
+        std.debug.print("boris compile failed code={d} stderr={s} stdout={s}\n", .{ code, result.stderr, result.stdout });
+    }
+    try std.testing.expectEqual(@as(u8, 0), code);
+
+    // Emitted page-side asset and snippet include made it into the tree.
+    var content_dir = try Io.Dir.cwd().openDir(io, content_from_lab, .{});
+    defer content_dir.close(io);
+    const hero = try wordpress.readFileAlloc(io, content_dir, "index.assets/hero.png", gpa);
+    defer gpa.free(hero);
+    try std.testing.expect(hero.len > 0);
+    const inc = try wordpress.readFileAlloc(io, content_dir, "includes/shared.md", gpa);
+    defer gpa.free(inc);
+    try std.testing.expect(inc.len > 0);
+    const index_md = try wordpress.readFileAlloc(io, content_dir, "index.md", gpa);
+    defer gpa.free(index_md);
+    try std.testing.expect(std.mem.indexOf(u8, index_md, "[[guide/setup#prerequisites") != null or
+        std.mem.indexOf(u8, index_md, "[[guide/setup]]") != null);
+}

@@ -84,3 +84,46 @@ published_at, summary}`.
 - Evaluating Python YAML tags or `!relative`/`ENV` interpolation
 - Visual/theme parity with Material for MkDocs
 - Reading real exports — the contract and fixture are synthetic only
+
+## Emit mapping (`--mode=mkdocs`)
+
+Decisions recorded for the two-level graph (`{id, parent}` only):
+
+- `nav:` becomes the Trunk/Satellite forest: top-level nav entries are
+  Trunks; nav children become Satellites of their section Trunk. A section
+  with its own `index.md`/`README.md` page makes that page the section
+  Trunk; a section without one gets a **generated Trunk**
+  (`kind: generated_trunk`, synthesized title, provenance comment naming
+  the nav section). Nav depth ≥ 3 has no Boris equivalent — deeper pages
+  flatten under the nearest real Trunk and are reported `nav_flattened`.
+- External `nav:` targets (`http(s)://…`) are appended to their parent
+  Trunk's `## Links` list and reported `nav_external`; nav entries whose
+  target file does not exist are reported `nav_target_missing`.
+- Pages absent from `nav:` emit as top-level Trunks and are reported
+  `page_not_in_nav`.
+- `!!! kind` admonitions → `<Aside kind>` (note/tip/info/warning/danger;
+  `hint→tip`, `todo→info`, `caution`/`attention→warning`, `error→danger`).
+  An explicit `"Title"` becomes a `**Title**` first line; the admonition
+  body is transformed recursively. Unmapped kinds stay verbatim and are
+  reported `admonition_unmapped`.
+- `??? kind` collapsible admonitions → `<Aside>` the same way plus an
+  `admonition_collapsible` report row (Boris has no collapsible Aside).
+- `pymdownx.tabbed` `=== "Label"` blocks → `<Details summary="Label">` +
+  a `tab` report row.
+- `--8<-- "path"` snippet includes → `{{include includes/name.md}}`; the
+  snippet is copied verbatim to `content/includes/`. Missing targets stay
+  verbatim and are reported `snippet_missing`. Snippets resolve
+  docs-dir-relative first, then page-dir-relative.
+- `[text](page.md)` links → `[[id]]`/`[[id|text]]`; a `#fragment` is kept
+  only when it matches a heading on the target page, else dropped and
+  reported `fragment_dropped`. Same-page `#anchor` links are kept only
+  for real headings; missing targets stay verbatim as `unresolved_link`.
+- Images and links to non-Markdown files are copied next to the owning
+  page as `content/<stem>.assets/<name>` (deduplicated per page) and the
+  reference rewritten to that path.
+- Front matter: `title`/`tags` map to Boris `title`/`tags` exactly;
+  every other top-level key is dropped into the provenance comment plus
+  the page's `dropped` list (never silently folded into Boris fm).
+- Entities: `content/<id>.md` (+ generated Trunks), `content/includes/`,
+  `<stem>.assets/`; reports `report.json` + `REPORT.md` (pages, nav
+  events, link rewrites, asset copies, includes, human-review items).

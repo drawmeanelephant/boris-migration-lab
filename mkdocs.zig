@@ -1711,3 +1711,1041 @@ test "mkdocs: missing mkdocs.yml is bad input" {
         .quiet = true,
     }));
 }
+
+// ---------------------------------------------------------------------------
+// Emit (`--mode=mkdocs`)
+// ---------------------------------------------------------------------------
+
+const EmitPage = struct {
+    source_path: []const u8,
+    id: []const u8,
+    parent: ?[]const u8,
+    title: []const u8,
+    kind: []const u8, // "trunk" | "satellite" | "generated_trunk"
+    in_nav: bool,
+    class: Class,
+    dropped: []const []const u8,
+};
+
+const ReviewItem = struct {
+    source_path: []const u8,
+    kind: []const u8,
+    detail: []const u8,
+};
+
+const EmitLink = struct {
+    source_path: []const u8,
+    target: []const u8,
+    result: []const u8,
+};
+
+const AssetCopy = struct {
+    source_path: []const u8,
+    dest: []const u8,
+};
+
+const NavEvent = struct {
+    source_path: []const u8,
+    kind: []const u8,
+    detail: []const u8,
+};
+
+const IncludeCopy = struct {
+    source_path: []const u8,
+    dest: []const u8,
+};
+
+fn emitIsEntityChar(c: u8) bool {
+    return (c >= 'A' and c <= 'Z') or (c >= 'a' and c <= 'z') or (c >= '0' and c <= '9') or c == '_';
+}
+
+fn emitSanitizeSegment(a: std.mem.Allocator, seg: []const u8) ![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    var prev_dash = false;
+    for (seg) |c| {
+        const lc = std.ascii.toLower(c);
+        if (emitIsEntityChar(lc)) {
+            try out.append(a, lc);
+            prev_dash = false;
+        } else if (!prev_dash and out.items.len > 0) {
+            try out.append(a, '-');
+            prev_dash = true;
+        }
+    }
+    var s = out.items;
+    while (s.len > 0 and s[s.len - 1] == '-') s = s[0 .. s.len - 1];
+    if (s.len == 0) return try a.dupe(u8, "page");
+    return s;
+}
+
+/// Sanitize a filename but keep its extension: `Hero IMG.PNG` → `hero-img.png`.
+fn emitSanitizeFilename(a: std.mem.Allocator, name: []const u8) ![]const u8 {
+    const ext = std.fs.path.extension(name);
+    const stem = name[0 .. name.len - ext.len];
+    return try std.fmt.allocPrint(a, "{s}{s}", .{ try emitSanitizeSegment(a, stem), ext });
+}
+
+fn emitEntityId(a: std.mem.Allocator, raw: []const u8) ![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    var it = std.mem.splitScalar(u8, raw, '/');
+    var first = true;
+    while (it.next()) |seg| {
+        if (seg.len == 0) continue;
+        if (!first) try out.append(a, '/');
+        try out.appendSlice(a, try emitSanitizeSegment(a, seg));
+        first = false;
+    }
+    if (out.items.len == 0) return try a.dupe(u8, "page");
+    return try out.toOwnedSlice(a);
+}
+
+/// Docs-relative page path → entity id: `a/b/c.md` → `a/b/c`;
+/// `a/index.md`/`a/README.md` → `a`; `index.md` → `index`.
+fn emitPageId(a: std.mem.Allocator, path: []const u8) ![]const u8 {
+    var stem = path;
+    if (isMarkdownName(stem)) stem = stem[0 .. stem.len - std.fs.path.extension(stem).len];
+    const base = std.fs.path.basename(stem);
+    if (std.ascii.eqlIgnoreCase(base, "index") or std.ascii.eqlIgnoreCase(base, "readme")) {
+        stem = std.fs.path.dirname(stem) orelse "index";
+    }
+    return try emitEntityId(a, stem);
+}
+
+fn emitAppendQuotedScalar(buf: *std.ArrayList(u8), a: std.mem.Allocator, value: []const u8) !void {
+    try buf.append(a, '"');
+    for (value) |c| {
+        if (c == '"') try buf.appendSlice(a, "'") else if (c >= 0x20 and c != 0x7f) try buf.append(a, c);
+    }
+    try buf.append(a, '"');
+}
+
+fn emitEscapeFmValue(a: std.mem.Allocator, value: []const u8) ![]u8 {
+    var needs_quote = value.len == 0;
+    for (value) |c| {
+        if (c < 0x20 or c == 0x7f or c == ':' or c == '#' or c == '"' or c == '\'' or c == '[' or c == ']' or
+            c == ',' or c == '&' or c == '<' or c == '>' or c == '{' or c == '}' or c == '\\' or c == '`' or
+            c == '!' or c == '@' or c == '$' or c == '%' or c == '^' or c == '*' or c == '(' or c == ')' or
+            c == '=' or c == '+' or c == ';' or c == '?' or c == '/' or c == ' ')
+        {
+            needs_quote = true;
+            break;
+        }
+    }
+    if (!needs_quote) return try a.dupe(u8, value);
+    var out: std.ArrayList(u8) = .empty;
+    try emitAppendQuotedScalar(&out, a, value);
+    return try out.toOwnedSlice(a);
+}
+
+/// Boris closed frontmatter writer (sibling of hugo.buildEmitFrontmatter).
+fn emitBuildFrontmatter(
+    a: std.mem.Allocator,
+    id: []const u8,
+    title: []const u8,
+    parent: ?[]const u8,
+    tags: []const []const u8,
+) ![]u8 {
+    var buf: std.ArrayList(u8) = .empty;
+    try buf.appendSlice(a, "---\n");
+    try buf.print(a, "id: {s}\n", .{try emitEscapeFmValue(a, id)});
+    try buf.print(a, "title: {s}\n", .{try emitEscapeFmValue(a, title)});
+    if (parent) |p| try buf.print(a, "parent: {s}\n", .{try emitEscapeFmValue(a, p)});
+    try buf.appendSlice(a, "status: published\n");
+    if (tags.len > 0) {
+        try buf.appendSlice(a, "tags: [");
+        for (tags, 0..) |t, i| {
+            if (i > 0) try buf.appendSlice(a, ", ");
+            var safe = t.len > 0;
+            for (t) |c| {
+                if (!((c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or (c >= '0' and c <= '9') or c == '-' or c == '_')) safe = false;
+            }
+            if (safe) {
+                try buf.appendSlice(a, t);
+            } else {
+                try emitAppendQuotedScalar(&buf, a, t);
+            }
+        }
+        try buf.appendSlice(a, "]\n");
+    }
+    try buf.appendSlice(a, "---\n\n");
+    return try buf.toOwnedSlice(a);
+}
+
+const FmSplit = struct { fm: ?[]const u8, body: []const u8 };
+fn emitSplitFrontmatter(text: []const u8) FmSplit {
+    if (!std.mem.startsWith(u8, text, "---\n") and !std.mem.startsWith(u8, text, "---\r\n")) {
+        return .{ .fm = null, .body = text };
+    }
+    const start: usize = if (text[3] == '\r') 4 else 3;
+    var off = start;
+    var it = std.mem.splitScalar(u8, text[start..], '\n');
+    while (it.next()) |line| {
+        const l = rtrim(line);
+        const line_end = off + line.len + 1;
+        if (std.mem.eql(u8, trim(l), "---") or std.mem.eql(u8, trim(l), "...")) {
+            return .{ .fm = text[start..off], .body = if (line_end <= text.len) text[line_end..] else "" };
+        }
+        off = line_end;
+    }
+    return .{ .fm = null, .body = text };
+}
+
+fn stripScalarQuotes(s: []const u8) []const u8 {
+    if (s.len >= 2 and s[0] == '"' and s[s.len - 1] == '"') return s[1 .. s.len - 1];
+    if (s.len >= 2 and s[0] == '\'' and s[s.len - 1] == '\'') return s[1 .. s.len - 1];
+    return s;
+}
+
+fn fmScalar(fm: ?[]const u8, key: []const u8) ?[]const u8 {
+    const f = fm orelse return null;
+    var it = std.mem.splitScalar(u8, f, '\n');
+    while (it.next()) |raw| {
+        const line = rtrim(raw);
+        if (lineIndent(line) != 0) continue;
+        const s = trim(stripYamlComment(line));
+        const colon = std.mem.indexOfScalar(u8, s, ':') orelse continue;
+        if (!std.mem.eql(u8, trim(s[0..colon]), key)) continue;
+        const v = trim(s[colon + 1 ..]);
+        if (v.len == 0) return null;
+        return stripScalarQuotes(v);
+    }
+    return null;
+}
+
+/// `tags: [a, b]` inline or `- a` dash list under a `tags:` key.
+fn fmList(a: std.mem.Allocator, fm: ?[]const u8, key: []const u8) ![]const []const u8 {
+    const f = fm orelse return &.{};
+    var out: std.ArrayList([]const u8) = .empty;
+    var in_key = false;
+    var it = std.mem.splitScalar(u8, f, '\n');
+    while (it.next()) |raw| {
+        const line = rtrim(raw);
+        const s = trim(stripYamlComment(line));
+        if (lineIndent(line) == 0) {
+            in_key = false;
+            const colon = std.mem.indexOfScalar(u8, s, ':') orelse continue;
+            if (!std.mem.eql(u8, trim(s[0..colon]), key)) continue;
+            in_key = true;
+            const v = trim(s[colon + 1 ..]);
+            if (v.len >= 2 and v[0] == '[' and v[v.len - 1] == ']') {
+                var jt = std.mem.splitScalar(u8, v[1 .. v.len - 1], ',');
+                while (jt.next()) |item| {
+                    const e = stripScalarQuotes(trim(item));
+                    if (e.len > 0) try out.append(a, try a.dupe(u8, e));
+                }
+                in_key = false;
+            } else if (v.len > 0) {
+                try out.append(a, try a.dupe(u8, stripScalarQuotes(v)));
+                in_key = false;
+            }
+            continue;
+        }
+        if (in_key and s.len > 1 and s[0] == '-') {
+            const e = stripScalarQuotes(trim(s[1..]));
+            if (e.len > 0) try out.append(a, try a.dupe(u8, e));
+        }
+    }
+    return try out.toOwnedSlice(a);
+}
+
+fn emitDroppedKeys(a: std.mem.Allocator, fm: ?[]const u8) ![]const []const u8 {
+    const f = fm orelse return &.{};
+    var out: std.ArrayList([]const u8) = .empty;
+    var it = std.mem.splitScalar(u8, f, '\n');
+    while (it.next()) |raw| {
+        const line = rtrim(raw);
+        if (lineIndent(line) != 0) continue;
+        const s = trim(stripYamlComment(line));
+        const colon = std.mem.indexOfScalar(u8, s, ':') orelse continue;
+        const k = trim(s[0..colon]);
+        if (k.len == 0) continue;
+        if (std.mem.eql(u8, k, "title") or std.mem.eql(u8, k, "tags")) continue;
+        try out.append(a, try a.dupe(u8, k));
+    }
+    return try out.toOwnedSlice(a);
+}
+
+/// MkDocs admonition kind → Boris Aside kind, or null when unmapped.
+fn emitAsideKind(kind: []const u8) ?[]const u8 {
+    if (std.mem.eql(u8, kind, "note")) return "note";
+    if (std.mem.eql(u8, kind, "tip") or std.mem.eql(u8, kind, "hint")) return "tip";
+    if (std.mem.eql(u8, kind, "info") or std.mem.eql(u8, kind, "todo")) return "info";
+    if (std.mem.eql(u8, kind, "warning") or std.mem.eql(u8, kind, "caution") or
+        std.mem.eql(u8, kind, "attention")) return "warning";
+    if (std.mem.eql(u8, kind, "danger") or std.mem.eql(u8, kind, "error")) return "danger";
+    return null;
+}
+
+fn emitDestIsExternal(dest: []const u8) bool {
+    if (dest.len == 0) return true;
+    if (std.mem.indexOfScalar(u8, dest, ':')) |colon| {
+        const scheme = dest[0..colon];
+        if (scheme.len == 0) return false;
+        for (scheme) |c| {
+            if (!std.ascii.isAlphanumeric(c) and c != '+' and c != '-' and c != '.') return false;
+        }
+        return true;
+    }
+    return std.mem.startsWith(u8, dest, "//");
+}
+
+fn writeEmitBytes(io: Io, root: Io.Dir, rel_path: []const u8, data: []const u8) !void {
+    if (std.fs.path.dirname(rel_path)) |parent| {
+        if (parent.len > 0) try root.createDirPath(io, parent);
+    }
+    try root.writeFile(io, .{ .sub_path = rel_path, .data = data });
+}
+
+const EmitCtx = struct {
+    a: std.mem.Allocator,
+    /// docs-relative md path → entity id
+    page_ids: *const std.StringHashMap([]const u8),
+    /// docs-relative md path → heading slugs
+    headings: *const std.StringHashMap([]const []const u8),
+    /// docs file set
+    files: []const []const u8,
+    /// resolved snippet target → `includes/` dest name (copied once)
+    include_srcs: *std.StringHashMap([]const u8),
+    include_dests: *std.StringHashMap(void),
+    /// `{page.id}|{src}` and `content/...` dests → already claimed
+    copied: *std.StringHashMap([]const u8),
+    review: *std.ArrayList(ReviewItem),
+    links: *std.ArrayList(EmitLink),
+    assets: *std.ArrayList(AssetCopy),
+    includes_report: *std.ArrayList(IncludeCopy),
+    page: *const EmitPage,
+    /// inside an Aside/Details body — block extensions stay verbatim
+    nested: bool,
+};
+
+fn emitReportOnce(ctx: *EmitCtx, review_dedup: *std.StringHashMap(void), dedup_key: []const u8, kind: []const u8, detail: []const u8) !void {
+    const a = ctx.a;
+    const dk = try std.fmt.allocPrint(a, "{s}/{s}", .{ ctx.page.source_path, dedup_key });
+    if (review_dedup.contains(dk)) return;
+    try review_dedup.put(dk, {});
+    try ctx.review.append(a, .{ .source_path = ctx.page.source_path, .kind = kind, .detail = detail });
+}
+
+/// Copy a docs file next to the emitting page (`<stem>.assets/<name>`);
+/// returns the page-relative dest, or null on read failure.
+fn emitCopyAsset(ctx: *EmitCtx, io: Io, docs: Io.Dir, stage: Io.Dir, rel_src: []const u8) !?[]const u8 {
+    const a = ctx.a;
+    if (!fileExists(ctx.files, rel_src)) return null;
+    const stem = std.fs.path.basename(ctx.page.id);
+    const key = try std.fmt.allocPrint(a, "{s}|{s}", .{ ctx.page.id, rel_src });
+    if (ctx.copied.get(key)) |dest| return dest;
+    const base = try emitSanitizeFilename(a, std.fs.path.basename(rel_src));
+    var dest_name = base;
+    var dest = try std.fmt.allocPrint(a, "content/{s}.assets/{s}", .{ stem, dest_name });
+    var n: usize = 2;
+    while (ctx.copied.contains(dest)) : (n += 1) {
+        dest_name = try std.fmt.allocPrint(a, "{d}-{s}", .{ n, base });
+        dest = try std.fmt.allocPrint(a, "content/{s}.assets/{s}", .{ stem, dest_name });
+    }
+    const data = try readFileAlloc(io, docs, rel_src, a);
+    try writeEmitBytes(io, stage, dest, data);
+    const page_dest = try std.fmt.allocPrint(a, "{s}.assets/{s}", .{ stem, dest_name });
+    try ctx.copied.put(key, page_dest);
+    try ctx.copied.put(dest, rel_src);
+    try ctx.assets.append(a, .{ .source_path = rel_src, .dest = dest });
+    return page_dest;
+}
+
+/// Copy a resolved snippet fragment to `content/includes/`; returns the
+/// `{{include ...}}` path or null when the target is missing.
+fn emitCopyInclude(ctx: *EmitCtx, io: Io, docs: Io.Dir, stage: Io.Dir, resolved: ?[]const u8) !?[]const u8 {
+    const a = ctx.a;
+    const src = resolved orelse return null;
+    if (!fileExists(ctx.files, src)) return null;
+    if (ctx.include_srcs.get(src)) |inc| return inc;
+    const base = try emitSanitizeFilename(a, std.fs.path.basename(src));
+    var name = base;
+    var dest = try std.fmt.allocPrint(a, "content/includes/{s}", .{name});
+    var n: usize = 2;
+    while (ctx.include_dests.contains(dest)) : (n += 1) {
+        name = try std.fmt.allocPrint(a, "{d}-{s}", .{ n, base });
+        dest = try std.fmt.allocPrint(a, "content/includes/{s}", .{name});
+    }
+    const data = try readFileAlloc(io, docs, src, a);
+    try writeEmitBytes(io, stage, dest, data);
+    const inc = try std.fmt.allocPrint(a, "includes/{s}", .{name});
+    try ctx.include_dests.put(dest, {});
+    try ctx.include_srcs.put(src, inc);
+    try ctx.includes_report.append(a, .{ .source_path = src, .dest = dest });
+    return inc;
+}
+
+/// Rewrite `[text](dest)` / `![alt](dest)` spans inside one line.
+fn emitTransformInline(
+    ctx: *EmitCtx,
+    io: Io,
+    docs: Io.Dir,
+    stage: Io.Dir,
+    review_dedup: *std.StringHashMap(void),
+    line: []const u8,
+) ![]u8 {
+    const a = ctx.a;
+    var out: std.ArrayList(u8) = .empty;
+    var last: usize = 0;
+    var pos: usize = 0;
+    while (pos < line.len) {
+        const open = std.mem.indexOfScalarPos(u8, line, pos, '(') orelse break;
+        const close = std.mem.indexOfScalarPos(u8, line, open + 1, ')') orelse break;
+        if (open == 0 or line[open - 1] != ']') {
+            pos = open + 1;
+            continue;
+        }
+        var b = open - 1;
+        var found = false;
+        while (b > 0) : (b -= 1) {
+            if (line[b - 1] == '[') {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            pos = open + 1;
+            continue;
+        }
+        const bracket = b - 1;
+        const is_img = bracket >= 1 and line[bracket - 1] == '!';
+        const span_start = if (is_img) bracket - 1 else bracket;
+        const text = line[bracket + 1 .. open - 1];
+        var dest = trim(line[open + 1 .. close]);
+        pos = close + 1;
+        if (emitDestIsExternal(dest)) continue;
+        // Angle-wrapped dest and title tail.
+        if (dest.len >= 2 and dest[0] == '<' and dest[dest.len - 1] == '>') dest = dest[1 .. dest.len - 1];
+        if (std.mem.indexOfScalar(u8, dest, ' ')) |sp| dest = trim(dest[0..sp]);
+        var frag: ?[]const u8 = null;
+        var path_part = dest;
+        if (std.mem.indexOfScalar(u8, path_part, '#')) |h| {
+            frag = path_part[h + 1 ..];
+            path_part = path_part[0..h];
+        }
+        if (path_part.len == 0) {
+            // Same-page anchor: keep only when the fragment names a real
+            // heading on this page.
+            const own = ctx.headings.get(ctx.page.source_path) orelse &.{};
+            const f = frag orelse continue;
+            if (fileExists(own, f)) continue; // verbatim, fine as-is
+            try out.appendSlice(a, line[last .. close + 1]);
+            last = pos;
+            try emitReportOnce(ctx, review_dedup, "frag", "fragment_dropped", try std.fmt.allocPrint(a, "anchor '#{s}' has no matching heading on this page", .{f}));
+            continue;
+        }
+        // Normalize away `.`-style relative segments against the page dir.
+        const base_dir = std.fs.path.dirname(ctx.page.source_path) orelse "";
+        const rel = try resolveRelative(a, base_dir, path_part) orelse continue;
+        if (isMarkdownName(rel)) {
+            if (ctx.page_ids.get(rel)) |id| {
+                try out.appendSlice(a, line[last..span_start]);
+                last = pos;
+                var emit_frag: ?[]const u8 = null;
+                if (frag) |f| {
+                    const th = ctx.headings.get(rel) orelse &.{};
+                    if (fileExists(th, f)) {
+                        emit_frag = f;
+                    } else {
+                        try emitReportOnce(ctx, review_dedup, "frag", "fragment_dropped", try std.fmt.allocPrint(a, "fragment '#{s}' has no matching heading on '{s}'; kept page link", .{ f, rel }));
+                    }
+                }
+                if (emit_frag) |f| {
+                    if (text.len > 0 and !std.mem.eql(u8, text, id)) {
+                        try out.appendSlice(a, try std.fmt.allocPrint(a, "[[{s}#{s}|{s}]]", .{ id, f, text }));
+                    } else {
+                        try out.appendSlice(a, try std.fmt.allocPrint(a, "[[{s}#{s}]]", .{ id, f }));
+                    }
+                } else if (text.len > 0 and !std.mem.eql(u8, text, id)) {
+                    try out.appendSlice(a, try std.fmt.allocPrint(a, "[[{s}|{s}]]", .{ id, text }));
+                } else {
+                    try out.appendSlice(a, try std.fmt.allocPrint(a, "[[{s}]]", .{id}));
+                }
+                try ctx.links.append(a, .{ .source_path = ctx.page.source_path, .target = dest, .result = try std.fmt.allocPrint(a, "[[{s}]]", .{id}) });
+                continue;
+            }
+            // Missing or non-emitted page (snippet target is not a page).
+            try out.appendSlice(a, line[last .. close + 1]);
+            last = pos;
+            try emitReportOnce(ctx, review_dedup, try std.fmt.allocPrint(a, "link/{s}", .{dest}), "unresolved_link", try std.fmt.allocPrint(a, "link to '{s}' kept verbatim; target not emitted", .{dest}));
+            continue;
+        }
+        // Non-markdown file → page-side asset copy.
+        if (try emitCopyAsset(ctx, io, docs, stage, rel)) |page_dest| {
+            try out.appendSlice(a, line[last..span_start]);
+            last = pos;
+            if (is_img) try out.append(a, '!');
+            try out.appendSlice(a, try std.fmt.allocPrint(a, "[{s}]({s})", .{ text, page_dest }));
+            try ctx.links.append(a, .{ .source_path = ctx.page.source_path, .target = dest, .result = page_dest });
+            continue;
+        }
+        try out.appendSlice(a, line[last .. close + 1]);
+        last = pos;
+        try emitReportOnce(ctx, review_dedup, try std.fmt.allocPrint(a, "link/{s}", .{dest}), "unresolved_link", try std.fmt.allocPrint(a, "link to '{s}' kept verbatim; file missing", .{dest}));
+    }
+    try out.appendSlice(a, line[last..]);
+    return try out.toOwnedSlice(a);
+}
+
+/// Collect the indented body of an admonition/tab block starting after
+/// `start`. Lines are taken while blank or indented ≥4 spaces / one tab.
+/// Returns the de-indented body plus the index of the next line.
+fn collectIndentedBody(a: std.mem.Allocator, lines: []const []const u8, start: usize) !struct { body: []u8, next: usize } {
+    var out: std.ArrayList(u8) = .empty;
+    var i = start;
+    while (i < lines.len) : (i += 1) {
+        const l = lines[i];
+        if (trim(l).len == 0) {
+            try out.append(a, '\n');
+            continue;
+        }
+        if (lineIndent(l) >= 4) {
+            try out.appendSlice(a, l[4..]);
+            try out.append(a, '\n');
+        } else if (l[0] == '\t') {
+            try out.appendSlice(a, l[1..]);
+            try out.append(a, '\n');
+        } else break;
+    }
+    // Trailing blank lines stay out.
+    while (out.items.len > 0 and out.items[out.items.len - 1] == '\n') _ = out.pop();
+    if (out.items.len > 0) try out.append(a, '\n');
+    return .{ .body = out.items, .next = i };
+}
+
+fn fenceLineLen(stripped: []const u8) usize {
+    if (stripped.len < 3) return 0;
+    const c = stripped[0];
+    if (c != '`' and c != '~') return 0;
+    var n: usize = 0;
+    while (n < stripped.len and stripped[n] == c) n += 1;
+    return if (n >= 3) n else 0;
+}
+
+/// Parse `!!! kind "title"` / `??? kind "title"` marker; null otherwise.
+const AdmonMarker = struct { kind: []const u8, title: ?[]const u8, collapsible: bool };
+fn parseAdmonMarker(line: []const u8) ?AdmonMarker {
+    const s = trim(line);
+    const collapsible = std.mem.startsWith(u8, s, "???");
+    if (!collapsible and !std.mem.startsWith(u8, s, "!!!")) return null;
+    var rest = trim(s[3..]);
+    if (rest.len == 0) return .{ .kind = "note", .title = null, .collapsible = collapsible };
+    var i: usize = 0;
+    while (i < rest.len and (std.ascii.isAlphanumeric(rest[i]) or rest[i] == '-' or rest[i] == '_')) i += 1;
+    const kind = rest[0..i];
+    rest = trim(rest[i..]);
+    var title: ?[]const u8 = null;
+    if (rest.len >= 2 and rest[0] == '"' and rest[rest.len - 1] == '"') title = rest[1 .. rest.len - 1];
+    return .{ .kind = kind, .title = title, .collapsible = collapsible };
+}
+
+/// Parse `=== "Label"` tab marker.
+fn parseTabMarker(line: []const u8) ?[]const u8 {
+    const s = trim(line);
+    if (!std.mem.startsWith(u8, s, "===")) return null;
+    const rest = trim(s[3..]);
+    if (rest.len >= 2 and rest[0] == '"' and rest[rest.len - 1] == '"') return rest[1 .. rest.len - 1];
+    return null;
+}
+
+/// Line body transform: admonitions → Aside, tabs → Details, snippets →
+/// `{{include}}`, links → `[[id]]`/per-page assets, fences verbatim.
+fn emitTransformBody(
+    ctx: *EmitCtx,
+    io: Io,
+    docs: Io.Dir,
+    stage: Io.Dir,
+    review_dedup: *std.StringHashMap(void),
+    body: []const u8,
+    allow_blocks: bool,
+) ![]u8 {
+    const a = ctx.a;
+    var out: std.ArrayList(u8) = .empty;
+    var lines: std.ArrayList([]const u8) = .empty;
+    var lit = std.mem.splitScalar(u8, body, '\n');
+    while (lit.next()) |l| try lines.append(a, rtrim(l));
+    var i: usize = 0;
+    var in_fence = false;
+    var fence_ch: u8 = 0;
+    var fence_len: usize = 0;
+    while (i < lines.items.len) : (i += 1) {
+        const l = lines.items[i];
+        const stripped = trim(l);
+        const fl = fenceLineLen(stripped);
+        if (fl > 0) {
+            if (in_fence) {
+                if (stripped[0] == fence_ch and fl >= fence_len) in_fence = false;
+            } else {
+                in_fence = true;
+                fence_ch = stripped[0];
+                fence_len = fl;
+            }
+            try out.appendSlice(a, l);
+            try out.append(a, '\n');
+            continue;
+        }
+        if (in_fence or stripped.len == 0) {
+            try out.appendSlice(a, l);
+            try out.append(a, '\n');
+            continue;
+        }
+        if (allow_blocks) {
+            if (parseAdmonMarker(l)) |m| {
+                const aside = emitAsideKind(m.kind);
+                const collected = try collectIndentedBody(a, lines.items, i + 1);
+                i = collected.next - 1;
+                if (m.collapsible) {
+                    try ctx.review.append(a, .{ .source_path = ctx.page.source_path, .kind = "admonition_collapsible", .detail = try std.fmt.allocPrint(a, "'??? {s}' collapsible admonition flattened to a plain Aside", .{m.kind}) });
+                }
+                if (aside) |k| {
+                    try out.appendSlice(a, try std.fmt.allocPrint(a, "<Aside kind=\"{s}\">\n", .{k}));
+                    if (m.title) |t| try out.appendSlice(a, try std.fmt.allocPrint(a, "**{s}**\n\n", .{t}));
+                    var nested_ctx = ctx.*;
+                    nested_ctx.nested = true;
+                    try out.appendSlice(a, try emitTransformBody(&nested_ctx, io, docs, stage, review_dedup, collected.body, false));
+                    try out.appendSlice(a, "</Aside>\n");
+                    try ctx.links.append(a, .{ .source_path = ctx.page.source_path, .target = m.kind, .result = k });
+                } else {
+                    try out.appendSlice(a, l);
+                    try out.append(a, '\n');
+                    try out.appendSlice(a, collected.body);
+                    try ctx.review.append(a, .{ .source_path = ctx.page.source_path, .kind = "admonition_unmapped", .detail = try std.fmt.allocPrint(a, "admonition kind '{s}' has no Boris Aside mapping; kept verbatim", .{m.kind}) });
+                }
+                continue;
+            }
+            if (parseTabMarker(l)) |label| {
+                const collected = try collectIndentedBody(a, lines.items, i + 1);
+                i = collected.next - 1;
+                try out.appendSlice(a, try std.fmt.allocPrint(a, "<Details summary=\"", .{}));
+                try out.appendSlice(a, label);
+                try out.appendSlice(a, "\">\n");
+                var nested_ctx = ctx.*;
+                nested_ctx.nested = true;
+                try out.appendSlice(a, try emitTransformBody(&nested_ctx, io, docs, stage, review_dedup, collected.body, false));
+                try out.appendSlice(a, "</Details>\n");
+                try ctx.review.append(a, .{ .source_path = ctx.page.source_path, .kind = "tab", .detail = try std.fmt.allocPrint(a, "tab '=== \"{s}\"' flattened to <Details>; tab grouping lost", .{label}) });
+                continue;
+            }
+        }
+        // pymdownx.snippets: `--8<-- "path"` or `--8<-- path`.
+        if (std.mem.startsWith(u8, stripped, "--8<--")) {
+            const rest = trim(stripped["--8<--".len..]);
+            var target: ?[]const u8 = null;
+            if (rest.len >= 2 and rest[0] == '"' and rest[rest.len - 1] == '"') {
+                target = rest[1 .. rest.len - 1];
+            } else if (rest.len > 0) {
+                target = rest;
+            }
+            var inc: ?[]const u8 = null;
+            if (target) |t| {
+                var resolved: ?[]const u8 = null;
+                if (fileExists(ctx.files, t)) {
+                    resolved = t;
+                } else {
+                    const base_dir = std.fs.path.dirname(ctx.page.source_path) orelse "";
+                    if (try resolveRelative(a, base_dir, t)) |r| {
+                        if (fileExists(ctx.files, r)) resolved = r;
+                    }
+                }
+                inc = try emitCopyInclude(ctx, io, docs, stage, resolved);
+            }
+            if (inc) |inc_path| {
+                try out.appendSlice(a, try std.fmt.allocPrint(a, "{{{{include {s}}}}}", .{inc_path}));
+                try out.append(a, '\n');
+                try ctx.links.append(a, .{ .source_path = ctx.page.source_path, .target = target orelse "", .result = inc_path });
+            } else {
+                try out.appendSlice(a, l);
+                try out.append(a, '\n');
+                try ctx.review.append(a, .{ .source_path = ctx.page.source_path, .kind = "snippet_missing", .detail = try std.fmt.allocPrint(a, "snippet '{s}' target not found; kept verbatim", .{target orelse ""}) });
+            }
+            continue;
+        }
+        try out.appendSlice(a, try emitTransformInline(ctx, io, docs, stage, review_dedup, l));
+        try out.append(a, '\n');
+    }
+    return try out.toOwnedSlice(a);
+}
+
+/// Emit the whole site: nav → Trunk/Satellite forest, transforms, reports.
+pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+
+    const inv = try scanInventory(io, a, opts.root_dir);
+    var root = try Io.Dir.cwd().openDir(io, opts.root_dir, .{});
+    defer root.close(io);
+    var docs = root.openDir(io, inv.config.docs_dir, .{ .iterate = true }) catch |err| switch (err) {
+        error.FileNotFound, error.NotDir => return error.InvalidMkdocsInput,
+        else => return err,
+    };
+    defer docs.close(io);
+
+    var review: std.ArrayList(ReviewItem) = .empty;
+    var links: std.ArrayList(EmitLink) = .empty;
+    var assets: std.ArrayList(AssetCopy) = .empty;
+    var includes_report: std.ArrayList(IncludeCopy) = .empty;
+    var nav_events: std.ArrayList(NavEvent) = .empty;
+    var review_dedup = std.StringHashMap(void).init(a);
+    var include_srcs = std.StringHashMap([]const u8).init(a);
+    var include_dests = std.StringHashMap(void).init(a);
+    var copied = std.StringHashMap([]const u8).init(a);
+
+    // docs path → entity id (collision-suffixed), and → headings for
+    // fragment validation.
+    var page_ids = std.StringHashMap([]const u8).init(a);
+    var headings = std.StringHashMap([]const []const u8).init(a);
+    var id_used = std.StringHashMap(void).init(a);
+    for (inv.pages) |p| {
+        var id = try emitPageId(a, p.path);
+        var n: usize = 2;
+        while (id_used.contains(id)) : (n += 1) {
+            id = try std.fmt.allocPrint(a, "{s}-{d}", .{ id, n });
+        }
+        try id_used.put(id, {});
+        try page_ids.put(p.path, id);
+        try headings.put(p.path, p.headings);
+    }
+
+    // Nav walk → parent/kind per emitted page + generated trunks.
+    const SecFrame = struct { depth: usize, id: []const u8 };
+    var stack: std.ArrayList(SecFrame) = .empty;
+    var page_role = std.StringHashMap(struct { parent: ?[]const u8, kind: []const u8 }).init(a);
+    var nav_title = std.StringHashMap([]const u8).init(a);
+    var own_pages = std.StringHashMap(void).init(a);
+    var gen_trunks: std.ArrayList(EmitPage) = .empty;
+    var gen_external = std.StringHashMap(std.ArrayList([]const u8)).init(a);
+    for (inv.config.nav, 0..) |e, ei| {
+        while (stack.items.len > 0 and stack.items[stack.items.len - 1].depth >= e.depth) {
+            _ = stack.pop();
+        }
+        switch (e.kind) {
+            .section => {
+                // Own page: direct child page named index.md/README.md.
+                var own_target: ?[]const u8 = null;
+                var j = ei + 1;
+                while (j < inv.config.nav.len and inv.config.nav[j].depth > e.depth) : (j += 1) {
+                    if (inv.config.nav[j].depth != e.depth + 1) continue;
+                    if (inv.config.nav[j].kind != .page or inv.config.nav[j].target == null) continue;
+                    const base = std.fs.path.basename(inv.config.nav[j].target.?);
+                    if (std.ascii.eqlIgnoreCase(base, "index.md") or std.ascii.eqlIgnoreCase(base, "readme.md")) {
+                        own_target = inv.config.nav[j].target.?;
+                    }
+                    break;
+                }
+                var sec_id: []const u8 = undefined;
+                if (own_target) |ot| {
+                    try own_pages.put(ot, {});
+                    sec_id = page_ids.get(ot) orelse try emitPageId(a, ot);
+                } else {
+                    const slug = try emitSanitizeSegment(a, e.title orelse "section");
+                    sec_id = if (stack.items.len > 0)
+                        try std.fmt.allocPrint(a, "{s}/{s}", .{ stack.items[stack.items.len - 1].id, slug })
+                    else
+                        slug;
+                    if (!id_used.contains(sec_id)) {
+                        try id_used.put(sec_id, {});
+                        try gen_trunks.append(a, .{
+                            .source_path = "(generated)",
+                            .id = sec_id,
+                            .parent = null,
+                            .title = try a.dupe(u8, e.title orelse slug),
+                            .kind = "generated_trunk",
+                            .in_nav = true,
+                            .class = .exact,
+                            .dropped = &.{},
+                        });
+                    }
+                }
+                try stack.append(a, .{ .depth = e.depth, .id = sec_id });
+            },
+            .page => {
+                const t = e.target orelse continue;
+                if (!e.resolved) {
+                    try nav_events.append(a, .{ .source_path = t, .kind = "nav_target_missing", .detail = "nav page target not found under docs/; skipped" });
+                    continue;
+                }
+                if (!page_ids.contains(t)) continue;
+                if (e.title) |t2| try nav_title.put(t, t2);
+                if (own_pages.contains(t) or stack.items.len == 0 or e.depth == 1) {
+                    try page_role.put(t, .{ .parent = null, .kind = "trunk" });
+                } else {
+                    try page_role.put(t, .{ .parent = stack.items[stack.items.len - 1].id, .kind = "satellite" });
+                    if (e.depth >= 3) {
+                        try nav_events.append(a, .{ .source_path = t, .kind = "nav_flattened", .detail = try std.fmt.allocPrint(a, "nav depth {d} flattened under trunk '{s}'", .{ e.depth, stack.items[stack.items.len - 1].id }) });
+                    }
+                }
+            },
+            .external => {
+                try nav_events.append(a, .{ .source_path = e.target orelse "(nav)", .kind = "nav_external", .detail = try std.fmt.allocPrint(a, "external nav entry '{s}' reported; appended to parent trunk", .{e.title orelse "external"}) });
+                if (stack.items.len > 0 and e.target != null) {
+                    const pid = stack.items[stack.items.len - 1].id;
+                    const gop = try gen_external.getOrPut(pid);
+                    if (!gop.found_existing) gop.value_ptr.* = .empty;
+                    try gop.value_ptr.append(a, try std.fmt.allocPrint(a, "- [{s}]({s})", .{ e.title orelse "external", e.target.? }));
+                }
+            },
+        }
+    }
+
+    // Build EmitPage list: nav-order pages first is not required; keep
+    // inventory order (files already sorted).
+    var epages: std.ArrayList(EmitPage) = .empty;
+    for (inv.pages) |p| {
+        const id = page_ids.get(p.path) orelse continue;
+        var role = page_role.get(p.path);
+        if (role == null) {
+            role = .{ .parent = null, .kind = "trunk" };
+            try nav_events.append(a, .{ .source_path = p.path, .kind = "page_not_in_nav", .detail = "page absent from nav:; emitted as top-level trunk" });
+        }
+        const text = try readFileAlloc(io, docs, p.path, a);
+        const split = emitSplitFrontmatter(text);
+        const fm_title = fmScalar(split.fm, "title");
+        const title = fm_title orelse nav_title.get(p.path) orelse p.title orelse std.fs.path.basename(p.path);
+        const dropped = try emitDroppedKeys(a, split.fm);
+        try epages.append(a, .{
+            .source_path = p.path,
+            .id = id,
+            .parent = role.?.parent,
+            .title = try a.dupe(u8, title),
+            .kind = role.?.kind,
+            .in_nav = p.in_nav,
+            .class = .exact,
+            .dropped = dropped,
+        });
+    }
+
+    const out_dir = std.mem.trimEnd(u8, opts.out_dir, "/");
+    if (out_dir.len == 0) return error.InvalidMkdocsInput;
+    const docs_dir_path = if (std.fs.path.isAbsolute(inv.config.docs_dir))
+        inv.config.docs_dir
+    else
+        try std.fmt.allocPrint(a, "{s}/{s}", .{ opts.root_dir, inv.config.docs_dir });
+    const inputs = [_][]const u8{ opts.root_dir, docs_dir_path };
+    var pub_ = try publication.Publication.begin(io, a, out_dir, &inputs, format_id);
+    defer {
+        pub_.abandon(io, a);
+        pub_.deinit(a);
+    }
+    var stage = try Io.Dir.cwd().openDir(io, pub_.stage_path, .{});
+    defer stage.close(io);
+
+    // Generated trunks first (provenance only, plus collected externals).
+    for (gen_trunks.items) |ep| {
+        const fm = try emitBuildFrontmatter(a, ep.id, ep.title, null, &.{});
+        var body: std.ArrayList(u8) = .empty;
+        try body.appendSlice(a, try std.fmt.allocPrint(a, "<!-- boris-migration-lab provenance\n  source: mkdocs.yml nav section\n-->\n\n# {s}\n\nGenerated landing page for the `{s}` nav section.\n", .{ ep.title, ep.title }));
+        if (gen_external.get(ep.id)) |ext| {
+            try body.appendSlice(a, "\n## Links\n\n");
+            for (ext.items) |x| try body.appendSlice(a, try std.fmt.allocPrint(a, "{s}\n", .{x}));
+        }
+        try writeEmitBytes(io, stage, try std.fmt.allocPrint(a, "content/{s}.md", .{ep.id}), try std.fmt.allocPrint(a, "{s}{s}", .{ fm, body.items }));
+    }
+
+    for (epages.items) |*ep| {
+        const text = try readFileAlloc(io, docs, ep.source_path, a);
+        const split = emitSplitFrontmatter(text);
+        var ctx = EmitCtx{
+            .a = a,
+            .page_ids = &page_ids,
+            .headings = &headings,
+            .files = inv.files,
+            .include_srcs = &include_srcs,
+            .include_dests = &include_dests,
+            .copied = &copied,
+            .review = &review,
+            .links = &links,
+            .assets = &assets,
+            .includes_report = &includes_report,
+            .page = ep,
+            .nested = false,
+        };
+        const new_body = try emitTransformBody(&ctx, io, docs, stage, &review_dedup, split.body, true);
+        // Any review item on this page marks it human_review-ish transformed.
+        var cls: Class = .transformed;
+        var had_review = false;
+        for (review.items) |r| {
+            if (std.mem.eql(u8, r.source_path, ep.source_path)) {
+                had_review = true;
+                break;
+            }
+        }
+        if (had_review) cls = .human_review;
+        ep.class = cls;
+        const fm = try emitBuildFrontmatter(a, ep.id, ep.title, ep.parent, try fmList(a, split.fm, "tags"));
+        var prov: std.ArrayList(u8) = .empty;
+        try prov.appendSlice(a, "<!-- boris-migration-lab provenance\n");
+        try prov.appendSlice(a, try std.fmt.allocPrint(a, "  source: {s}\n", .{ep.source_path}));
+        if (nav_title.get(ep.source_path)) |nt| try prov.appendSlice(a, try std.fmt.allocPrint(a, "  nav_title: {s}\n", .{nt}));
+        if (ep.dropped.len > 0) {
+            try prov.appendSlice(a, "  dropped_frontmatter:");
+            for (ep.dropped) |k| try prov.appendSlice(a, try std.fmt.allocPrint(a, " {s},", .{k}));
+            // strip trailing comma
+            _ = prov.pop();
+            try prov.append(a, '\n');
+        }
+        try prov.appendSlice(a, "-->\n\n");
+        if (gen_external.get(ep.id)) |ext| {
+            try prov.appendSlice(a, "\n## Links\n\n");
+            for (ext.items) |x| try prov.appendSlice(a, try std.fmt.allocPrint(a, "{s}\n", .{x}));
+        }
+        const doc = try std.fmt.allocPrint(a, "{s}{s}{s}", .{ fm, prov.items, new_body });
+        try writeEmitBytes(io, stage, try std.fmt.allocPrint(a, "content/{s}.md", .{ep.id}), doc);
+    }
+
+    // Reports.
+    var all_pages: std.ArrayList(EmitPage) = .empty;
+    try all_pages.appendSlice(a, gen_trunks.items);
+    try all_pages.appendSlice(a, epages.items);
+    const json = try emitReportJson(a, opts.root_dir, all_pages.items, nav_events.items, links.items, assets.items, includes_report.items, review.items);
+    const md = try emitReportMd(a, opts.root_dir, all_pages.items, nav_events.items, links.items, assets.items, includes_report.items, review.items);
+    try writeEmitBytes(io, stage, "report.json", json);
+    try writeEmitBytes(io, stage, "REPORT.md", md);
+    try pub_.commit(io, a);
+
+    if (!opts.quiet) {
+        std.debug.print("mkdocs: wrote {s}/content/, {s}/report.json, {s}/REPORT.md\n", .{ out_dir, out_dir, out_dir });
+    }
+}
+
+fn emitReportJson(
+    a: std.mem.Allocator,
+    source_root: []const u8,
+    pages: []const EmitPage,
+    nav_events: []const NavEvent,
+    links: []const EmitLink,
+    assets: []const AssetCopy,
+    includes: []const IncludeCopy,
+    review: []const ReviewItem,
+) ![]u8 {
+    var buf: std.ArrayList(u8) = .empty;
+    try buf.appendSlice(a, "{\n  \"tool\": ");
+    try jsonEscapeAppend(&buf, a, format_id);
+    try buf.appendSlice(a, ",\n  \"version\": ");
+    try jsonEscapeAppend(&buf, a, tool_version);
+    try buf.appendSlice(a, ",\n  \"source_root\": ");
+    try jsonEscapeAppend(&buf, a, source_root);
+    var trunks: usize = 0;
+    var sats: usize = 0;
+    var gens: usize = 0;
+    for (pages) |p| {
+        if (std.mem.eql(u8, p.kind, "satellite")) sats += 1 else if (std.mem.eql(u8, p.kind, "generated_trunk")) gens += 1 else trunks += 1;
+    }
+    try buf.print(a, ",\n  \"counts\": {{\n    \"emitted_pages\": {d},\n    \"trunks\": {d},\n    \"satellites\": {d},\n    \"generated_trunks\": {d},\n    \"nav_events\": {d},\n    \"link_rewrites\": {d},\n    \"asset_copies\": {d},\n    \"includes\": {d},\n    \"human_review\": {d}\n  }},\n", .{ pages.len, trunks, sats, gens, nav_events.len, links.len, assets.len, includes.len, review.len });
+    try buf.appendSlice(a, "  \"pages\": [\n");
+    for (pages, 0..) |p, i| {
+        try buf.print(a, "    {{ \"id\": ", .{});
+        try jsonEscapeAppend(&buf, a, p.id);
+        try buf.appendSlice(a, ", \"source\": ");
+        try jsonEscapeAppend(&buf, a, p.source_path);
+        try buf.appendSlice(a, ", \"kind\": ");
+        try jsonEscapeAppend(&buf, a, p.kind);
+        try buf.appendSlice(a, ", \"class\": ");
+        try jsonEscapeAppend(&buf, a, p.class.jsonName());
+        if (p.parent) |par| {
+            try buf.appendSlice(a, ", \"parent\": ");
+            try jsonEscapeAppend(&buf, a, par);
+        }
+        try buf.appendSlice(a, " }");
+        if (i + 1 < pages.len) try buf.append(a, ',');
+        try buf.append(a, '\n');
+    }
+    try buf.appendSlice(a, "  ],\n  \"nav_events\": [\n");
+    for (nav_events, 0..) |e, i| {
+        try buf.appendSlice(a, "    { \"source\": ");
+        try jsonEscapeAppend(&buf, a, e.source_path);
+        try buf.appendSlice(a, ", \"kind\": ");
+        try jsonEscapeAppend(&buf, a, e.kind);
+        try buf.appendSlice(a, ", \"detail\": ");
+        try jsonEscapeAppend(&buf, a, e.detail);
+        try buf.appendSlice(a, " }");
+        if (i + 1 < nav_events.len) try buf.append(a, ',');
+        try buf.append(a, '\n');
+    }
+    try buf.appendSlice(a, "  ],\n  \"link_rewrites\": [\n");
+    for (links, 0..) |l, i| {
+        try buf.appendSlice(a, "    { \"source\": ");
+        try jsonEscapeAppend(&buf, a, l.source_path);
+        try buf.appendSlice(a, ", \"target\": ");
+        try jsonEscapeAppend(&buf, a, l.target);
+        try buf.appendSlice(a, ", \"result\": ");
+        try jsonEscapeAppend(&buf, a, l.result);
+        try buf.appendSlice(a, " }");
+        if (i + 1 < links.len) try buf.append(a, ',');
+        try buf.append(a, '\n');
+    }
+    try buf.appendSlice(a, "  ],\n  \"asset_copies\": [\n");
+    for (assets, 0..) |x, i| {
+        try buf.appendSlice(a, "    { \"source\": ");
+        try jsonEscapeAppend(&buf, a, x.source_path);
+        try buf.appendSlice(a, ", \"dest\": ");
+        try jsonEscapeAppend(&buf, a, x.dest);
+        try buf.appendSlice(a, " }");
+        if (i + 1 < assets.len) try buf.append(a, ',');
+        try buf.append(a, '\n');
+    }
+    try buf.appendSlice(a, "  ],\n  \"includes\": [\n");
+    for (includes, 0..) |x, i| {
+        try buf.appendSlice(a, "    { \"source\": ");
+        try jsonEscapeAppend(&buf, a, x.source_path);
+        try buf.appendSlice(a, ", \"dest\": ");
+        try jsonEscapeAppend(&buf, a, x.dest);
+        try buf.appendSlice(a, " }");
+        if (i + 1 < includes.len) try buf.append(a, ',');
+        try buf.append(a, '\n');
+    }
+    try buf.appendSlice(a, "  ],\n  \"human_review\": [\n");
+    for (review, 0..) |r, i| {
+        try buf.appendSlice(a, "    { \"source\": ");
+        try jsonEscapeAppend(&buf, a, r.source_path);
+        try buf.appendSlice(a, ", \"kind\": ");
+        try jsonEscapeAppend(&buf, a, r.kind);
+        try buf.appendSlice(a, ", \"detail\": ");
+        try jsonEscapeAppend(&buf, a, r.detail);
+        try buf.appendSlice(a, " }");
+        if (i + 1 < review.len) try buf.append(a, ',');
+        try buf.append(a, '\n');
+    }
+    try buf.appendSlice(a, "  ]\n}\n");
+    return try buf.toOwnedSlice(a);
+}
+
+fn emitReportMd(
+    a: std.mem.Allocator,
+    source_root: []const u8,
+    pages: []const EmitPage,
+    nav_events: []const NavEvent,
+    links: []const EmitLink,
+    assets: []const AssetCopy,
+    includes: []const IncludeCopy,
+    review: []const ReviewItem,
+) ![]u8 {
+    var buf: std.ArrayList(u8) = .empty;
+    try buf.print(a, "# MkDocs → Boris migration report\n\nSource: `{s}`\n\n", .{source_root});
+    try buf.appendSlice(a, "| id | source | kind | parent | class |\n|---|---|---|---|---|\n");
+    for (pages) |p| {
+        try buf.print(a, "| `{s}` | `{s}` | {s} | {s} | {s} |\n", .{ p.id, p.source_path, p.kind, p.parent orelse "—", p.class.jsonName() });
+    }
+    if (nav_events.len > 0) {
+        try buf.appendSlice(a, "\n## Nav events\n\n| source | kind | detail |\n|---|---|---|\n");
+        for (nav_events) |e| try buf.print(a, "| `{s}` | {s} | {s} |\n", .{ e.source_path, e.kind, e.detail });
+    }
+    if (links.len > 0) {
+        try buf.appendSlice(a, "\n## Link rewrites\n\n| source | target | result |\n|---|---|---|\n");
+        for (links) |l| try buf.print(a, "| `{s}` | `{s}` | `{s}` |\n", .{ l.source_path, l.target, l.result });
+    }
+    if (assets.len > 0) {
+        try buf.appendSlice(a, "\n## Asset copies\n\n| source | dest |\n|---|---|\n");
+        for (assets) |x| try buf.print(a, "| `{s}` | `{s}` |\n", .{ x.source_path, x.dest });
+    }
+    if (includes.len > 0) {
+        try buf.appendSlice(a, "\n## Includes\n\n| source | dest |\n|---|---|\n");
+        for (includes) |x| try buf.print(a, "| `{s}` | `{s}` |\n", .{ x.source_path, x.dest });
+    }
+    if (review.len > 0) {
+        try buf.appendSlice(a, "\n## Needs human review\n\n| source | kind | detail |\n|---|---|---|\n");
+        for (review) |r| try buf.print(a, "| `{s}` | {s} | {s} |\n", .{ r.source_path, r.kind, r.detail });
+    }
+    try buf.appendSlice(a, "\nMachine-readable twin: `report.json`.\n");
+    return try buf.toOwnedSlice(a);
+}
