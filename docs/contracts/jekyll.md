@@ -85,8 +85,10 @@ Id segments are ASCII-lowercased and reduced to `[a-z0-9._-]`. Generated
 Trunks reserve their ids first; then posts, drafts, collection members, and
 pages claim ids in that order (sorted by source path within each kind). A
 taken id gets a `-2`, `-3`, … suffix and the page is `human_review`
-(`entity_id_collision`). Markdown without front matter is a Jekyll static
-file and is not emitted.
+(`entity_id_collision`). An id longer than 240 bytes is cut there
+(`entity_id_truncated`, `human_review`) so a suffix still fits the Boris
+255-byte bound. Markdown without front matter (plain pages and collection
+members) is a Jekyll static file and is not emitted.
 
 ### Frontmatter
 
@@ -94,7 +96,8 @@ Only `id`, `title`, `parent`, `status`, `tags`, `published_at`, `summary` are
 written.
 
 - `title`: front matter `title`, else the slug / file stem (`title_from_filename`).
-- `status`: `draft` for `_drafts/` and `published: false`; otherwise `published`.
+- `status`: `draft` for `_drafts/` and `published: false` (a trailing
+  `# comment` is ignored); otherwise `published`.
 - `tags`: Jekyll `tags` (flow, block, or space-separated string). Tokens
   outside `[A-Za-z0-9_-]` are double-quoted with `"` `,` `[` `]` removed.
 - `published_at`: filename date as `YYYY-MM-DDT00:00:00Z`. An invalid
@@ -115,12 +118,15 @@ the report next to the Boris route (`<entity-id>.html`).
 - `{% post_url X %}` and `{% link path %}` that resolve to an emitted page
   become `[[entity-id]]`; the Markdown form `[label]({% … %})` becomes
   `[[entity-id|label]]`. A label that cannot be a wiki label (image syntax,
-  `|`, brackets, or a line break) keeps the tag verbatim (`human_review`).
+  `|`, brackets, or a line break) or a destination with a fragment or title
+  after the tag keeps the tag verbatim (`human_review`).
 - `{% link path %}` to a static file, `{{ site.baseurl }}/path` naming a
   static file, and Markdown destinations (`](/path)` or page-relative) naming
-  a static file copy the file into the page-sibling `{stem}.assets/` tree
+  a static file (destinations are URL-decoded first) copy the file into the
+  page-sibling `{stem}.assets/` tree
   (`assets/` prefix dropped; names sanitized by `asset_filename`; per-page
-  collisions get a numeric suffix and are `human_review`). A
+  collisions, including a file and a directory sharing one name, get a
+  suffix or are flattened and are `human_review`). A
   `{{ site.baseurl }}` that is not followed by a local file stays verbatim
   (`human_review`, `baseurl_unresolved`).
 - `{% include %}`, `{{ site.data.* }}`, `{% raw %}`, fenced Liquid, and all
