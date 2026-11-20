@@ -56,6 +56,7 @@ const frontmatter_review = @import("frontmatter_review.zig");
 const publication = @import("publication.zig");
 const astro_import_plan = @import("astro_import_plan.zig");
 const astro_import_apply = @import("astro_import_apply.zig");
+const ghost = @import("ghost.zig");
 const modes = @import("modes.zig");
 
 pub const ExitCode = modes.ExitCode;
@@ -563,6 +564,7 @@ test {
     _ = astro_import_plan;
     _ = astro_import_apply;
     _ = link_audit;
+    _ = ghost;
 }
 
 test "parseOptions: defaults and astro flags" {
@@ -703,6 +705,21 @@ test "parseOptions: tinderbox flags" {
 
     const o3 = try parseOptions(&.{ "boris-migration-lab", "--mode=tbx-inventory", "--tbx=./x.tbx" });
     try std.testing.expect(o3.mode == .tinderbox_inventory);
+}
+
+test "parseOptions: ghost-inventory flags" {
+    const o = try parseOptions(&.{
+        "boris-migration-lab",
+        "--mode=ghost-inventory",
+        "--root=fixtures/mini-ghost",
+        "--out=./.ghost-inv",
+    });
+    try std.testing.expect(o.mode == .ghost_inventory);
+    try std.testing.expectEqualStrings("fixtures/mini-ghost", o.root_dir);
+    try std.testing.expectEqualStrings("./.ghost-inv", o.out_dir);
+
+    const o2 = try parseOptions(&.{ "boris-migration-lab", "--mode=ghost-inv", "--root=./g" });
+    try std.testing.expect(o2.mode == .ghost_inventory);
 }
 
 test "parseOptions: notion flags" {
