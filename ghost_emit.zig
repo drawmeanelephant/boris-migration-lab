@@ -1418,3 +1418,111 @@ test "ghost: emitted mini-ghost content compiles with product Boris" {
     defer gpa.free(welcome);
     try std.testing.expect(std.mem.indexOf(u8, welcome, "hero.png") != null);
 }
+
+test "ghost: html card handler and route detection" {
+    try std.testing.expect(htmlCardSafe("<p class=\"note\">ok</p>"));
+    try std.testing.expect(htmlCardSafe("<p>Talk on the button</p>"));
+    try std.testing.expect(!htmlCardSafe("<img src=x onerror =alert(1)>"));
+    try std.testing.expect(!htmlCardSafe("<img src=x\tonerror=alert(1)>"));
+    try std.testing.expect(!htmlCardSafe("<svg/onload=alert(1)>"));
+    try std.testing.expect(!htmlCardSafe("<a href=\"x\"onclick=\"y\">z</a>"));
+    try std.testing.expect(ghostRouteHref("<a href=\"__GHOST_URL__/about/\">About</a>"));
+    try std.testing.expect(!ghostRouteHref("<img src=\"__GHOST_URL__/content/images/a.png\">"));
+}
+
+test "ghost: html card linking a ghost route resolves to a wiki link" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var slug_map: std.StringArrayHashMapUnmanaged([]const u8) = .empty;
+    try slug_map.put(a, "about", "pages/about");
+    var findings: std.ArrayList(Finding) = .empty;
+    var assets: std.ArrayList(AssetCopy) = .empty;
+    var ctx = testCtx(a, &slug_map, &findings, &assets);
+    const md = try lexicalToMarkdown(&ctx,
+        \\{"root":{"children":[{"type":"html","html":"<p>See <a href=\"__GHOST_URL__/about/\">About</a></p>"}]}}
+    );
+    const resolved = try resolveGhostRefs(&ctx, md);
+    try std.testing.expect(std.mem.indexOf(u8, resolved, "[[pages/about|About]]") != null);
+    try std.testing.expect(hasFinding(findings.items, "html_card_converted"));
+}
+
+test "ghost: literal Markdown in source text stays literal" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var slug_map: std.StringArrayHashMapUnmanaged([]const u8) = .empty;
+    var findings: std.ArrayList(Finding) = .empty;
+    var assets: std.ArrayList(AssetCopy) = .empty;
+    var ctx = testCtx(a, &slug_map, &findings, &assets);
+    const lex = try lexicalToMarkdown(&ctx,
+        \\{"root":{"children":[{"type":"paragraph","children":[{"type":"text","text":"# not [installation](missing.md) *x*"}]},{"type":"paragraph","children":[{"type":"text","text":"1. not a list"}]}]}}
+    );
+    try std.testing.expectEqualStrings("\\# not \\[installation\\](missing.md) \\*x\\*\n\n1\\. not a list", lex);
+    const mob = try mobiledocToMarkdown(&ctx,
+        \\{"markups":[],"atoms":[],"cards":[],"sections":[[1,"p",[[0,[],0,"- [a](b.md) _y_"]]]]}
+    );
+    try std.testing.expectEqualStrings("\\- \\[a\\](b.md) \\_y\\_", mob);
+}
+
+test "ghost: image symlinks are refused, never copied" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer {
+        tmp.dir.close(io);
+        tmp.parent_dir.deleteTree(io, &tmp.sub_path) catch {};
+        tmp.parent_dir.close(io);
+    }
+    const base = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}", .{tmp.sub_path});
+    defer gpa.free(base);
+    try tmp.dir.createDirPath(io, "root/content/images");
+    try tmp.dir.writeFile(io, .{ .sub_path = "secret.txt", .data = "private" });
+    try tmp.dir.symLink(io, "../../../secret.txt", "root/content/images/leak.png", .{});
+    try tmp.dir.writeFile(io, .{ .sub_path = "root/ghost-export.json", .data =
+        \\{"db":[{"meta":{"exported_on":1,"version":"5.0.0"},"data":{"posts":[
+        \\{"id":"1","uuid":"u","slug":"p","title":"P","type":"post","status":"published","visibility":"public",
+        \\ "published_at":"2024-01-01T00:00:00.000Z","feature_image":"__GHOST_URL__/content/images/leak.png","html":"<p>x</p>"}
+        \\],"tags":[],"posts_tags":[],"users":[],"posts_authors":[]}}]}
+    });
+    const root = try std.fmt.allocPrint(gpa, "{s}/root", .{base});
+    defer gpa.free(root);
+    const out = try std.fmt.allocPrint(gpa, "{s}/out", .{base});
+    defer gpa.free(out);
+    try run(io, gpa, .{ .root_dir = root, .out_dir = out, .quiet = true });
+
+    var od = try Io.Dir.cwd().openDir(io, out, .{});
+    defer od.close(io);
+    try std.testing.expectError(error.FileNotFound, od.access(io, "content/posts/p.assets/leak.png", .{}));
+    const report = try ghost.readFileAlloc(io, od, "report.json", gpa);
+    defer gpa.free(report);
+    try std.testing.expect(std.mem.indexOf(u8, report, "\"code\": \"image_symlink_refused\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, report, "private") == null);
+}
+
+test "ghost: identity findings feed the page conversion class" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer {
+        tmp.dir.close(io);
+        tmp.parent_dir.deleteTree(io, &tmp.sub_path) catch {};
+        tmp.parent_dir.close(io);
+    }
+    try tmp.dir.createDirPath(io, "root");
+    try tmp.dir.writeFile(io, .{ .sub_path = "root/ghost-export.json", .data =
+        \\{"db":[{"meta":{"exported_on":1,"version":"5.0.0"},"data":{"posts":[
+        \\{"id":"1","uuid":"u","slug":"odd","title":"Odd","type":"newsletter","status":"draft","visibility":"public","html":"<p>x</p>"}
+        \\],"tags":[],"posts_tags":[],"users":[],"posts_authors":[]}}]}
+    });
+    const root = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}/root", .{tmp.sub_path});
+    defer gpa.free(root);
+    const out = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}/out", .{tmp.sub_path});
+    defer gpa.free(out);
+    try run(io, gpa, .{ .root_dir = root, .out_dir = out, .quiet = true });
+    var od = try Io.Dir.cwd().openDir(io, out, .{});
+    defer od.close(io);
+    const report = try ghost.readFileAlloc(io, od, "report.json", gpa);
+    defer gpa.free(report);
+    try std.testing.expect(std.mem.indexOf(u8, report, "\"entity_id\": \"posts/odd\", \"output\": \"content/posts/odd.md\", \"ghost_status\": \"draft\", \"boris_status\": \"draft\", \"visibility\": \"public\", \"body_format\": \"html\", \"conversion\": \"human_review\"") != null);
+}
