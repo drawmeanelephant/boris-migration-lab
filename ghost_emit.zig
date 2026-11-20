@@ -127,10 +127,10 @@ fn escapeBlockStart(a: std.mem.Allocator, block: []const u8) ![]const u8 {
 /// `raw`, padded when `raw` starts or ends with a backtick.
 fn codeSpan(a: std.mem.Allocator, raw: []const u8) ![]const u8 {
     var longest: usize = 0;
-    var run: usize = 0;
+    var streak: usize = 0;
     for (raw) |c| {
         run = if (c == '`') run + 1 else 0;
-        longest = @max(longest, run);
+        longest = @max(longest, streak);
     }
     const fence = try a.alloc(u8, longest + 1);
     @memset(fence, '`');
