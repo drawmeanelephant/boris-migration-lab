@@ -16,6 +16,7 @@
 //!   wordpress-theme — Read-only classic WordPress PHP theme inventory → static prototype + review manifest
 //!   frontmatter-review — Scan a content tree for unsupported frontmatter keys → JSON + MD report
 //!   hugo-inventory — Hugo project → inventory.json + INVENTORY.md (read-only)
+//!   hugo — Hugo project → Boris content/ + provenance, redirects, review reports
 //!   mkdocs-inventory — MkDocs mkdocs.yml + docs tree → inventory.json + INVENTORY.md
 //!   jekyll — Jekyll site source → Boris Markdown + provenance sidecars + review reports
 //!
@@ -34,6 +35,7 @@
 //!   zig build run -- --mode=starlight --root=./fixtures/mini-starlight --out=./.out-sl
 //!   zig build run -- --mode=frontmatter-review --content=./content --out=./.out-fmreview
 //!   zig build run -- --mode=hugo-inventory --root=./fixtures/mini-hugo --out=./.out-hugo-inv
+//!   zig build run -- --mode=hugo --root=./fixtures/mini-hugo --out=./.out-hugo
 //!   zig build test
 //!
 //! The black-box compile tests also need a pinned product `boris` binary
@@ -63,7 +65,9 @@ const publication = @import("publication.zig");
 const astro_import_plan = @import("astro_import_plan.zig");
 const astro_import_apply = @import("astro_import_apply.zig");
 const hugo = @import("hugo.zig");
+const hugo_emit = @import("hugo_emit.zig");
 const ghost = @import("ghost.zig");
+const ghost_emit = @import("ghost_emit.zig");
 const mastodon = @import("mastodon.zig");
 const mkdocs = @import("mkdocs.zig");
 const modes = @import("modes.zig");
@@ -574,9 +578,11 @@ test {
     _ = astro_import_apply;
     _ = link_audit;
     _ = hugo;
+    _ = hugo_emit;
     _ = jekyll;
     _ = jekyll_emit;
     _ = ghost;
+    _ = ghost_emit;
     _ = mkdocs;
     _ = mastodon;
 }
@@ -734,6 +740,18 @@ test "parseOptions: ghost-inventory flags" {
 
     const o2 = try parseOptions(&.{ "boris-migration-lab", "--mode=ghost-inv", "--root=./g" });
     try std.testing.expect(o2.mode == .ghost_inventory);
+}
+
+test "parseOptions: ghost emit flags" {
+    const o = try parseOptions(&.{
+        "boris-migration-lab",
+        "--mode=ghost",
+        "--root=fixtures/mini-ghost",
+        "--out=./.ghost-out",
+    });
+    try std.testing.expect(o.mode == .ghost);
+    try std.testing.expectEqualStrings("fixtures/mini-ghost", o.root_dir);
+    try std.testing.expectEqualStrings("./.ghost-out", o.out_dir);
 }
 
 test "parseOptions: mastodon flags" {
@@ -928,8 +946,10 @@ test "parseOptions: hugo-inventory flags" {
     const o2 = try parseOptions(&.{ "boris-migration-lab", "--mode=hugo-inv", "--root=./h", "--out=./o" });
     try std.testing.expect(o2.mode == .hugo_inventory);
 
-    // Bare `hugo` is reserved for the emit slice and stays invalid.
-    try std.testing.expectError(error.InvalidValue, parseOptions(&.{ "x", "--mode=hugo" }));
+    const o3 = try parseOptions(&.{ "boris-migration-lab", "--mode=hugo", "--root=./h", "--out=./o" });
+    try std.testing.expect(o3.mode == .hugo);
+    const o4 = try parseOptions(&.{ "boris-migration-lab", "--mode=hugo-emit", "--root=./h" });
+    try std.testing.expect(o4.mode == .hugo);
 }
 
 test "parseOptions: mkdocs-inventory flags" {
@@ -951,7 +971,7 @@ test "parseOptions: unknown flag" {
 }
 
 test "parseOptions: invalid mode" {
-    try std.testing.expectError(error.InvalidValue, parseOptions(&.{ "x", "--mode=hugo" }));
+    try std.testing.expectError(error.InvalidValue, parseOptions(&.{ "x", "--mode=not-a-mode" }));
 }
 
 test "astro: entity id proposal from content path" {

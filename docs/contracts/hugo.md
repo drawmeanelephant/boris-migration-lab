@@ -64,25 +64,52 @@ frontmatter keys.
 | YAML (`---`) front matter | transformed | Mapped keys emit; unmapped keys dropped + listed |
 | TOML (`+++`) front matter | transformed | Same mapping via bounded scanner |
 | JSON (`{ ... }`) front matter | transformed | Same mapping; counted in inventory |
-| `title` | exact | `title:` |
-| `date` / `publishDate` | transformed | `published_at:` |
+| `title` | exact | `title:`; missing → file/section name (noted) |
+| `date` / `publishDate` | transformed | `published_at:` in UTC (`publishDate` wins; offsets converted); unparseable → omitted + human_review |
+| `summary` / `description` | transformed | `summary:` (Boris requires it with `published_at`; fallback: first prose paragraph, then `title`) |
 | `draft: true` | transformed | `status: draft`; else `published` |
 | `tags` / `categories` | transformed | Merged into `tags: []` |
-| `slug`, `weight`, `aliases`, `layout`, `type`, `url` | unsupported | Lab provenance / report only; never frontmatter |
-| Section `_index.md` (no resources) | transformed | Satellite/trunk section page |
+| `slug`, `weight`, `aliases`, `layout`, `type`, `url` | unsupported | `provenance/<entity-id>.json` only; `aliases`, `slug`, `url` also in `redirects.json`; never frontmatter |
+| Any other front-matter key (`menu`, `params`, `lastmod`, …) | transformed | Dropped; listed as `dropped_keys` in the provenance sidecar and report |
+| Home `_index.md` | transformed | Trunk (`<lang>.md` multilingual, `index.md` otherwise) |
+| Section `_index.md` (no resources) | transformed | Top section → Trunk landing page |
+| Top section without `_index.md` | transformed | Trunk landing page synthesized; noted in report |
 | Branch bundle `_index.md` (with resources) | transformed | Section page; resources land in `<stem>.assets/` |
-| Leaf bundle `index.md` + page resources | transformed | Page; resources copied to `<stem>.assets/`, refs rewritten |
-| Plain leaf `<name>.md` | exact | Candidate page; `title` from front matter or filename |
-| Nested section (depth > 1 under content root) | human_review | Two-level trunk/satellite graph cannot hold it; flatten or report |
-| `{{< figure >}}` shortcode | transformed | Resource image syntax; `figure` attrs (src/alt/title) recorded |
-| `{{< ref >}}` / `{{< relref >}}` | transformed | `[[entity-id]]` when target emits; else human_review |
-| Custom shortcode `{{< name >}}` | human_review | Args inventoried; no Boris target by default |
+| Leaf bundle `index.md` + page resources | transformed | Satellite of its section; resources copied to `<stem>.assets/`, refs rewritten |
+| Plain leaf `<name>.md` | exact | Satellite of its section (Trunk at the content root); `title` from front matter or filename |
+| Nested section (depth > 1 under content root) | human_review | Flattened: the section and its pages become Satellites of the top section; decision in report |
+| `{{< figure >}}` shortcode | transformed | `![alt](<stem>.assets/x "title")` for a page resource (remote `src` kept); other attrs dropped + recorded; non-resource `src` → preserved, human_review |
+| `{{< ref >}}` / `{{< relref >}}` | transformed | `[[entity-id]]` (or `[[entity-id\|label]]` inside `[label](…)`) when target emits; fragment/`lang`/missing target → preserved, human_review |
+| Markdown image of a page resource | transformed | Destination rewritten to `<stem>.assets/…` |
+| Local Markdown link naming an emitted page (`/posts/`, alias, slug, `x.md`) | transformed | `[[entity-id\|label]]`; unresolvable or fragment links left as-is, human_review |
+| Custom shortcode `{{< name >}}` | human_review | Preserved verbatim as text; args inventoried; no Boris target by default |
 | `{{% ... %}}` Markdown-delimiter shortcode | human_review | Same as custom; inner Markdown inventoried |
-| Shortcode inside fenced code block | exact | Literal code sample; never counted or rewritten |
-| `static/` assets | transformed | Copied to site asset root; manifest entry |
+| Shortcode inside fenced code block / inline code | exact | Literal code sample; never counted or rewritten |
+| `static/` assets | transformed | Copied to `--out/assets/` (Boris-safe names) for the theme `assets/` tree; manifest in `report.json` |
 | Multilingual `content/<lang>/` + `[languages.*]` config | transformed | Per-language page sets; language recorded in report |
 | `layouts/` / `themes/` | unsupported | Never executed; shortcode/layout names inventoried only |
 | `archetypes/`, `data/`, `i18n/`, `assets/` (piped) | unsupported | Inventoried if present; not emitted |
+
+## Emit output (`--mode=hugo`)
+
+Written through `publication.zig` (staged, ownership-marked, refuses
+source/output overlap) under `--out`:
+
+| Path | Content |
+|------|---------|
+| `content/<entity-id>.md` | Boris page; frontmatter keys only from `{id, title, parent, status, tags, published_at, summary}` |
+| `content/<entity-id>.assets/` | Page resources of leaf/branch bundles |
+| `assets/` | Copy of `static/` |
+| `provenance/<entity-id>.json` | Source path, kind, language, Hugo path, role, class, provenance fields, dropped keys, assets, shortcode dispositions, notes |
+| `redirects.json` | `alias` / `slug` / `url` → entity id |
+| `report.json`, `REPORT.md` | Per-page id/source/role/parent/class, counts, review items, static manifest, unsupported dirs, unclassified scan entries |
+
+Entity ids are the sanitized Hugo path (ASCII, lowercased), prefixed by
+the language code when the config declares more than one language
+(`content/en/posts/x.md` → `en/posts/x`). Id collisions get a `-2`, `-3`, …
+suffix and are noted. The graph is two-level: the home page, top sections,
+and root-level pages are Trunks; everything under a top section is a
+Satellite of that section's landing page.
 
 ## ConversionClass ranks
 

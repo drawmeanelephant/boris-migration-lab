@@ -24,17 +24,17 @@ pub const RunOptions = struct {
     quiet: bool = false,
 };
 
-const ConversionClass = enum {
+pub const ConversionClass = enum {
     exact,
     transformed,
     unsupported,
     human_review,
 
-    fn jsonName(self: ConversionClass) []const u8 {
+    pub fn jsonName(self: ConversionClass) []const u8 {
         return @tagName(self);
     }
 
-    fn rank(self: ConversionClass) u8 {
+    pub fn rank(self: ConversionClass) u8 {
         return switch (self) {
             .exact => 0,
             .transformed => 1,
@@ -43,18 +43,18 @@ const ConversionClass = enum {
         };
     }
 
-    fn worse(a: ConversionClass, b: ConversionClass) ConversionClass {
+    pub fn worse(a: ConversionClass, b: ConversionClass) ConversionClass {
         return if (a.rank() >= b.rank()) a else b;
     }
 };
 
-const PageKind = enum {
+pub const PageKind = enum {
     section,
     leaf_bundle,
     branch_bundle,
     single,
 
-    fn jsonName(self: PageKind) []const u8 {
+    pub fn jsonName(self: PageKind) []const u8 {
         return switch (self) {
             .section => "section",
             .leaf_bundle => "leaf_bundle",
@@ -64,22 +64,25 @@ const PageKind = enum {
     }
 };
 
-const Language = struct {
+pub const Language = struct {
     code: []const u8,
     name: []const u8,
     content_dir: []const u8,
     weight: ?i64,
 };
 
-const ShortcodeCount = struct {
+pub const ShortcodeCount = struct {
     name: []const u8,
     delimiter: []const u8, // "{{<" or "{{%"
     count: usize,
 };
 
-const Page = struct {
+pub const Page = struct {
     /// Path relative to the Hugo project root (forward slashes).
     path: []const u8,
+    /// Language content root the page was scanned under ("" for the project
+    /// root itself); `path` minus this prefix is the Hugo logical path.
+    content_root: []const u8,
     language: []const u8,
     kind: PageKind,
     /// Directory depth of the page's parent under its language content root.
@@ -93,12 +96,12 @@ const Page = struct {
     class: ConversionClass,
 };
 
-const OptionalDir = struct {
+pub const OptionalDir = struct {
     dir: []const u8,
     files: []const []const u8,
 };
 
-const Inventory = struct {
+pub const Inventory = struct {
     config_file: []const u8,
     config_format: []const u8,
     base_url: ?[]const u8,
@@ -122,9 +125,9 @@ const Inventory = struct {
 // Bounded TOML-ish scanner (`key = value`, arrays, `[table]` headers only)
 // ---------------------------------------------------------------------------
 
-const TomlPair = struct { key: []const u8, value: []const u8 };
+pub const TomlPair = struct { key: []const u8, value: []const u8 };
 
-fn trimSpace(s: []const u8) []const u8 {
+pub fn trimSpace(s: []const u8) []const u8 {
     return std.mem.trim(u8, s, " \t\r");
 }
 
@@ -139,7 +142,7 @@ fn stripTomlComment(line: []const u8) []const u8 {
     return line;
 }
 
-fn stripQuotes(s: []const u8) []const u8 {
+pub fn stripQuotes(s: []const u8) []const u8 {
     if (s.len >= 2 and s[0] == '"' and s[s.len - 1] == '"') return s[1 .. s.len - 1];
     if (s.len >= 2 and s[0] == '\'' and s[s.len - 1] == '\'') return s[1 .. s.len - 1];
     return s;
@@ -174,7 +177,7 @@ fn splitTomlArray(a: std.mem.Allocator, inner: []const u8, out: *std.ArrayList([
 /// Scans bounded TOML text (`key = value`, `[table]`/`[table.sub]` headers,
 /// arrays). Returns pairs with dotted keys (`languages.en.weight`) in order.
 /// Anything outside that grammar lands in `unclassified` with its line.
-fn scanToml(a: std.mem.Allocator, text: []const u8, unclassified: *std.ArrayList([]const u8)) ![]TomlPair {
+pub fn scanToml(a: std.mem.Allocator, text: []const u8, unclassified: *std.ArrayList([]const u8)) ![]TomlPair {
     var pairs: std.ArrayList(TomlPair) = .empty;
     var table_prefix: []const u8 = "";
     var line_no: usize = 0;
@@ -217,7 +220,7 @@ fn scanToml(a: std.mem.Allocator, text: []const u8, unclassified: *std.ArrayList
 }
 
 /// Returns array items when `value` is a bracketed single-line array.
-fn tomlArrayItems(a: std.mem.Allocator, value: []const u8, unclassified: *std.ArrayList([]const u8), context: []const u8) ![]const []const u8 {
+pub fn tomlArrayItems(a: std.mem.Allocator, value: []const u8, unclassified: *std.ArrayList([]const u8), context: []const u8) ![]const []const u8 {
     var out: std.ArrayList([]const u8) = .empty;
     if (value.len < 2 or value[0] != '[' or value[value.len - 1] != ']') {
         try unclassified.append(a, try std.fmt.allocPrint(a, "{s}: not a bounded array {s}", .{ context, value }));
@@ -231,14 +234,14 @@ fn tomlArrayItems(a: std.mem.Allocator, value: []const u8, unclassified: *std.Ar
 // Front matter
 // ---------------------------------------------------------------------------
 
-const FrontMatter = struct {
+pub const FrontMatter = struct {
     format: []const u8, // none | yaml | toml | json | unclassified
     keys: []const []const u8,
     aliases: []const []const u8,
     body_offset: usize,
 };
 
-fn parseFrontMatter(a: std.mem.Allocator, source: []const u8, unclassified: *std.ArrayList([]const u8), context: []const u8) !FrontMatter {
+pub fn parseFrontMatter(a: std.mem.Allocator, source: []const u8, unclassified: *std.ArrayList([]const u8), context: []const u8) !FrontMatter {
     var fm: FrontMatter = .{ .format = "none", .keys = &.{}, .aliases = &.{}, .body_offset = 0 };
 
     if (std.mem.startsWith(u8, source, "+++\n") or std.mem.startsWith(u8, source, "+++\r\n")) {
@@ -401,9 +404,9 @@ const ShortcodeScan = struct {
     fenced_names: [][]const u8,
 };
 
-const Fence = struct { char: u8, len: usize };
+pub const Fence = struct { char: u8, len: usize };
 
-fn fenceMarker(line: []const u8) ?Fence {
+pub fn fenceMarker(line: []const u8) ?Fence {
     if (line.len >= 3 and (line[0] == '`' or line[0] == '~')) {
         var n: usize = 1;
         while (n < line.len and line[n] == line[0]) n += 1;
@@ -542,14 +545,14 @@ fn isUnsafeRelPath(p: []const u8) bool {
     return false;
 }
 
-fn readFileAlloc(io: Io, dir: Io.Dir, path: []const u8, allocator: std.mem.Allocator) ![]u8 {
+pub fn readFileAlloc(io: Io, dir: Io.Dir, path: []const u8, allocator: std.mem.Allocator) ![]u8 {
     var file = try dir.openFile(io, path, .{});
     defer file.close(io);
     var reader = file.reader(io, &.{});
     return try reader.interface.allocRemaining(allocator, .unlimited);
 }
 
-fn strLess(_: void, a: []const u8, b: []const u8) bool {
+pub fn strLess(_: void, a: []const u8, b: []const u8) bool {
     return std.mem.order(u8, a, b) == .lt;
 }
 
@@ -685,12 +688,12 @@ fn scanConfig(io: Io, a: std.mem.Allocator, root: Io.Dir, unclassified: *std.Arr
 
 /// `base/name` with `.` and empty bases mapped to just `name`, so scanning
 /// the root itself (`contentDir = "."`) records clean relative paths.
-fn joinRel(a: std.mem.Allocator, base: []const u8, name: []const u8) ![]const u8 {
+pub fn joinRel(a: std.mem.Allocator, base: []const u8, name: []const u8) ![]const u8 {
     if (base.len == 0 or std.mem.eql(u8, base, ".")) return a.dupe(u8, name);
     return std.fmt.allocPrint(a, "{s}/{s}", .{ base, name });
 }
 
-fn isMd(name: []const u8) bool {
+pub fn isMd(name: []const u8) bool {
     return std.mem.endsWith(u8, name, ".md");
 }
 
@@ -788,17 +791,17 @@ fn scanContentDir(io: Io, ctx: ScanCtx, root: Io.Dir, root_rel: []const u8, rel:
         var class: ConversionClass = .transformed;
         if (depth > 1) class = .human_review; // nested section: Boris trunk/satellite is two-level
         const path = try joinRel(a, abs_rel, u.file);
-        try appendPage(io, ctx, root, path, u.lang, kind, depth, class, resource_files.items);
+        try appendPage(io, ctx, root, root_rel, path, u.lang, kind, depth, class, resource_files.items);
     }
 
     for (index_pages.items) |p| {
         const path = try joinRel(a, abs_rel, p.file);
-        try appendPage(io, ctx, root, path, p.lang, .leaf_bundle, depth, .transformed, resource_files.items);
+        try appendPage(io, ctx, root, root_rel, path, p.lang, .leaf_bundle, depth, .transformed, resource_files.items);
     }
 
     for (singles.items) |p| {
         const path = try joinRel(a, abs_rel, p.file);
-        try appendPage(io, ctx, root, path, p.lang, .single, depth, .exact, &.{});
+        try appendPage(io, ctx, root, root_rel, path, p.lang, .single, depth, .exact, &.{});
     }
 
     // Resources inside a section dir are only page resources when the dir is
@@ -823,7 +826,7 @@ fn shortcodeClass(name: []const u8) ConversionClass {
     return .human_review;
 }
 
-fn appendPage(io: Io, ctx: ScanCtx, root: Io.Dir, path: []const u8, language: []const u8, kind: PageKind, depth: usize, base_class: ConversionClass, resources: []const []const u8) !void {
+fn appendPage(io: Io, ctx: ScanCtx, root: Io.Dir, content_root: []const u8, path: []const u8, language: []const u8, kind: PageKind, depth: usize, base_class: ConversionClass, resources: []const []const u8) !void {
     const a = ctx.a;
     const text = try readFileAlloc(io, root, path, a);
     const fm = try parseFrontMatter(a, text, ctx.unclassified, path);
@@ -876,6 +879,7 @@ fn appendPage(io: Io, ctx: ScanCtx, root: Io.Dir, path: []const u8, language: []
 
     try ctx.pages.append(a, .{
         .path = path,
+        .content_root = content_root,
         .language = language,
         .kind = kind,
         .depth = depth,
@@ -888,7 +892,7 @@ fn appendPage(io: Io, ctx: ScanCtx, root: Io.Dir, path: []const u8, language: []
     });
 }
 
-fn scanSite(io: Io, a: std.mem.Allocator, root: Io.Dir) !Inventory {
+pub fn scanSite(io: Io, a: std.mem.Allocator, root: Io.Dir) !Inventory {
     var unclassified: std.ArrayList([]const u8) = .empty;
     const cfg = try scanConfig(io, a, root, &unclassified);
 
@@ -1024,7 +1028,7 @@ fn scanSite(io: Io, a: std.mem.Allocator, root: Io.Dir) !Inventory {
     };
 }
 
-fn collectFiles(io: Io, a: std.mem.Allocator, root: Io.Dir, dir_rel: []const u8, out: *std.ArrayList([]const u8), unclassified: ?*std.ArrayList([]const u8)) !void {
+pub fn collectFiles(io: Io, a: std.mem.Allocator, root: Io.Dir, dir_rel: []const u8, out: *std.ArrayList([]const u8), unclassified: ?*std.ArrayList([]const u8)) !void {
     const listing = try listDir(io, a, root, dir_rel, unclassified);
     for (listing.files) |f| {
         try out.append(a, try std.fmt.allocPrint(a, "{s}/{s}", .{ dir_rel, f }));
@@ -1038,7 +1042,7 @@ fn collectFiles(io: Io, a: std.mem.Allocator, root: Io.Dir, dir_rel: []const u8,
 // Emission
 // ---------------------------------------------------------------------------
 
-fn jsonEscapeAppend(buf: *std.ArrayList(u8), a: std.mem.Allocator, s: []const u8) !void {
+pub fn jsonEscapeAppend(buf: *std.ArrayList(u8), a: std.mem.Allocator, s: []const u8) !void {
     try buf.append(a, '"');
     for (s) |c| {
         switch (c) {
@@ -1059,11 +1063,11 @@ fn jsonEscapeAppend(buf: *std.ArrayList(u8), a: std.mem.Allocator, s: []const u8
     try buf.append(a, '"');
 }
 
-fn jsonStr(buf: *std.ArrayList(u8), a: std.mem.Allocator, s: ?[]const u8) !void {
+pub fn jsonStr(buf: *std.ArrayList(u8), a: std.mem.Allocator, s: ?[]const u8) !void {
     if (s) |v| try jsonEscapeAppend(buf, a, v) else try buf.appendSlice(a, "null");
 }
 
-fn jsonStrArray(buf: *std.ArrayList(u8), a: std.mem.Allocator, items: []const []const u8) !void {
+pub fn jsonStrArray(buf: *std.ArrayList(u8), a: std.mem.Allocator, items: []const []const u8) !void {
     try buf.append(a, '[');
     for (items, 0..) |item, i| {
         if (i > 0) try buf.appendSlice(a, ", ");
@@ -1209,7 +1213,7 @@ fn appendMdCount(buf: *std.ArrayList(u8), a: std.mem.Allocator, label: []const u
 }
 
 /// Escapes `|` so source-controlled text cannot break table cells.
-fn mdCellAppend(buf: *std.ArrayList(u8), a: std.mem.Allocator, s: []const u8) !void {
+pub fn mdCellAppend(buf: *std.ArrayList(u8), a: std.mem.Allocator, s: []const u8) !void {
     for (s) |c| {
         if (c == '|') try buf.appendSlice(a, "\\|") else try buf.append(a, c);
     }
@@ -1367,7 +1371,7 @@ fn emitInventoryMd(a: std.mem.Allocator, root_dir: []const u8, inv: Inventory) !
     return try buf.toOwnedSlice(a);
 }
 
-fn writeBytes(io: Io, root: Io.Dir, rel_path: []const u8, data: []const u8) !void {
+pub fn writeBytes(io: Io, root: Io.Dir, rel_path: []const u8, data: []const u8) !void {
     if (std.fs.path.dirname(rel_path)) |parent| {
         if (parent.len > 0) try root.createDirPath(io, parent);
     }
