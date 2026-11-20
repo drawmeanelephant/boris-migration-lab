@@ -226,10 +226,16 @@ fn htmlCardSafe(html: []const u8) bool {
     for (html) |c| lower_buf.appendAssumeCapacity(std.ascii.toLower(c));
     const lower = lower_buf.items;
     for (banned) |b| if (std.mem.indexOf(u8, lower, b) != null) return false;
-    // Inline event handlers (`onclick=`, `\tonerror =`, `/onload=` …).
+    // Inline event handlers (`onclick=`, `\tonerror =`, `/onload=` …), only
+    // inside tags so text such as `<pre>const one = 1;</pre>` stays inline.
     var i: usize = 0;
+    var in_tag = false;
+    var scanned: usize = 0;
     while (std.mem.indexOfPos(u8, lower, i, "on")) |p| : (i = p + 2) {
-        if (p == 0) continue;
+        while (scanned < p) : (scanned += 1) {
+            if (lower[scanned] == '<') in_tag = true else if (lower[scanned] == '>') in_tag = false;
+        }
+        if (!in_tag or p == 0) continue;
         const before = lower[p - 1];
         if (!(std.ascii.isWhitespace(before) or before == '/' or before == '"' or before == '\'')) continue;
         var j = p + 2;
