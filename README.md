@@ -24,6 +24,7 @@ Standalone **migration laboratory** for bringing existing sites into Boris.
 | **hugo-inventory** | Hugo project root (`config.toml`/`hugo.toml` + `content/`) | Read-only `inventory.json` + `INVENTORY.md` |
 | **jekyll** | Jekyll site source tree (`_posts`, `_drafts`, collections, pages) | Boris Markdown `content/` tree (posts/drafts under generated Trunks, collections → Trunks) + `report.json`/`REPORT.md` |
 | **jekyll-inventory** | Jekyll site source tree | Read-only `inventory.json` + `INVENTORY.md` (posts, drafts, collections, Liquid, `_data` refs) |
+| **ghost** | Unpacked Ghost 5 export root (`ghost-export.json` + `content/images/`) | Boris Markdown `content/` tree (posts/pages → `posts/`/`pages/` satellites, `__GHOST_URL__` links → `[[id]]`, `<id>.assets/` images) + `report.json`/`REPORT.md` |
 | **ghost-inventory** | Unpacked Ghost 5 export root (`ghost-export.json` + `content/images/`) | Read-only `inventory.json` + `INVENTORY.md` |
 | **mkdocs** | MkDocs project root (`mkdocs.yml` + `docs/`) | Boris Markdown `content/` tree (nav → Trunk/Satellite forest, admonitions → `<Aside>`, tabs → `<Details>`, `{stem}.assets/` page resources, `includes/` snippets) + `report.json`/`REPORT.md` |
 | **mkdocs-inventory** | MkDocs project root (`mkdocs.yml` + `docs/`) | Read-only `inventory.json` + `INVENTORY.md` |
@@ -249,6 +250,11 @@ zig build run -- --mode=mkdocs-inventory \
 zig build run -- --mode=mkdocs \
   --root=./fixtures/mini-mkdocs \
   --out=./.mkdocs-emit
+
+# Ghost 5 export → Boris Markdown (posts/pages → satellites)
+zig build run -- --mode=ghost \
+  --root=./fixtures/mini-ghost \
+  --out=./.ghost-emit
 ```
 
 This repository **is** the laboratory root, so `zig build` and `zig build test`
@@ -265,7 +271,7 @@ zig build test   # with BORIS_BIN exported or `boris` on PATH (see Boris pins)
 |------|---------|---------|
 | `-h`, `--help` | | Print usage; exit 0 |
 | `-q`, `--quiet` | off | Suppress progress lines |
-| `--mode=MODE` | `astro` | `astro`, `astro-import-plan`, `astro-import-apply`, `wordpress` (`wp` / `wxr`), `wordpress-theme` (`wp-theme` / `kubrick-theme`), `instagram` (`ig` / `takeout`), `obsidian` (`obs` / `vault`), `tinderbox-inventory` (`tbx-inventory` / `tinderbox-inv`), `tinderbox` (`tinderbox-emit` / `tbx`), `notion` (`md-csv` / `notion-export`), `filed` (`filed-fyi`), `filed-scan`, `starlight` (`sl` / `evcc`), `asset-filename` (`assets` / `asset-compat` / `filename-compat`), `theme-archaeology` (`theme` / `theme-arch` / `theme-inventory`), `theme-materialize` (`materialize` / `theme-materialise`), `link-audit` (`links` / `output-audit`), `frontmatter-review` (`fm-review` / `fmreview`), `hugo` (`hugo-emit`), `hugo-inventory` (`hugo-inv`), `jekyll` (`jekyll-emit`), `jekyll-inventory` (`jekyll-inv` / `jekyll-archaeology`), `ghost-inventory` (`ghost-inv`), `mkdocs` (`mkdocs-emit`), or `mkdocs-inventory` (`mkdocs-inv`) |
+| `--mode=MODE` | `astro` | `astro`, `astro-import-plan`, `astro-import-apply`, `wordpress` (`wp` / `wxr`), `wordpress-theme` (`wp-theme` / `kubrick-theme`), `instagram` (`ig` / `takeout`), `obsidian` (`obs` / `vault`), `tinderbox-inventory` (`tbx-inventory` / `tinderbox-inv`), `tinderbox` (`tinderbox-emit` / `tbx`), `notion` (`md-csv` / `notion-export`), `filed` (`filed-fyi`), `filed-scan`, `starlight` (`sl` / `evcc`), `asset-filename` (`assets` / `asset-compat` / `filename-compat`), `theme-archaeology` (`theme` / `theme-arch` / `theme-inventory`), `theme-materialize` (`materialize` / `theme-materialise`), `link-audit` (`links` / `output-audit`), `frontmatter-review` (`fm-review` / `fmreview`), `hugo` (`hugo-emit`), `hugo-inventory` (`hugo-inv`), `jekyll` (`jekyll-emit`), `jekyll-inventory` (`jekyll-inv` / `jekyll-archaeology`), `ghost` (`ghost-emit`), `ghost-inventory` (`ghost-inv`), `mkdocs` (`mkdocs-emit`), or `mkdocs-inventory` (`mkdocs-inv`) |
 | `--out=DIR` | `migration-report` | Output directory (**must differ from inputs**); must be explicit for `astro-import-plan` |
 | `--root=DIR` | `.` | Astro archaeology root, Starlight project root, asset-filename content tree, theme scan root, Hugo project root, or generated HTML tree for `link-audit`; must be explicit for `astro-import-plan` |
 | `--root=DIR` | `.` | Astro archaeology root, Starlight project root, asset-filename content tree, theme scan root, Jekyll site source root, generated HTML tree for `link-audit`, MkDocs project root for `mkdocs`/`mkdocs-inventory`, or unpacked Ghost export root for `ghost-inventory`; must be explicit for `astro-import-plan` |

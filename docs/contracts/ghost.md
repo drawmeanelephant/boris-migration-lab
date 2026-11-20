@@ -89,3 +89,49 @@ published_at, summary}`; Boris `status` is only `draft` / `published` /
 - Ghost Admin API, authentication, or any network access
 - Rendering membership/paywall behavior (visibility is evidence, not gating)
 - Calling the Boris product compiler except optional `--gate` on emitted Markdown
+
+## Emit mapping
+
+`--mode=ghost` writes `content/`, `report.json`, and `REPORT.md` under `--out`.
+The contract above decides what each construct becomes; this section fixes the
+emitted shapes.
+
+- `type: post` → `posts/<slug>` Satellite under a generated `posts` Trunk;
+  `type: page` → `pages/<slug>` Satellite under a generated `pages` Trunk.
+  Sanitized slugs collide → `-2`, `-3`, … suffixes.
+- `status: published` + `visibility: public` → `status: published`.
+  `draft`, `scheduled`, or any restricted visibility (`members`, `paid`,
+  `tiers`) → `status: draft` + a report row — restricted content is never
+  published silently.
+- `published_at` → fm `published_at` after normalization to
+  `YYYY-MM-DDTHH:MM:SSZ` (millisecond fractions truncated); unparseable
+  stamps stay in provenance + report only. `custom_excerpt` → fm
+  `summary`; when `published_at` is present the summary falls back to the
+  title because Boris requires a non-empty summary.
+- `html` → `wordpress.htmlToMarkdown`, then `__GHOST_URL__` rewrite.
+- `lexical` → tree walk: headings → `#`, paragraphs → text, links →
+  `[text](url)` or `[[id|text]]` for `__GHOST_URL__` targets, text `format`
+  bitmask → `**`/`*`/`~~`/`` ` ``, quote → `>`, list → `-`/`1.`, code →
+  fenced block.
+- `mobiledoc` → section walk: `[1,tag,markers]` → heading/paragraph/
+  blockquote/li text with `a`/`strong`/`em`/`code` markups, `[3,tag,items]`
+  → list, `[2,src]` → image, `[10,idx]` → card. Emits a
+  `mobiledoc_converted` report row per post.
+- `__GHOST_URL__/content/images/…` (feature image, gallery, inline) →
+  copied to `content/<id>.assets/<sanitized-name>` and referenced as
+  `<basename(id)>.assets/<name>`; missing files keep the tail + `missing`
+  report row. Remote image URLs are never fetched.
+- `__GHOST_URL__/<slug>/` → `[[<family>/<slug>|label]]` when the slug is a
+  known post/page; otherwise the prefix is stripped and a
+  `ghost_link_unresolved` row is written.
+- Cards: `bookmark` → `[title](url)`; `gallery` → image lines; `html` → raw
+  inline HTML; `callout` → `<Aside kind="note">` + emoji report;
+  `paywall` → dropped + report; unknown → `<!-- ghost card: <type> -->` +
+  `unknown_card` report row.
+- Internal tags → provenance + `internal_tags` row, never fm `tags`.
+  Author slugs, ghost `id`/`uuid`/`type`/`status`/`visibility`/`format` →
+  the per-page provenance comment and `report.json` only.
+- `report.json` rows: `pages[]` (slug, id, parent, ghost status,
+  visibility, format, kind, class, review count), `links[]` (from/to/kind:
+  resolved|stripped|missing), `assets[]` (source, dest, copied|reused|
+  missing), `review[]` (kind + detail per human-review row).

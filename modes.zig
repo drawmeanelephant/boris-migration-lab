@@ -65,6 +65,7 @@ pub const Mode = enum {
     jekyll,
     jekyll_inventory,
     ghost_inventory,
+    ghost,
     mkdocs_inventory,
     mkdocs,
 
@@ -174,6 +175,7 @@ pub const table = [_]Entry{
     .{ .tag = .ghost_inventory, .names = &.{ "ghost-inventory", "ghost-inv" } },
     .{ .tag = .mkdocs_inventory, .names = &.{ "mkdocs-inventory", "mkdocs-inv" } },
     .{ .tag = .mkdocs, .names = &.{ "mkdocs", "mkdocs-emit" } },
+    .{ .tag = .ghost, .names = &.{ "ghost", "ghost-emit" } },
 };
 
 const mode_list = blk: {
@@ -656,6 +658,21 @@ fn run_jekyll_inventory(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
     return ExitCode.success.int();
 }
 
+fn run_ghost(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
+    ghost.runEmit(io, gpa, .{
+        .root_dir = opts.root_dir,
+        .out_dir = opts.out_dir,
+        .quiet = opts.quiet,
+    }) catch |err| {
+        std.log.err("migration-lab (ghost) failed: {s}", .{@errorName(err)});
+        return switch (err) {
+            error.InvalidGhostInput, error.InputOutputOverlap, error.InputSymlink, error.OutputSymlink => ExitCode.usage.int(),
+            else => ExitCode.io_error.int(),
+        };
+    };
+    return ExitCode.success.int();
+}
+
 fn run_ghost_inventory(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
     ghost.run(io, gpa, .{
         .root_dir = opts.root_dir,
@@ -866,6 +883,15 @@ const usage_text =
     \\  Writes: inventory.json, INVENTORY.md
     \\  Aliases: ghost-inv
     \\  users emails/passwords are never inventoried; no Ghost API, no network.
+    \\
+    \\Ghost emit (candidate Boris Markdown):
+    \\  --mode=ghost       Ghost 5 export → content/ tree + reports
+    \\  --root=DIR         Unpacked Ghost export root holding ghost-export.json
+    \\  --out=DIR          Output directory (may not nest inside --root)
+    \\  Aliases: ghost-emit
+    \\  html/lexical/mobiledoc bodies → Markdown; __GHOST_URL__ links → [[id]];
+    \\  local content/images/ copied to <id>.assets/; restricted visibility
+    \\  and scheduled posts never emit as published.
     \\
     \\Notion mode:
     \\  --export=DIR       Unpacked Notion Markdown & CSV export root (required; never modified)

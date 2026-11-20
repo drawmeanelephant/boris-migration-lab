@@ -9,6 +9,8 @@
 const std = @import("std");
 const Io = std.Io;
 const publication = @import("publication.zig");
+const wordpress = @import("wordpress.zig");
+const asset_filename = @import("asset_filename.zig");
 
 pub const format_id = "boris-ghost-migration-lab";
 pub const schema_version: u32 = 1;
@@ -60,6 +62,10 @@ const Post = struct {
     format: []const u8, // "html" | "lexical" | "mobiledoc" | "none"
     feature_image: ?[]const u8,
     published_at: []const u8,
+    custom_excerpt: ?[]const u8,
+    html: ?[]const u8,
+    lexical: ?[]const u8,
+    mobiledoc: ?[]const u8,
     tags: [][]const u8, // public tag names, sorted
     internal_tags: [][]const u8, // internal tag names, sorted
     authors: [][]const u8, // author slugs, sorted
@@ -481,6 +487,10 @@ fn parseExport(a: std.mem.Allocator, io: Io, bytes: []const u8, root_dir: []cons
             .format = format,
             .feature_image = jsonGetOptString(pv, "feature_image"),
             .published_at = jsonGetString(pv, "published_at"),
+            .custom_excerpt = jsonGetOptString(pv, "custom_excerpt"),
+            .html = jsonGetOptString(pv, "html"),
+            .lexical = jsonGetOptString(pv, "lexical"),
+            .mobiledoc = jsonGetOptString(pv, "mobiledoc"),
             .tags = try pt.toOwnedSlice(a),
             .internal_tags = try it.toOwnedSlice(a),
             .authors = try pa.toOwnedSlice(a),
@@ -990,4 +1000,956 @@ test "ghost: refuses source/output overlap" {
         .out_dir = "fixtures/mini-ghost",
         .quiet = true,
     }));
+}
+
+// ============================================================================
+// Emit mode — Ghost export → Boris Markdown tree.
+//
+// Contract: docs/contracts/ghost.md `## Emit mapping`. Posts land as
+// `posts/<slug>` satellites under a generated `posts` trunk, pages as
+// `pages/<slug>` under `pages`. `html`/`lexical`/`mobiledoc` bodies become
+// Markdown with a loss report; `__GHOST_URL__` links resolve to `[[id]]` or
+// strip; local `content/images/` assets copy to `<id>.assets/`. Restricted
+// visibility and scheduled posts never emit as `published`.
+// ============================================================================
+
+const GReviewItem = struct { source_path: []const u8, kind: []const u8, detail: []const u8 };
+const GLink = struct { source_path: []const u8, from: []const u8, to: []const u8, kind: []const u8 };
+const GAsset = struct {
+    source_path: []const u8,
+    source: []const u8, // image url tail under content/images/
+    dest: []const u8,
+    kind: []const u8, // "copied" | "reused" | "missing"
+};
+const GPage = struct {
+    slug: []const u8,
+    id: []const u8,
+    parent: []const u8,
+    title: []const u8,
+    status: []const u8,
+    visibility: []const u8,
+    format: []const u8,
+    kind: []const u8, // "post" | "page" | "generated_trunk"
+    class: []const u8, // "exact" | "transformed" | "human_review"
+    review_count: usize,
+};
+
+const GhostEmitCtx = struct {
+    a: std.mem.Allocator,
+    io: Io,
+    stage: Io.Dir,
+    images_dir: []const u8, // <root>/content/images
+    /// ghost slug → boris id
+    slug_ids: *const std.StringHashMap([]const u8),
+    /// dest path → true once a file has been written for it
+    copied: *std.StringHashMap(bool),
+    review: *std.ArrayList(GReviewItem),
+    links: *std.ArrayList(GLink),
+    assets: *std.ArrayList(GAsset),
+    /// asset dest paths already recorded (dedup report rows)
+    assets_seen: *std.StringHashMap(void),
+    post: *const GPage,
+};
+
+/// Sanitize one slug/id path segment: lowercase, alnum + `-`/`_`, `-` for
+/// everything else, runs collapsed.
+fn emitSlugSegment(a: std.mem.Allocator, s: []const u8) ![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    var last_dash = false;
+    for (s) |c| {
+        const lc = std.ascii.toLower(c);
+        const ok = (lc >= 'a' and lc <= 'z') or (lc >= '0' and lc <= '9') or lc == '_';
+        if (ok) {
+            try out.append(a, lc);
+            last_dash = false;
+        } else if (!last_dash and out.items.len > 0) {
+            try out.append(a, '-');
+            last_dash = true;
+        }
+    }
+    return std.mem.trimEnd(u8, out.items, "-");
+}
+
+/// Ghost slug → boris entity id (`posts/<slug>` or `pages/<slug>`).
+fn emitGhostId(a: std.mem.Allocator, kind: []const u8, slug: []const u8) ![]const u8 {
+    const seg = try emitSlugSegment(a, slug);
+    if (seg.len == 0) return error.InvalidGhostInput;
+    const parent = if (std.mem.eql(u8, kind, "page")) "pages" else "posts";
+    return try std.fmt.allocPrint(a, "{s}/{s}", .{ parent, seg });
+}
+
+/// Boris requires `YYYY-MM-DDTHH:MM:SSZ`; Ghost stamps carry `.SSSZ`
+/// milliseconds — truncate. Anything else returns null and goes to
+/// provenance/report only.
+fn emitPublishedAt(a: std.mem.Allocator, raw: []const u8) !?[]const u8 {
+    if (raw.len == 0) return null;
+    if (raw.len >= 20 and raw[4] == '-' and raw[7] == '-' and raw[10] == 'T' and
+        raw[13] == ':' and raw[16] == ':' and raw[19] == 'Z')
+    {
+        return try a.dupe(u8, raw[0..20]);
+    }
+    if (raw.len >= 19 and raw[4] == '-' and raw[7] == '-' and raw[10] == 'T' and
+        raw[13] == ':' and raw[16] == ':' and raw[19] == '.')
+    {
+        return try std.fmt.allocPrint(a, "{s}Z", .{raw[0..19]});
+    }
+    return null;
+}
+
+fn emitStatus(post: Post) []const u8 {
+    if (std.mem.eql(u8, post.status, "published")) return "published";
+    return "draft";
+}
+
+fn emitAppendTagList(buf: *std.ArrayList(u8), a: std.mem.Allocator, tags: []const []const u8) !void {
+    try buf.appendSlice(a, "tags: [");
+    for (tags, 0..) |t, i| {
+        if (i > 0) try buf.appendSlice(a, ", ");
+        try buf.appendSlice(a, try wordpress.escapeFmValue(a, t));
+    }
+    try buf.appendSlice(a, "]\n");
+}
+
+/// Boris closed front matter for one emitted page.
+fn emitGhostFrontmatter(
+    a: std.mem.Allocator,
+    id: []const u8,
+    title: []const u8,
+    parent: ?[]const u8,
+    status: []const u8,
+    tags: []const []const u8,
+    published_at: []const u8,
+    summary: ?[]const u8,
+) ![]u8 {
+    var buf: std.ArrayList(u8) = .empty;
+    try buf.appendSlice(a, "---\n");
+    try buf.print(a, "id: {s}\n", .{try wordpress.escapeFmValue(a, id)});
+    try buf.print(a, "title: {s}\n", .{try wordpress.escapeFmValue(a, title)});
+    if (parent) |p| try buf.print(a, "parent: {s}\n", .{try wordpress.escapeFmValue(a, p)});
+    try buf.print(a, "status: {s}\n", .{status});
+    if (tags.len > 0) try emitAppendTagList(&buf, a, tags);
+    if (published_at.len > 0) try buf.print(a, "published_at: {s}\n", .{published_at});
+    if (summary) |s| {
+        if (s.len > 0) try buf.print(a, "summary: {s}\n", .{try wordpress.escapeFmValue(a, s)});
+    }
+    try buf.appendSlice(a, "---\n\n");
+    return try buf.toOwnedSlice(a);
+}
+
+fn emitReviewOnce(
+    ctx: *const GhostEmitCtx,
+    dedup: *std.StringHashMap(void),
+    kind: []const u8,
+    detail: []const u8,
+) !void {
+    const key = try std.fmt.allocPrint(ctx.a, "{s}|{s}|{s}", .{ ctx.post.slug, kind, detail });
+    if (dedup.contains(key)) return;
+    try dedup.put(key, {});
+    try ctx.review.append(ctx.a, .{ .source_path = ctx.post.slug, .kind = kind, .detail = detail });
+}
+
+/// Copy one `__GHOST_URL__/content/images/<rel>` asset into
+/// `content/<post.id>.assets/<name>`. Returns the page-relative link path
+/// (`<basename(id)>.assets/<name>`), or null when the file is absent (row is
+/// reported either way).
+fn emitCopyGhostImage(ctx: *const GhostEmitCtx, url_tail: []const u8) !?[]const u8 {
+    // url_tail includes the leading `/content/images/…` or just `…`.
+    var rel = url_tail;
+    if (std.mem.indexOf(u8, rel, "/content/images/")) |idx| {
+        rel = rel[idx + "/content/images/".len ..];
+    }
+    if (rel.len == 0) return null;
+    const name = try asset_filename.sanitizeSegment(ctx.a, std.fs.path.basename(rel));
+    const dest_rel = try std.fmt.allocPrint(ctx.a, "{s}.assets/{s}", .{ ctx.post.id, name });
+    const link_rel = try std.fmt.allocPrint(ctx.a, "{s}.assets/{s}", .{ std.fs.path.basename(ctx.post.id), name });
+    const full_src = try std.fmt.allocPrint(ctx.a, "{s}/{s}", .{ ctx.images_dir, rel });
+    if (!ctx.assets_seen.contains(dest_rel)) {
+        try ctx.assets_seen.put(dest_rel, {});
+        const bytes = readFileAlloc(ctx.io, Io.Dir.cwd(), full_src, ctx.a) catch |err| switch (err) {
+            error.FileNotFound => {
+                try ctx.assets.append(ctx.a, .{ .source_path = ctx.post.slug, .source = full_src, .dest = dest_rel, .kind = "missing" });
+                return null;
+            },
+            else => return err,
+        };
+        const dest_kind: []const u8 = if (ctx.copied.contains(dest_rel)) "reused" else "copied";
+        if (!ctx.copied.contains(dest_rel)) {
+            try ctx.copied.put(dest_rel, true);
+            try writeBytes(ctx.io, ctx.stage, try std.fmt.allocPrint(ctx.a, "content/{s}", .{dest_rel}), bytes);
+        }
+        try ctx.assets.append(ctx.a, .{ .source_path = ctx.post.slug, .source = full_src, .dest = dest_rel, .kind = dest_kind });
+    }
+    return link_rel;
+}
+
+/// Resolve a `__GHOST_URL__/<slug>/…` link to a `[[entity-id|label]]`, or
+/// strip the prefix and report when the slug is not a known post/page.
+fn emitGhostLinkDest(ctx: *const GhostEmitCtx, url: []const u8, label: []const u8) ![]const u8 {
+    var tail = url[ghost_url.len..];
+    tail = std.mem.trim(u8, tail, "/");
+    const seg_end = std.mem.indexOfScalar(u8, tail, '/') orelse tail.len;
+    const slug = tail[0..seg_end];
+    if (ctx.slug_ids.get(slug)) |id| {
+        try ctx.links.append(ctx.a, .{ .source_path = ctx.post.slug, .from = url, .to = id, .kind = "resolved" });
+        if (label.len == 0 or std.mem.eql(u8, label, slug)) {
+            return try std.fmt.allocPrint(ctx.a, "[[{s}]]", .{id});
+        }
+        return try std.fmt.allocPrint(ctx.a, "[[{s}|{s}]]", .{ id, label });
+    }
+    try ctx.links.append(ctx.a, .{ .source_path = ctx.post.slug, .from = url, .to = tail, .kind = "stripped" });
+    try ctx.review.append(ctx.a, .{ .source_path = ctx.post.slug, .kind = "ghost_link_unresolved", .detail = try std.fmt.allocPrint(ctx.a, "{s} → no matching post/page; kept as '{s}'", .{ url, tail }) });
+    return try a_dedup(ctx.a, tail);
+}
+
+fn a_dedup(a: std.mem.Allocator, s: []const u8) ![]const u8 {
+    return try a.dupe(u8, s);
+}
+
+/// Rewrite `__GHOST_URL__` occurrences inside converted markdown (html path):
+/// image refs copy to `<id>.assets/`, `](dest)` links become `[[id|text]]`,
+/// anything else loses the prefix and is reported.
+fn emitRewriteGhostLinks(ctx: *const GhostEmitCtx, md: []const u8) ![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    var pos: usize = 0;
+    while (std.mem.indexOfPos(u8, md, pos, ghost_url)) |p| {
+        const tail_start = p + ghost_url.len;
+        var tail_end = tail_start;
+        while (tail_end < md.len and !std.ascii.isWhitespace(md[tail_end]) and
+            md[tail_end] != '"' and md[tail_end] != '\'' and md[tail_end] != ')' and md[tail_end] != ')' and
+            md[tail_end] != '<' and md[tail_end] != '>')
+        {
+            tail_end += 1;
+        }
+        const tail = md[tail_start..tail_end];
+        const is_image = std.mem.startsWith(u8, tail, "/content/images/");
+        if (is_image) {
+            try out.appendSlice(ctx.a, md[pos..p]);
+            if (try emitCopyGhostImage(ctx, tail)) |dest| {
+                try out.appendSlice(ctx.a, dest);
+            } else {
+                try out.appendSlice(ctx.a, tail);
+            }
+            pos = tail_end;
+            continue;
+        }
+        // Link destination? Look back for `[` … `](` wrapping this url.
+        var replaced = false;
+        if (std.mem.lastIndexOf(u8, md[0..p], "](")) |lidx| {
+            if (std.mem.indexOfScalar(u8, md[lidx + 2 .. p], ')') == null) {
+                if (std.mem.lastIndexOf(u8, md[0..lidx], "[")) |obr| {
+                    if (std.mem.indexOfScalar(u8, md[obr + 1 .. lidx], ']') == null) {
+                        const label = md[obr + 1 .. lidx];
+                        const url = md[p..tail_end];
+                        try out.appendSlice(ctx.a, md[pos..obr]);
+                        try out.appendSlice(ctx.a, try emitGhostLinkDest(ctx, url, label));
+                        pos = if (tail_end < md.len and md[tail_end] == ')') tail_end + 1 else tail_end;
+                        replaced = true;
+                    }
+                }
+            }
+        }
+        if (!replaced) {
+            try out.appendSlice(ctx.a, md[pos..p]);
+            const url = try std.fmt.allocPrint(ctx.a, "{s}{s}", .{ ghost_url, tail });
+            try ctx.links.append(ctx.a, .{ .source_path = ctx.post.slug, .from = url, .to = tail, .kind = "stripped" });
+            try ctx.review.append(ctx.a, .{ .source_path = ctx.post.slug, .kind = "ghost_url_stripped", .detail = try std.fmt.allocPrint(ctx.a, "{s} → kept as '{s}'", .{ url, tail }) });
+            try out.appendSlice(ctx.a, tail);
+            pos = tail_end;
+        }
+    }
+    try out.appendSlice(ctx.a, md[pos..]);
+    return try out.toOwnedSlice(ctx.a);
+}
+
+// ── lexical → markdown ─────────────────────────────────────
+
+fn lexInline(ctx: *const GhostEmitCtx, node: std.json.Value, out: *std.ArrayList(u8)) anyerror!void {
+    const t = if (jsonGet(node, "type")) |tv| if (tv == .string) tv.string else "" else "";
+    if (std.mem.eql(u8, t, "text")) {
+        var text = jsonGetString(node, "text");
+        const fmt = jsonGetI64(node, "format") orelse 0;
+        if (fmt & 16 != 0) text = try std.fmt.allocPrint(ctx.a, "`{s}`", .{text});
+        if (fmt & 1 != 0) text = try std.fmt.allocPrint(ctx.a, "**{s}**", .{text});
+        if (fmt & 2 != 0) text = try std.fmt.allocPrint(ctx.a, "*{s}*", .{text});
+        if (fmt & 4 != 0) text = try std.fmt.allocPrint(ctx.a, "~~{s}~~", .{text});
+        try out.appendSlice(ctx.a, text);
+        return;
+    }
+    if (std.mem.eql(u8, t, "link")) {
+        var label: std.ArrayList(u8) = .empty;
+        for (jsonArray(node, "children")) |c| try lexInline(ctx, c, &label);
+        const url = jsonGetString(node, "url");
+        if (std.mem.indexOf(u8, url, ghost_url) != null) {
+            try out.appendSlice(ctx.a, try emitGhostLinkDest(ctx, url, label.items));
+        } else {
+            try out.appendSlice(ctx.a, try std.fmt.allocPrint(ctx.a, "[{s}]({s})", .{ label.items, url }));
+        }
+        return;
+    }
+    if (std.mem.eql(u8, t, "linebreak")) {
+        try out.append(ctx.a, '\n');
+        return;
+    }
+    if (std.mem.eql(u8, t, "codehighlight")) {
+        try out.appendSlice(ctx.a, jsonGetString(node, "code"));
+        return;
+    }
+    // Inline-level unknown nodes render their children.
+    for (jsonArray(node, "children")) |c| try lexInline(ctx, c, out);
+}
+
+fn lexCard(ctx: *const GhostEmitCtx, node: std.json.Value, out: *std.ArrayList(u8), dedup: *std.StringHashMap(void)) !void {
+    const t = if (jsonGet(node, "type")) |tv| if (tv == .string) tv.string else "" else "";
+    if (std.mem.eql(u8, t, "bookmark")) {
+        const url = jsonGetString(node, "url");
+        if (url.len == 0) {
+            try emitReviewOnce(ctx, dedup, "bookmark_missing_url", "bookmark card without url dropped");
+            return;
+        }
+        const meta = jsonGet(node, "metadata") orelse std.json.Value{ .null = {} };
+        const title = jsonGetString(meta, "title");
+        const label = if (title.len > 0) title else url;
+        if (std.mem.indexOf(u8, url, ghost_url) != null) {
+            try out.appendSlice(ctx.a, try emitGhostLinkDest(ctx, url, label));
+        } else {
+            try out.appendSlice(ctx.a, try std.fmt.allocPrint(ctx.a, "[{s}]({s})", .{ label, url }));
+        }
+        try out.appendSlice(ctx.a, "\n\n");
+        return;
+    }
+    if (std.mem.eql(u8, t, "gallery")) {
+        for (jsonArray(node, "images")) |img| {
+            const src = jsonGetString(img, "src");
+            const caption = jsonGetString(img, "caption");
+            if (std.mem.indexOf(u8, src, "/content/images/") != null) {
+                if (try emitCopyGhostImage(ctx, src[std.mem.indexOf(u8, src, ghost_url) orelse 0 ..])) |dest| {
+                    try out.appendSlice(ctx.a, try std.fmt.allocPrint(ctx.a, "![{s}]({s})\n\n", .{ caption, dest }));
+                    continue;
+                }
+            }
+            try out.appendSlice(ctx.a, try std.fmt.allocPrint(ctx.a, "![{s}]({s})\n\n", .{ caption, src }));
+        }
+        return;
+    }
+    if (std.mem.eql(u8, t, "html")) {
+        const html = jsonGetString(node, "html");
+        const rewritten = try emitRewriteGhostLinks(ctx, html);
+        try out.appendSlice(ctx.a, rewritten);
+        try out.appendSlice(ctx.a, "\n\n");
+        return;
+    }
+    if (std.mem.eql(u8, t, "callout")) {
+        const text = jsonGetString(node, "calloutText");
+        const emoji = jsonGetString(node, "calloutEmoji");
+        try out.appendSlice(ctx.a, "<Aside kind=\"note\">\n");
+        try out.appendSlice(ctx.a, text);
+        try out.appendSlice(ctx.a, "\n</Aside>\n\n");
+        if (emoji.len > 0) {
+            try emitReviewOnce(ctx, dedup, "callout_emoji", try std.fmt.allocPrint(ctx.a, "callout emoji '{s}' dropped (Aside has no icon)", .{emoji}));
+        }
+        return;
+    }
+    if (std.mem.eql(u8, t, "paywall")) {
+        try emitReviewOnce(ctx, dedup, "paywall_card", "paywall card dropped; restricted content not emitted");
+        return;
+    }
+    // Unknown card: marker + review row.
+    try out.appendSlice(ctx.a, try std.fmt.allocPrint(ctx.a, "<!-- ghost card: {s} -->\n\n", .{t}));
+    try emitReviewOnce(ctx, dedup, "unknown_card", try std.fmt.allocPrint(ctx.a, "card type '{s}' not emitted", .{t}));
+}
+
+fn lexBlock(ctx: *const GhostEmitCtx, node: std.json.Value, out: *std.ArrayList(u8), dedup: *std.StringHashMap(void)) anyerror!void {
+    const t = if (jsonGet(node, "type")) |tv| if (tv == .string) tv.string else "" else "";
+    if (std.mem.eql(u8, t, "heading")) {
+        const tag = jsonGetString(node, "tag");
+        const level: usize = if (tag.len == 2 and tag[0] == 'h' and tag[1] >= '1' and tag[1] <= '6') tag[1] - '0' else 2;
+        try out.appendNTimes(ctx.a, '#', level);
+        try out.append(ctx.a, ' ');
+        for (jsonArray(node, "children")) |c| try lexInline(ctx, c, out);
+        try out.appendSlice(ctx.a, "\n\n");
+        return;
+    }
+    if (std.mem.eql(u8, t, "paragraph")) {
+        for (jsonArray(node, "children")) |c| try lexInline(ctx, c, out);
+        try out.appendSlice(ctx.a, "\n\n");
+        return;
+    }
+    if (std.mem.eql(u8, t, "quote")) {
+        var inner: std.ArrayList(u8) = .empty;
+        for (jsonArray(node, "children")) |c| try lexInline(ctx, c, &inner);
+        var it = std.mem.splitScalar(u8, inner.items, '\n');
+        while (it.next()) |line| {
+            if (line.len == 0) continue;
+            try out.appendSlice(ctx.a, try std.fmt.allocPrint(ctx.a, "> {s}\n", .{line}));
+        }
+        try out.append(ctx.a, '\n');
+        return;
+    }
+    if (std.mem.eql(u8, t, "list")) {
+        const tag = jsonGetString(node, "tag");
+        const ordered = std.mem.eql(u8, tag, "ol");
+        var n: usize = 1;
+        for (jsonArray(node, "children")) |item| {
+            var inner: std.ArrayList(u8) = .empty;
+            for (jsonArray(item, "children")) |c| try lexInline(ctx, c, &inner);
+            if (ordered) {
+                try out.appendSlice(ctx.a, try std.fmt.allocPrint(ctx.a, "{d}. {s}\n", .{ n, inner.items }));
+                n += 1;
+            } else {
+                try out.appendSlice(ctx.a, try std.fmt.allocPrint(ctx.a, "- {s}\n", .{inner.items}));
+            }
+        }
+        try out.append(ctx.a, '\n');
+        return;
+    }
+    if (std.mem.eql(u8, t, "code")) {
+        const lang = jsonGetString(node, "language");
+        try out.appendSlice(ctx.a, "```");
+        try out.appendSlice(ctx.a, lang);
+        try out.append(ctx.a, '\n');
+        for (jsonArray(node, "children")) |c| try lexInline(ctx, c, out);
+        if (out.items.len > 0 and out.items[out.items.len - 1] != '\n') try out.append(ctx.a, '\n');
+        try out.appendSlice(ctx.a, "```\n\n");
+        return;
+    }
+    if (std.mem.eql(u8, t, "root")) {
+        for (jsonArray(node, "children")) |c| try lexBlock(ctx, c, out, dedup);
+        return;
+    }
+    if (isStructuralLexical(t)) {
+        // Structural node with no dedicated mapping: render children inline.
+        for (jsonArray(node, "children")) |c| try lexInline(ctx, c, out);
+        try out.appendSlice(ctx.a, "\n\n");
+        return;
+    }
+    try lexCard(ctx, node, out, dedup);
+}
+
+fn emitLexicalMd(ctx: *const GhostEmitCtx, lexical_json: []const u8, dedup: *std.StringHashMap(void)) ![]const u8 {
+    const parsed = std.json.parseFromSlice(std.json.Value, ctx.a, lexical_json, .{}) catch {
+        try emitReviewOnce(ctx, dedup, "lexical_unparseable", "lexical body is not valid JSON; body dropped");
+        return "";
+    };
+    var out: std.ArrayList(u8) = .empty;
+    const root_v = jsonGet(parsed.value, "root") orelse parsed.value;
+    if (jsonGet(root_v, "type") == null or
+        (jsonGet(root_v, "type").? == .string and std.mem.eql(u8, jsonGet(root_v, "type").?.string, "root")))
+    {
+        for (jsonArray(root_v, "children")) |c| try lexBlock(ctx, c, &out, dedup);
+    } else {
+        try lexBlock(ctx, root_v, &out, dedup);
+    }
+    return try out.toOwnedSlice(ctx.a);
+}
+
+// ── mobiledoc → markdown ───────────────────────────────────
+
+fn mobiMarkerText(ctx: *const GhostEmitCtx, marker: std.json.Value, markups: []const std.json.Value) ![]const u8 {
+    // marker = [type, openMarkupIndices, closedCount?, value?]
+    if (marker != .array or marker.array.items.len < 4) return "";
+    const items = marker.array.items;
+    const text_v = items[items.len - 1];
+    if (text_v != .string) return "";
+    var text = text_v.string;
+    const opens = switch (items[1]) {
+        .array => |arr| arr.items,
+        else => &.{},
+    };
+    for (opens) |mv| {
+        const idx = switch (mv) {
+            .integer => |i| i,
+            else => continue,
+        };
+        if (idx < 0 or @as(usize, @intCast(idx)) >= markups.len) continue;
+        const m = markups[@intCast(idx)];
+        if (m != .array or m.array.items.len == 0) continue;
+        const name_v = m.array.items[0];
+        if (name_v != .string) continue;
+        const name = name_v.string;
+        if (std.mem.eql(u8, name, "a")) {
+            var href: []const u8 = "";
+            // attrs live after the tag name in [name, attrName, value, ...]
+            var i: usize = 1;
+            while (i + 1 < m.array.items.len) : (i += 1) {
+                const k = m.array.items[i];
+                const v = m.array.items[i + 1];
+                if (k == .string and std.mem.eql(u8, k.string, "href") and v == .string) href = v.string;
+            }
+            if (href.len > 0) {
+                if (std.mem.indexOf(u8, href, ghost_url) != null) {
+                    text = try std.fmt.allocPrint(ctx.a, "{s}", .{try emitGhostLinkDest(ctx, href, text)});
+                } else {
+                    text = try std.fmt.allocPrint(ctx.a, "[{s}]({s})", .{ text, href });
+                }
+            }
+        } else if (std.mem.eql(u8, name, "strong") or std.mem.eql(u8, name, "b")) {
+            text = try std.fmt.allocPrint(ctx.a, "**{s}**", .{text});
+        } else if (std.mem.eql(u8, name, "em") or std.mem.eql(u8, name, "i")) {
+            text = try std.fmt.allocPrint(ctx.a, "*{s}*", .{text});
+        } else if (std.mem.eql(u8, name, "code")) {
+            text = try std.fmt.allocPrint(ctx.a, "`{s}`", .{text});
+        }
+    }
+    return text;
+}
+
+fn mobiCard(ctx: *const GhostEmitCtx, card: std.json.Value, out: *std.ArrayList(u8), dedup: *std.StringHashMap(void)) !void {
+    if (card != .array or card.array.items.len < 1) return;
+    const name_v = card.array.items[0];
+    if (name_v != .string) return;
+    const name = name_v.string;
+    const payload = if (card.array.items.len > 1) card.array.items[1] else std.json.Value{ .null = {} };
+    if (std.mem.eql(u8, name, "bookmark")) {
+        const url = jsonGetString(payload, "url");
+        if (url.len == 0) {
+            try emitReviewOnce(ctx, dedup, "bookmark_missing_url", "mobiledoc bookmark card without url dropped");
+            return;
+        }
+        const meta = jsonGet(payload, "metadata") orelse std.json.Value{ .null = {} };
+        const title = jsonGetString(meta, "title");
+        const label = if (title.len > 0) title else url;
+        if (std.mem.indexOf(u8, url, ghost_url) != null) {
+            try out.appendSlice(ctx.a, try emitGhostLinkDest(ctx, url, label));
+        } else {
+            try out.appendSlice(ctx.a, try std.fmt.allocPrint(ctx.a, "[{s}]({s})", .{ label, url }));
+        }
+        try out.appendSlice(ctx.a, "\n\n");
+        return;
+    }
+    if (std.mem.eql(u8, name, "gallery")) {
+        for (jsonArray(payload, "images")) |img| {
+            const src = jsonGetString(img, "src");
+            const caption = jsonGetString(img, "caption");
+            if (std.mem.indexOf(u8, src, "/content/images/") != null) {
+                if (try emitCopyGhostImage(ctx, src[std.mem.indexOf(u8, src, ghost_url) orelse 0 ..])) |dest| {
+                    try out.appendSlice(ctx.a, try std.fmt.allocPrint(ctx.a, "![{s}]({s})\n\n", .{ caption, dest }));
+                    continue;
+                }
+            }
+            try out.appendSlice(ctx.a, try std.fmt.allocPrint(ctx.a, "![{s}]({s})\n\n", .{ caption, src }));
+        }
+        return;
+    }
+    if (std.mem.eql(u8, name, "html")) {
+        try out.appendSlice(ctx.a, try emitRewriteGhostLinks(ctx, jsonGetString(payload, "html")));
+        try out.appendSlice(ctx.a, "\n\n");
+        return;
+    }
+    if (std.mem.eql(u8, name, "callout")) {
+        try out.appendSlice(ctx.a, "<Aside kind=\"note\">\n");
+        try out.appendSlice(ctx.a, jsonGetString(payload, "calloutText"));
+        try out.appendSlice(ctx.a, "\n</Aside>\n\n");
+        return;
+    }
+    if (std.mem.eql(u8, name, "paywall")) {
+        try emitReviewOnce(ctx, dedup, "paywall_card", "paywall card dropped; restricted content not emitted");
+        return;
+    }
+    if (std.mem.eql(u8, name, "image")) {
+        const src = jsonGetString(payload, "src");
+        if (std.mem.indexOf(u8, src, "/content/images/") != null) {
+            if (try emitCopyGhostImage(ctx, src[std.mem.indexOf(u8, src, ghost_url) orelse 0 ..])) |dest| {
+                try out.appendSlice(ctx.a, try std.fmt.allocPrint(ctx.a, "![]({s})\n\n", .{dest}));
+                return;
+            }
+        }
+        try out.appendSlice(ctx.a, try std.fmt.allocPrint(ctx.a, "![]({s})\n\n", .{src}));
+        return;
+    }
+    try out.appendSlice(ctx.a, try std.fmt.allocPrint(ctx.a, "<!-- ghost card: {s} -->\n\n", .{name}));
+    try emitReviewOnce(ctx, dedup, "unknown_card", try std.fmt.allocPrint(ctx.a, "card type '{s}' not emitted", .{name}));
+}
+
+fn emitMobiledocMd(ctx: *const GhostEmitCtx, mobiledoc_json: []const u8, dedup: *std.StringHashMap(void)) ![]const u8 {
+    const parsed = std.json.parseFromSlice(std.json.Value, ctx.a, mobiledoc_json, .{}) catch {
+        try emitReviewOnce(ctx, dedup, "mobiledoc_unparseable", "mobiledoc body is not valid JSON; body dropped");
+        return "";
+    };
+    const doc = parsed.value;
+    const markups = jsonArray(doc, "markups");
+    const cards = jsonArray(doc, "cards");
+    var out: std.ArrayList(u8) = .empty;
+    try emitReviewOnce(ctx, dedup, "mobiledoc_converted", "mobiledoc converted with section-level mapping; inline markup may be lossy");
+    for (jsonArray(doc, "sections")) |sec| {
+        if (sec != .array or sec.array.items.len < 1) continue;
+        const kind_v = sec.array.items[0];
+        if (kind_v != .integer) continue;
+        switch (kind_v.integer) {
+            1 => {
+                // markup section [1, tag, markers]
+                if (sec.array.items.len < 3) continue;
+                const tag = if (sec.array.items[1] == .string) sec.array.items[1].string else "p";
+                var text: std.ArrayList(u8) = .empty;
+                if (sec.array.items[2] != .array) continue;
+                for (sec.array.items[2].array.items) |marker| {
+                    try text.appendSlice(ctx.a, try mobiMarkerText(ctx, marker, markups));
+                }
+                if (tag.len == 2 and tag[0] == 'h' and tag[1] >= '1' and tag[1] <= '6') {
+                    try out.appendNTimes(ctx.a, '#', tag[1] - '0');
+                    try out.append(ctx.a, ' ');
+                } else if (std.mem.eql(u8, tag, "blockquote")) {
+                    var it = std.mem.splitScalar(u8, text.items, '\n');
+                    while (it.next()) |line| {
+                        if (line.len == 0) continue;
+                        try out.appendSlice(ctx.a, try std.fmt.allocPrint(ctx.a, "> {s}\n", .{line}));
+                    }
+                    try out.append(ctx.a, '\n');
+                    continue;
+                } else if (std.mem.eql(u8, tag, "li")) {
+                    try out.appendSlice(ctx.a, try std.fmt.allocPrint(ctx.a, "- {s}\n", .{text.items}));
+                    continue;
+                }
+                try out.appendSlice(ctx.a, text.items);
+                try out.appendSlice(ctx.a, "\n\n");
+            },
+            2 => {
+                // image section [2, src]
+                if (sec.array.items.len < 2) continue;
+                const src_v = sec.array.items[1];
+                if (src_v != .string) continue;
+                const src = src_v.string;
+                if (std.mem.indexOf(u8, src, "/content/images/") != null) {
+                    if (try emitCopyGhostImage(ctx, src[std.mem.indexOf(u8, src, ghost_url) orelse 0 ..])) |dest| {
+                        try out.appendSlice(ctx.a, try std.fmt.allocPrint(ctx.a, "![]({s})\n\n", .{dest}));
+                        continue;
+                    }
+                }
+                try out.appendSlice(ctx.a, try std.fmt.allocPrint(ctx.a, "![]({s})\n\n", .{src}));
+            },
+            3 => {
+                // list section [3, tag, items[]]
+                if (sec.array.items.len < 3) continue;
+                const tag = if (sec.array.items[1] == .string) sec.array.items[1].string else "ul";
+                const ordered = std.mem.eql(u8, tag, "ol");
+                var n: usize = 1;
+                for (sec.array.items[2].array.items) |li| {
+                    var text: std.ArrayList(u8) = .empty;
+                    if (li == .array) {
+                        for (li.array.items) |marker| {
+                            try text.appendSlice(ctx.a, try mobiMarkerText(ctx, marker, markups));
+                        }
+                    }
+                    if (ordered) {
+                        try out.appendSlice(ctx.a, try std.fmt.allocPrint(ctx.a, "{d}. {s}\n", .{ n, text.items }));
+                        n += 1;
+                    } else {
+                        try out.appendSlice(ctx.a, try std.fmt.allocPrint(ctx.a, "- {s}\n", .{text.items}));
+                    }
+                }
+                try out.append(ctx.a, '\n');
+            },
+            10 => {
+                // card section [10, cardIndex]
+                if (sec.array.items.len < 2) continue;
+                const idx_v = sec.array.items[1];
+                const idx = switch (idx_v) {
+                    .integer => |i| i,
+                    else => continue,
+                };
+                if (idx < 0 or @as(usize, @intCast(idx)) >= cards.len) continue;
+                try mobiCard(ctx, cards[@intCast(idx)], &out, dedup);
+            },
+            else => {},
+        }
+    }
+    return try out.toOwnedSlice(ctx.a);
+}
+
+// ── emit driver ────────────────────────────────────────────
+
+fn emitGhostBody(ctx: *const GhostEmitCtx, post: Post, dedup: *std.StringHashMap(void)) ![]const u8 {
+    var body: []const u8 = "";
+    if (post.lexical) |lx| {
+        body = try emitLexicalMd(ctx, lx, dedup);
+    } else if (post.html) |h| {
+        const conv = try wordpress.htmlToMarkdown(ctx.a, h);
+        body = try emitRewriteGhostLinks(ctx, conv[0]);
+    } else if (post.mobiledoc) |m| {
+        body = try emitMobiledocMd(ctx, m, dedup);
+    }
+    // Feature image prepends an inline image line.
+    if (post.feature_image) |fi| {
+        if (std.mem.indexOf(u8, fi, "/content/images/") != null) {
+            if (try emitCopyGhostImage(ctx, fi[std.mem.indexOf(u8, fi, ghost_url) orelse 0 ..])) |dest| {
+                body = try std.fmt.allocPrint(ctx.a, "![{s}]({s})\n\n{s}", .{ post.title, dest, body });
+            }
+        }
+    }
+    return body;
+}
+
+/// `--mode=ghost`: emit a Boris content tree + reports from a Ghost 5 export.
+/// Returns the same io-safety errors as the inventory mode plus
+/// `error.InvalidGhostInput` on a missing/malformed export.
+pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+
+    const export_path = try std.fmt.allocPrint(a, "{s}/ghost-export.json", .{opts.root_dir});
+    const bytes = readFileAlloc(io, Io.Dir.cwd(), export_path, a) catch |err| switch (err) {
+        error.FileNotFound => return error.InvalidGhostInput,
+        else => return err,
+    };
+    const sha = try sha256Hex(a, bytes);
+    const exp = try parseExport(a, io, bytes, opts.root_dir);
+    const images_dir = try std.fmt.allocPrint(a, "{s}/content/images", .{opts.root_dir});
+
+    const out_dir = std.mem.trimEnd(u8, opts.out_dir, "/");
+    if (out_dir.len == 0) return error.InvalidGhostInput;
+    const inputs = [_][]const u8{ opts.root_dir, images_dir };
+    var pub_ = try publication.Publication.begin(io, a, out_dir, &inputs, format_id);
+    defer {
+        pub_.abandon(io, a);
+        pub_.deinit(a);
+    }
+    var stage = try Io.Dir.cwd().openDir(io, pub_.stage_path, .{});
+    defer stage.close(io);
+
+    var slug_ids: std.StringHashMap([]const u8) = .init(a);
+    var pages: std.ArrayList(GPage) = .empty;
+    var review: std.ArrayList(GReviewItem) = .empty;
+    var links: std.ArrayList(GLink) = .empty;
+    var assets: std.ArrayList(GAsset) = .empty;
+    var copied: std.StringHashMap(bool) = .init(a);
+    var assets_seen: std.StringHashMap(void) = .init(a);
+    var review_dedup: std.StringHashMap(void) = .init(a);
+    var id_used: std.StringHashMap(void) = .init(a);
+
+    // First pass: assign ids + collect review rows that don't depend on bodies.
+    for (exp.posts) |post| {
+        const id = try emitGhostId(a, post.kind, post.slug);
+        if (id_used.contains(id)) {
+            var t = id;
+            var n: usize = 2;
+            while (id_used.contains(t)) : (n += 1) {
+                t = try std.fmt.allocPrint(a, "{s}-{d}", .{ id, n });
+            }
+            try slug_ids.put(try a.dupe(u8, post.slug), t);
+            try id_used.put(t, {});
+            try pages.append(a, .{ .slug = post.slug, .id = t, .parent = if (std.mem.eql(u8, post.kind, "page")) "pages" else "posts", .title = post.title, .status = post.status, .visibility = post.visibility, .format = post.format, .kind = post.kind, .class = "exact", .review_count = 0 });
+            continue;
+        }
+        try slug_ids.put(try a.dupe(u8, post.slug), id);
+        try id_used.put(id, {});
+        try pages.append(a, .{ .slug = post.slug, .id = id, .parent = if (std.mem.eql(u8, post.kind, "page")) "pages" else "posts", .title = post.title, .status = post.status, .visibility = post.visibility, .format = post.format, .kind = post.kind, .class = "exact", .review_count = 0 });
+    }
+
+    // Generated trunks for each family that has pages.
+    var has_posts = false;
+    var has_pages = false;
+    for (pages.items) |p| {
+        if (std.mem.eql(u8, p.parent, "posts")) has_posts = true;
+        if (std.mem.eql(u8, p.parent, "pages")) has_pages = true;
+    }
+    var trunks: std.ArrayList(GPage) = .empty;
+    if (has_posts) {
+        try trunks.append(a, .{ .slug = "(generated)", .id = "posts", .parent = "", .title = "Posts", .status = "published", .visibility = "public", .format = "", .kind = "generated_trunk", .class = "exact", .review_count = 0 });
+        try id_used.put("posts", {});
+    }
+    if (has_pages) {
+        try trunks.append(a, .{ .slug = "(generated)", .id = "pages", .parent = "", .title = "Pages", .status = "published", .visibility = "public", .format = "", .kind = "generated_trunk", .class = "exact", .review_count = 0 });
+        try id_used.put("pages", {});
+    }
+
+    for (trunks.items) |tr| {
+        const fm = try emitGhostFrontmatter(a, tr.id, tr.title, null, "published", &.{}, "", null);
+        const body = try std.fmt.allocPrint(a, "<!-- boris-migration-lab provenance\n  source: ghost-export.json\n  generated: {s} trunk\n-->\n\n# {s}\n\nGenerated landing page for `{s}`.\n", .{ tr.id, tr.title, tr.id });
+        try writeBytes(io, stage, try std.fmt.allocPrint(a, "content/{s}.md", .{tr.id}), try std.fmt.allocPrint(a, "{s}{s}", .{ fm, body }));
+    }
+
+    // Emit each post.
+    for (exp.posts, 0..) |post, pi| {
+        const gp = &pages.items[pi];
+        const ctx = GhostEmitCtx{
+            .a = a,
+            .io = io,
+            .stage = stage,
+            .images_dir = images_dir,
+            .slug_ids = &slug_ids,
+            .copied = &copied,
+            .review = &review,
+            .links = &links,
+            .assets = &assets,
+            .assets_seen = &assets_seen,
+            .post = gp,
+        };
+        // Status & visibility decisions.
+        const review_start = review.items.len;
+        if (!std.mem.eql(u8, post.status, "published")) {
+            if (std.mem.eql(u8, post.status, "scheduled")) {
+                try emitReviewOnce(&ctx, &review_dedup, "scheduled_as_draft", try std.fmt.allocPrint(a, "status 'scheduled' → draft; published_at {s} kept as provenance", .{post.published_at}));
+            } else {
+                try emitReviewOnce(&ctx, &review_dedup, "non_published_status", try std.fmt.allocPrint(a, "status '{s}' → draft", .{post.status}));
+            }
+        }
+        if (!std.mem.eql(u8, post.visibility, "public")) {
+            try emitReviewOnce(&ctx, &review_dedup, "restricted_visibility", try std.fmt.allocPrint(a, "visibility '{s}' → emitted as draft; members/paid content never published silently", .{post.visibility}));
+        }
+        if (post.internal_tags.len > 0) {
+            const joined = try std.mem.join(a, ", ", post.internal_tags);
+            try emitReviewOnce(&ctx, &review_dedup, "internal_tags", try std.fmt.allocPrint(a, "internal tags not emitted: {s}", .{joined}));
+        }
+
+        const body = try emitGhostBody(&ctx, post, &review_dedup);
+        const boris_status = if (!std.mem.eql(u8, post.visibility, "public")) "draft" else emitStatus(post);
+        const fm_published = try emitPublishedAt(a, post.published_at);
+        if (fm_published == null and post.published_at.len > 0) {
+            try emitReviewOnce(&ctx, &review_dedup, "published_at_dropped", try std.fmt.allocPrint(a, "published_at '{s}' not a Boris timestamp; kept in provenance only", .{post.published_at}));
+        }
+        // Boris requires a non-empty summary whenever published_at is set.
+        const summary = if (post.custom_excerpt) |s| s else if (fm_published != null) post.title else "";
+        const fm = try emitGhostFrontmatter(a, gp.id, post.title, gp.parent, boris_status, post.tags, fm_published orelse "", if (summary.len > 0) summary else null);
+
+        var prov: std.ArrayList(u8) = .empty;
+        try prov.appendSlice(a, "<!-- boris-migration-lab provenance\n");
+        try prov.appendSlice(a, try std.fmt.allocPrint(a, "  source: ghost-export.json post '{s}'\n", .{post.slug}));
+        try prov.appendSlice(a, try std.fmt.allocPrint(a, "  ghost_id: {s}\n  ghost_uuid: {s}\n  ghost_type: {s}\n  ghost_status: {s}\n  ghost_visibility: {s}\n  body_format: {s}\n", .{ post.id, post.uuid, post.kind, post.status, post.visibility, post.format }));
+        if (post.internal_tags.len > 0) {
+            try prov.appendSlice(a, try std.fmt.allocPrint(a, "  internal_tags: {s}\n", .{try std.mem.join(a, ", ", post.internal_tags)}));
+        }
+        if (post.authors.len > 0) {
+            try prov.appendSlice(a, try std.fmt.allocPrint(a, "  authors: {s}\n", .{try std.mem.join(a, ", ", post.authors)}));
+        }
+        try prov.appendSlice(a, "-->\n\n");
+
+        gp.review_count = review.items.len - review_start;
+        gp.class = if (gp.review_count > 0) "human_review" else if (std.mem.eql(u8, post.format, "html") or std.mem.eql(u8, post.format, "lexical") or std.mem.eql(u8, post.format, "mobiledoc")) "transformed" else "exact";
+        const doc = try std.fmt.allocPrint(a, "{s}{s}{s}", .{ fm, prov.items, body });
+        try writeBytes(io, stage, try std.fmt.allocPrint(a, "content/{s}.md", .{gp.id}), doc);
+    }
+
+    // Reports.
+    var all_pages: std.ArrayList(GPage) = .empty;
+    try all_pages.appendSlice(a, trunks.items);
+    try all_pages.appendSlice(a, pages.items);
+    const json = try emitGhostReportJson(a, export_path, sha, exp, all_pages.items, links.items, assets.items, review.items);
+    const md = try emitGhostReportMd(a, all_pages.items, links.items, assets.items, review.items);
+    try writeBytes(io, stage, "report.json", json);
+    try writeBytes(io, stage, "REPORT.md", md);
+    try pub_.commit(io, a);
+
+    if (!opts.quiet) {
+        std.debug.print("ghost: wrote {s}/content/, {s}/report.json, {s}/REPORT.md\n", .{ opts.out_dir, opts.out_dir, opts.out_dir });
+    }
+}
+
+fn emitGhostReportJson(
+    a: std.mem.Allocator,
+    export_path: []const u8,
+    sha: []const u8,
+    exp: Export,
+    pages: []const GPage,
+    links: []const GLink,
+    assets: []const GAsset,
+    review: []const GReviewItem,
+) ![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    try out.appendSlice(a, "{\n  \"format\": \"");
+    try out.appendSlice(a, format_id);
+    try out.appendSlice(a, "\",\n  \"schema_version\": 1,\n  \"tool_version\": \"");
+    try out.appendSlice(a, tool_version);
+    try out.appendSlice(a, "\",\n  \"source\": {\n    \"export\": ");
+    try appendJsonString(&out, a, export_path);
+    try out.appendSlice(a, ",\n    \"sha256\": ");
+    try appendJsonString(&out, a, sha);
+    try out.appendSlice(a, "\n  },\n  \"counts\": {\n    \"posts\": ");
+    try out.appendSlice(a, try std.fmt.allocPrint(a, "{d}", .{exp.posts.len}));
+    try out.appendSlice(a, ",\n    \"review_rows\": ");
+    try out.appendSlice(a, try std.fmt.allocPrint(a, "{d}", .{review.len}));
+    try out.appendSlice(a, "\n  },\n  \"pages\": [\n");
+    for (pages, 0..) |p, i| {
+        if (i > 0) try out.appendSlice(a, ",\n");
+        try out.appendSlice(a, "    {\n      \"slug\": ");
+        try appendJsonString(&out, a, p.slug);
+        try out.appendSlice(a, ",\n      \"id\": ");
+        try appendJsonString(&out, a, p.id);
+        try out.appendSlice(a, ",\n      \"parent\": ");
+        try appendJsonString(&out, a, p.parent);
+        try out.appendSlice(a, ",\n      \"title\": ");
+        try appendJsonString(&out, a, p.title);
+        try out.appendSlice(a, ",\n      \"ghost_status\": ");
+        try appendJsonString(&out, a, p.status);
+        try out.appendSlice(a, ",\n      \"visibility\": ");
+        try appendJsonString(&out, a, p.visibility);
+        try out.appendSlice(a, ",\n      \"format\": ");
+        try appendJsonString(&out, a, p.format);
+        try out.appendSlice(a, ",\n      \"kind\": ");
+        try appendJsonString(&out, a, p.kind);
+        try out.appendSlice(a, ",\n      \"class\": ");
+        try appendJsonString(&out, a, p.class);
+        try out.appendSlice(a, ",\n      \"review_rows\": ");
+        try out.appendSlice(a, try std.fmt.allocPrint(a, "{d}", .{p.review_count}));
+        try out.appendSlice(a, "\n    }");
+    }
+    try out.appendSlice(a, "\n  ],\n  \"links\": [\n");
+    for (links, 0..) |l, i| {
+        if (i > 0) try out.appendSlice(a, ",\n");
+        try out.appendSlice(a, "    { \"source\": ");
+        try appendJsonString(&out, a, l.source_path);
+        try out.appendSlice(a, ", \"from\": ");
+        try appendJsonString(&out, a, l.from);
+        try out.appendSlice(a, ", \"to\": ");
+        try appendJsonString(&out, a, l.to);
+        try out.appendSlice(a, ", \"kind\": ");
+        try appendJsonString(&out, a, l.kind);
+        try out.appendSlice(a, " }");
+    }
+    try out.appendSlice(a, "\n  ],\n  \"assets\": [\n");
+    for (assets, 0..) |as, i| {
+        if (i > 0) try out.appendSlice(a, ",\n");
+        try out.appendSlice(a, "    { \"source\": ");
+        try appendJsonString(&out, a, as.source_path);
+        try out.appendSlice(a, ", \"from\": ");
+        try appendJsonString(&out, a, as.source);
+        try out.appendSlice(a, ", \"dest\": ");
+        try appendJsonString(&out, a, as.dest);
+        try out.appendSlice(a, ", \"kind\": ");
+        try appendJsonString(&out, a, as.kind);
+        try out.appendSlice(a, " }");
+    }
+    try out.appendSlice(a, "\n  ],\n  \"review\": [\n");
+    for (review, 0..) |r, i| {
+        if (i > 0) try out.appendSlice(a, ",\n");
+        try out.appendSlice(a, "    { \"source\": ");
+        try appendJsonString(&out, a, r.source_path);
+        try out.appendSlice(a, ", \"kind\": ");
+        try appendJsonString(&out, a, r.kind);
+        try out.appendSlice(a, ", \"detail\": ");
+        try appendJsonString(&out, a, r.detail);
+        try out.appendSlice(a, " }");
+    }
+    try out.appendSlice(a, "\n  ]\n}\n");
+    return try out.toOwnedSlice(a);
+}
+
+fn appendJsonString(out: *std.ArrayList(u8), a: std.mem.Allocator, s: []const u8) !void {
+    try jsonEscapeAppend(out, a, s);
+}
+
+fn emitGhostReportMd(
+    a: std.mem.Allocator,
+    pages: []const GPage,
+    links: []const GLink,
+    assets: []const GAsset,
+    review: []const GReviewItem,
+) ![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    try out.appendSlice(a, "# Ghost emit report\n\n## Pages\n\n| slug | id | parent | ghost status | visibility | format | kind | class |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n");
+    for (pages) |p| {
+        try out.appendSlice(a, try std.fmt.allocPrint(a, "| {s} | `{s}` | `{s}` | {s} | {s} | {s} | {s} | {s} |\n", .{ p.slug, p.id, p.parent, p.status, p.visibility, p.format, p.kind, p.class }));
+    }
+    try out.appendSlice(a, "\n## Links\n\n| source | from | to | kind |\n| --- | --- | --- | --- |\n");
+    for (links) |l| {
+        try out.appendSlice(a, try std.fmt.allocPrint(a, "| {s} | `{s}` | `{s}` | {s} |\n", .{ l.source_path, l.from, l.to, l.kind }));
+    }
+    try out.appendSlice(a, "\n## Assets\n\n| source | from | dest | kind |\n| --- | --- | --- | --- |\n");
+    for (assets) |as| {
+        try out.appendSlice(a, try std.fmt.allocPrint(a, "| {s} | `{s}` | `content/{s}` | {s} |\n", .{ as.source_path, as.source, as.dest, as.kind }));
+    }
+    try out.appendSlice(a, "\n## Human review\n\n| source | kind | detail |\n| --- | --- | --- |\n");
+    for (review) |r| {
+        try out.appendSlice(a, try std.fmt.allocPrint(a, "| {s} | {s} | {s} |\n", .{ r.source_path, r.kind, r.detail }));
+    }
+    return try out.toOwnedSlice(a);
 }

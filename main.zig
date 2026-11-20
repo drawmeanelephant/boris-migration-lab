@@ -2645,3 +2645,85 @@ test "mkdocs: generated content compiles with product Boris" {
     try std.testing.expect(std.mem.indexOf(u8, index_md, "[[guide/setup#prerequisites") != null or
         std.mem.indexOf(u8, index_md, "[[guide/setup]]") != null);
 }
+
+test "parseOptions: ghost flags" {
+    const o = try parseOptions(&.{
+        "boris-migration-lab",
+        "--mode=ghost",
+        "--root=fixtures/mini-ghost",
+        "--out=outputs/ghost",
+    });
+    try std.testing.expect(o.mode == .ghost);
+    try std.testing.expectEqualStrings("fixtures/mini-ghost", o.root_dir);
+    const o2 = try parseOptions(&.{ "boris-migration-lab", "--mode=ghost-emit", "--root=r", "--out=o" });
+    try std.testing.expect(o2.mode == .ghost);
+}
+
+test "ghost: generated content compiles with product Boris" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer cleanupTestTmpDir(io, &tmp);
+
+    const test_root = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}/ghost-compile", .{tmp.sub_path});
+    defer gpa.free(test_root);
+    const lab_out = try std.fmt.allocPrint(gpa, "{s}/converted", .{test_root});
+    defer gpa.free(lab_out);
+    const html_out = try std.fmt.allocPrint(gpa, "{s}/html", .{test_root});
+    defer gpa.free(html_out);
+
+    try ghost.runEmit(io, gpa, .{
+        .root_dir = "fixtures/mini-ghost",
+        .out_dir = lab_out,
+        .quiet = true,
+    });
+
+    const boris_bin = (try product_boris.resolve(io, gpa)) orelse
+        return error.MissingProductBorisBinary;
+
+    const content_from_lab = try std.fmt.allocPrint(gpa, "{s}/content", .{lab_out});
+    defer gpa.free(content_from_lab);
+    const layout_from_lab = "layouts/main.html";
+
+    const argv = [_][]const u8{
+        boris_bin,
+        "--input",
+        content_from_lab,
+        "--html-dir",
+        html_out,
+        "--html-layout",
+        layout_from_lab,
+    };
+    const result = try std.process.run(gpa, io, .{
+        .argv = &argv,
+        .stdout_limit = .limited(64 * 1024),
+        .stderr_limit = .limited(64 * 1024),
+    });
+    defer gpa.free(result.stdout);
+    defer gpa.free(result.stderr);
+
+    const code: u8 = switch (result.term) {
+        .exited => |c| c,
+        else => 255,
+    };
+    if (code != 0) {
+        std.debug.print("boris compile failed code={d} stderr={s} stdout={s}\n", .{ code, result.stderr, result.stdout });
+    }
+    try std.testing.expectEqual(@as(u8, 0), code);
+
+    // Emitted post, wiki-resolved ghost link, copied feature/gallery assets,
+    // and a draft-status members-only post made it into the tree.
+    var content_dir = try Io.Dir.cwd().openDir(io, content_from_lab, .{});
+    defer content_dir.close(io);
+    const welcome = try wordpress.readFileAlloc(io, content_dir, "posts/welcome-post.md", gpa);
+    defer gpa.free(welcome);
+    try std.testing.expect(std.mem.indexOf(u8, welcome, "[[pages/about|the about page]]") != null);
+    const hero = try wordpress.readFileAlloc(io, content_dir, "posts/welcome-post.assets/hero.png", gpa);
+    defer gpa.free(hero);
+    try std.testing.expect(hero.len > 0);
+    const lexical = try wordpress.readFileAlloc(io, content_dir, "posts/lexical-dispatch.md", gpa);
+    defer gpa.free(lexical);
+    try std.testing.expect(std.mem.indexOf(u8, lexical, "status: draft") != null);
+    try std.testing.expect(std.mem.indexOf(u8, lexical, "<Aside kind=\"note\">") != null);
+}
