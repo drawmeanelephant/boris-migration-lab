@@ -876,6 +876,12 @@ fn escapeHtmlTextBrackets(a: std.mem.Allocator, html: []const u8) ![]const u8 {
                 i = close.?;
                 continue;
             }
+            // No real span: the whole backtick run is literal text —
+            // emit it as one unit so its second backtick can't be
+            // mistaken for a new span opener.
+            try out.appendSlice(a, html[i .. i + n]);
+            i += n;
+            continue;
         }
         if (!in_code and (html[i] == '[' or html[i] == ']' or html[i] == '(' or html[i] == ')')) {
             try out.append(a, '\\');
@@ -1062,4 +1068,17 @@ test "convHtml escapes text after unmatched or escaped backticks" {
     const c2 = try wordpress.htmlToMarkdown(a, try escapeHtmlTextBrackets(a, "<p>\\`tick [a](b) tail\\`</p>"));
     const o2 = try escapeWikiBrackets(a, c2[0]);
     try testing.expect(std.mem.indexOf(u8, o2, "\\[a\\]\\(b\\)") != null);
+}
+
+test "convHtml treats unmatched backtick runs as literal text" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // `` `` `` has no len-2 match; its second tick must not eat the real
+    // opener — `real[x](y)` stays a verbatim code span.
+    const html = "<p>a ``tick `real[x](y)` rest [z](w)</p>";
+    const conv = try wordpress.htmlToMarkdown(a, try escapeHtmlTextBrackets(a, html));
+    const out = try escapeWikiBrackets(a, conv[0]);
+    try testing.expect(std.mem.indexOf(u8, out, "`real[x](y)`") != null);
+    try testing.expect(std.mem.indexOf(u8, out, "rest \\[z\\]\\(w\\)") != null);
 }
