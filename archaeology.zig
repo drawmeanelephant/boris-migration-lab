@@ -498,11 +498,16 @@ fn stripQuotes(s: []const u8) []const u8 {
 
 pub fn parseFrontmatterLite(allocator: std.mem.Allocator, source: []const u8) !FrontmatterLite {
     var fm: FrontmatterLite = .{};
-    if (!std.mem.startsWith(u8, source, "---\n") and !std.mem.startsWith(u8, source, "---\r\n")) {
-        return fm;
+    // Opener is `---` alone on line 1 up to trailing spaces/tabs (Jekyll
+    // accepts `--- `); a `----` rule or longer text is not front matter.
+    const open_end = std.mem.indexOfScalar(u8, source, '\n') orelse return fm;
+    var open = source[0..open_end];
+    if (open.len > 0 and open[open.len - 1] == '\r') open = open[0 .. open.len - 1];
+    if (!std.mem.startsWith(u8, open, "---")) return fm;
+    for (open[3..]) |c| {
+        if (c != ' ' and c != '\t') return fm;
     }
-    const after_open: usize = if (std.mem.startsWith(u8, source, "---\r\n")) 5 else 4;
-    var i = after_open;
+    var i = open_end + 1;
     var keys: std.ArrayList([]const u8) = .empty;
     errdefer keys.deinit(allocator);
     var unknown: std.ArrayList([]const u8) = .empty;
@@ -515,7 +520,7 @@ pub fn parseFrontmatterLite(allocator: std.mem.Allocator, source: []const u8) !F
         if (i < source.len and source[i] == '\n') i += 1;
         if (line.len > 0 and line[line.len - 1] == '\r') line = line[0 .. line.len - 1];
 
-        if (std.mem.eql(u8, line, "---")) {
+        if (std.mem.eql(u8, trimSpace(line), "---")) {
             fm.present = true;
             fm.body_offset = i;
             break;
