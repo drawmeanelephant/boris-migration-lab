@@ -1137,7 +1137,12 @@ pub fn run(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
     if (opts.emit) {
         for (pages.items) |p| {
             try writeBytes(io, stage, p.path, p.markdown);
-            for (p.assets) |as| try writeBytes(io, stage, as.dest, try readFileAlloc(io, root, as.source, a));
+            for (p.assets) |as| {
+                // Media bytes go through gpa, not the run arena, so peak memory is one file.
+                const bytes = try readFileAlloc(io, root, as.source, gpa);
+                defer gpa.free(bytes);
+                try writeBytes(io, stage, as.dest, bytes);
+            }
         }
         try writeBytes(io, stage, "report.json", try emitReportJson(a, &arch, pages.items, counts));
         try writeBytes(io, stage, "REPORT.md", try emitReportMd(a, &arch, pages.items, counts));
