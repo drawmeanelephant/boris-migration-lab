@@ -316,7 +316,9 @@ fn stripYamlComment(s: []const u8) []const u8 {
         if (quote != 0) {
             if (c == quote) quote = 0;
         } else if (c == '\'' or c == '"') {
-            quote = c;
+            // Quotes open only at token start, so apostrophes mid-word don't
+            // swallow the rest of the line.
+            if (i == 0 or s[i - 1] == ' ' or s[i - 1] == '\t' or s[i - 1] == ':') quote = c;
         } else if (c == '#' and (i == 0 or s[i - 1] == ' ' or s[i - 1] == '\t')) {
             return rtrim(s[0..i]);
         }
@@ -331,7 +333,7 @@ fn findEntryColon(body: []const u8) ?usize {
         if (quote != 0) {
             if (c == quote) quote = 0;
         } else if (c == '\'' or c == '"') {
-            quote = c;
+            if (i == 0 or body[i - 1] == ' ' or body[i - 1] == '\t') quote = c;
         } else if (c == ':' and i + 1 < body.len and body[i + 1] == ' ') {
             return i;
         }
@@ -1457,6 +1459,7 @@ test "mkdocs: yaml edge cases — comments, indentless lists, quoted titles" {
         \\- Home: index.md
         \\- "Guide: Setup": guide/setup.md
         \\- 'Deep: Dive': guide/deep.md
+        \\- What's New: whats-new.md
         \\- Section: # comment after section
         \\  - child.md # comment after item
         \\- bare#notcomment.md
@@ -1464,17 +1467,20 @@ test "mkdocs: yaml edge cases — comments, indentless lists, quoted titles" {
 
     try std.testing.expectEqualStrings("docs", cfg.docs_dir);
     try std.testing.expectEqual(@as(usize, 1), cfg.plugins.len);
-    try std.testing.expectEqual(@as(usize, 6), cfg.nav.len);
+    try std.testing.expectEqual(@as(usize, 7), cfg.nav.len);
     // Quoted titles keep their colon; targets stay the page path.
     try std.testing.expectEqualStrings("Guide: Setup", cfg.nav[1].title.?);
     try std.testing.expectEqualStrings("guide/setup.md", cfg.nav[1].target.?);
     try std.testing.expectEqualStrings("Deep: Dive", cfg.nav[2].title.?);
     try std.testing.expectEqualStrings("guide/deep.md", cfg.nav[2].target.?);
-    try std.testing.expectEqual(NavKind.section, cfg.nav[3].kind);
-    try std.testing.expectEqualStrings("Section", cfg.nav[3].title.?);
-    try std.testing.expectEqual(@as(usize, 2), cfg.nav[4].depth);
+    // An apostrophe mid-word does not start a quoted scalar.
+    try std.testing.expectEqualStrings("What's New", cfg.nav[3].title.?);
+    try std.testing.expectEqualStrings("whats-new.md", cfg.nav[3].target.?);
+    try std.testing.expectEqual(NavKind.section, cfg.nav[4].kind);
+    try std.testing.expectEqualStrings("Section", cfg.nav[4].title.?);
+    try std.testing.expectEqual(@as(usize, 2), cfg.nav[5].depth);
     // `#` without a preceding space stays part of the target.
-    try std.testing.expectEqualStrings("bare#notcomment.md", cfg.nav[5].target.?);
+    try std.testing.expectEqualStrings("bare#notcomment.md", cfg.nav[6].target.?);
 }
 
 test "mkdocs: nested fence lengths do not hide following content" {
