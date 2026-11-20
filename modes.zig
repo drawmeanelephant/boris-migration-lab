@@ -25,6 +25,7 @@ const wordpress_theme = @import("wordpress_theme.zig");
 const link_audit = @import("link_audit.zig");
 const frontmatter_review = @import("frontmatter_review.zig");
 const jekyll = @import("jekyll.zig");
+const jekyll_emit = @import("jekyll_emit.zig");
 const astro_import_plan = @import("astro_import_plan.zig");
 const astro_import_apply = @import("astro_import_apply.zig");
 const hugo = @import("hugo.zig");
@@ -62,6 +63,7 @@ pub const Mode = enum {
     frontmatter_review,
     hugo_inventory,
     jekyll_inventory,
+    jekyll,
     ghost_inventory,
     mkdocs_inventory,
 
@@ -168,6 +170,7 @@ pub const table = [_]Entry{
     // parseOptions test uses --mode=hugo as an invalid mode.
     .{ .tag = .hugo_inventory, .names = &.{ "hugo-inventory", "hugo-inv" } },
     .{ .tag = .jekyll_inventory, .names = &.{ "jekyll-inventory", "jekyll-inv", "jekyll-archaeology" } },
+    .{ .tag = .jekyll, .names = &.{ "jekyll", "jekyll-emit" } },
     .{ .tag = .ghost_inventory, .names = &.{ "ghost-inventory", "ghost-inv" } },
     .{ .tag = .mkdocs_inventory, .names = &.{ "mkdocs-inventory", "mkdocs-inv" } },
 };
@@ -603,6 +606,21 @@ fn run_jekyll_inventory(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
     return ExitCode.success.int();
 }
 
+fn run_jekyll(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
+    jekyll_emit.run(io, gpa, .{
+        .root_dir = opts.root_dir,
+        .out_dir = opts.out_dir,
+        .quiet = opts.quiet,
+    }) catch |err| {
+        std.log.err("migration-lab (jekyll) failed: {s}", .{@errorName(err)});
+        return switch (err) {
+            error.InvalidJekyllInput, error.InputOutputOverlap, error.InputSymlink, error.OutputSymlink => ExitCode.usage.int(),
+            else => ExitCode.io_error.int(),
+        };
+    };
+    return ExitCode.success.int();
+}
+
 fn run_ghost_inventory(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
     ghost.run(io, gpa, .{
         .root_dir = opts.root_dir,
@@ -689,6 +707,15 @@ const usage_text =
     \\  Aliases: jekyll-inv | jekyll-archaeology
     \\  No Markdown emit, no Liquid/Ruby execution, no network.
     \\  {% raw %} and fenced-code Liquid are counted as inert text.
+    \\
+    \\Jekyll emit (site source → Boris Markdown):
+    \\  --mode=jekyll       Convert posts, drafts, output collections, and pages
+    \\  --root=DIR         Jekyll site source root (required; never modified)
+    \\  Writes: content/**, provenance/<entity-id>.json, report.json, REPORT.md
+    \\  Aliases: jekyll-emit
+    \\  Posts/drafts become Satellites of a generated `posts` Trunk; each
+    \\  output: true collection gets its own Trunk. post_url/link resolve to
+    \\  [[entity-id]]; all other Liquid stays verbatim and is reported.
     \\
     \\Link audit (generated-output validation):
     \\  --mode=link-audit   Scan static HTML output for missing local routes/fragments
