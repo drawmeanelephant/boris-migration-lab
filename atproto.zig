@@ -80,7 +80,7 @@ fn textOf(v: ?car.Value) ?[]const u8 {
 /// CIDv1 → "b" + base32-lower (multibase); CIDv0 → base58btc "Qm...".
 /// Returns null for unrecognized CID shapes.
 fn cidToString(a: std.mem.Allocator, cid: []const u8) ?[]u8 {
-    if (cid.len == 36 and cid[0] == 0x12 and cid[1] == 0x20) {
+    if (cid.len == 34 and cid[0] == 0x12 and cid[1] == 0x20) {
         // CIDv0: base58btc of the raw multihash.
         const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
         var digits: std.ArrayList(u8) = .empty;
@@ -572,5 +572,18 @@ test "collectBlobs: real CID-link ref form" {
     try testing.expectEqualStrings(
         "bafkreihrkbmxuxok3r5o6kkglaboi6cnadhghziqmvhcvlpsevvpydn2hi",
         blobs.keys()[0],
+    );
+}
+
+test "cidToString: CIDv0 base58btc" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // multihash 0x1220 + sha256("hello") — CIDv0 is 34 bytes, not 36.
+    var cid: [34]u8 = undefined;
+    _ = try std.fmt.hexToBytes(&cid, "12202cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
+    try testing.expectEqualStrings(
+        "QmRN6wdp1S2A5EtjW9A3M1vKSBuQQGcgvuhoMUoEz4iiT5",
+        cidToString(a, &cid).?,
     );
 }
