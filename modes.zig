@@ -27,6 +27,7 @@ const frontmatter_review = @import("frontmatter_review.zig");
 const jekyll = @import("jekyll.zig");
 const astro_import_plan = @import("astro_import_plan.zig");
 const astro_import_apply = @import("astro_import_apply.zig");
+const ghost = @import("ghost.zig");
 
 pub const ExitCode = enum(u8) {
     success = 0,
@@ -58,6 +59,7 @@ pub const Mode = enum {
     link_audit,
     frontmatter_review,
     jekyll_inventory,
+    ghost_inventory,
 
     pub fn parse(s: []const u8) ?Mode {
         for (table) |entry| {
@@ -159,6 +161,7 @@ pub const table = [_]Entry{
     .{ .tag = .link_audit, .names = &.{ "link-audit", "links", "output-audit" } },
     .{ .tag = .frontmatter_review, .names = &.{ "frontmatter-review", "fm-review", "fmreview" } },
     .{ .tag = .jekyll_inventory, .names = &.{ "jekyll-inventory", "jekyll-inv", "jekyll-archaeology" } },
+    .{ .tag = .ghost_inventory, .names = &.{ "ghost-inventory", "ghost-inv" } },
 };
 
 const mode_list = blk: {
@@ -558,6 +561,21 @@ fn run_jekyll_inventory(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
     return ExitCode.success.int();
 }
 
+fn run_ghost_inventory(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
+    ghost.run(io, gpa, .{
+        .root_dir = opts.root_dir,
+        .out_dir = opts.out_dir,
+        .quiet = opts.quiet,
+    }) catch |err| {
+        std.log.err("migration-lab (ghost-inventory) failed: {s}", .{@errorName(err)});
+        return switch (err) {
+            error.InvalidGhostInput, error.InputOutputOverlap, error.InputSymlink, error.OutputSymlink => ExitCode.usage.int(),
+            else => ExitCode.io_error.int(),
+        };
+    };
+    return ExitCode.success.int();
+}
+
 pub fn printUsage() void {
     std.debug.print("{s}", .{usage_text});
 }
@@ -689,6 +707,14 @@ const usage_text =
     \\  Writes: content/**, report.json, REPORT.md
     \\  Aliases: tinderbox-emit | tbx
     \\  Prototypes, the Prototypes container (unless stamped), agents, adornments, and aliases are not emitted as pages.
+    \\
+    \\Ghost inventory (read-only Ghost 5 export archaeology):
+    \\  --mode=ghost-inventory  Parse ghost-export.json; never emit Markdown
+    \\  --root=DIR         Unpacked Ghost export root holding ghost-export.json
+    \\                     and content/images/ (required; never modified)
+    \\  Writes: inventory.json, INVENTORY.md
+    \\  Aliases: ghost-inv
+    \\  users emails/passwords are never inventoried; no Ghost API, no network.
     \\
     \\Notion mode:
     \\  --export=DIR       Unpacked Notion Markdown & CSV export root (required; never modified)
