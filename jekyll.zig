@@ -1798,7 +1798,11 @@ fn emitTransformBody(ctx: *EmitCtx, io: Io, src_root: Io.Dir, stage: Io.Dir, bod
                 }
                 // Substitute {{ site.baseurl }} inside the destination.
                 if (std.mem.indexOf(u8, dest, "{{ site.baseurl }}")) |bp| {
-                    const joined = try std.fmt.allocPrint(a, "{s}{s}{s}", .{ dest[0..bp], ctx.baseurl_raw, dest[bp + "{{ site.baseurl }}".len ..] });
+                    var bu = ctx.baseurl_raw;
+                    const tail_part = dest[bp + "{{ site.baseurl }}".len ..];
+                    if (bu.len > 0 and bu[bu.len - 1] == '/' and tail_part.len > 0 and tail_part[0] == '/')
+                        bu = bu[0 .. bu.len - 1];
+                    const joined = try std.fmt.allocPrint(a, "{s}{s}{s}", .{ dest[0..bp], bu, tail_part });
                     dest = joined;
                 }
                 if (std.mem.indexOfScalar(u8, dest, ' ')) |sp| dest = trimSpace(dest[0..sp]);
@@ -1950,10 +1954,14 @@ pub fn runEmit(io: Io, gpa: std.mem.Allocator, opts: RunOptions) !void {
         try static_set.put(f, {});
     }
     // `_config.yml include:` can republish hidden dirs the scan otherwise
-    // marks ignored (e.g. `include: [_static]`). Markdown is excluded — those
-    // files are pages, not assets, and never entered the page pipeline.
+    // marks ignored (e.g. `include: [_static]`). Markdown WITH front matter
+    // is a page Jekyll renders — it stays out of the asset set; Markdown
+    // without front matter is copied verbatim by Jekyll, so it counts.
     for (inv.ignored.items) |f| {
-        if (isMd(f)) continue;
+        if (isMd(f)) {
+            const text = readFileAlloc(io, root, f, a) catch continue;
+            if (std.mem.startsWith(u8, text, "---")) continue;
+        }
         if (emitIsPublicAssetPath(f, cfg.include_paths.items)) try static_set.put(f, {});
     }
 
