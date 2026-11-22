@@ -52,6 +52,7 @@
         "car.zig",
         "atproto.zig",
         "enex.zig",
+        "enex_emit.zig",
         "migration_semantics.zig",
         "publication.zig",
         "archaeology.zig",

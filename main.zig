@@ -23,6 +23,7 @@
 //!   atproto — AT Protocol repo.car + blobs/ → content/ + report.json + provenance.json
 //!   atproto-inventory — AT Protocol repo.car + blobs/ → inventory.json + INVENTORY.md
 //!   enex-inventory — Evernote *.enex exports → inventory.json + INVENTORY.md
+//!   enex       — Evernote *.enex exports → Boris content/ + <slug>.assets/ + reports
 //!
 //! Never rewrites inputs. Not part of the Boris product compiler pipeline.
 //!
@@ -77,6 +78,7 @@ const ghost_emit = @import("ghost_emit.zig");
 const mastodon = @import("mastodon.zig");
 const mkdocs = @import("mkdocs.zig");
 const enex = @import("enex.zig");
+const enex_emit = @import("enex_emit.zig");
 const modes = @import("modes.zig");
 
 pub const ExitCode = modes.ExitCode;
@@ -596,6 +598,7 @@ test {
     _ = mkdocs;
     _ = mastodon;
     _ = enex;
+    _ = enex_emit;
 }
 
 test "parseOptions: defaults and astro flags" {
@@ -795,6 +798,21 @@ test "parseOptions: enex-inventory flags" {
 
     const o2 = try parseOptions(&.{ "boris-migration-lab", "--mode=enex-inv", "--root=./e" });
     try std.testing.expect(o2.mode == .enex_inventory);
+}
+
+test "parseOptions: enex emit flags" {
+    const o = try parseOptions(&.{
+        "boris-migration-lab",
+        "--mode=enex",
+        "--root=fixtures/mini-enex",
+        "--out=./.enex-out",
+    });
+    try std.testing.expect(o.mode == .enex);
+    try std.testing.expectEqualStrings("fixtures/mini-enex", o.root_dir);
+    try std.testing.expectEqualStrings("./.enex-out", o.out_dir);
+
+    const o2 = try parseOptions(&.{ "boris-migration-lab", "--mode=enex-emit", "--root=./e" });
+    try std.testing.expect(o2.mode == .enex);
 }
 
 test "parseOptions: notion flags" {
