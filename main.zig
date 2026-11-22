@@ -24,6 +24,8 @@
 //!   atproto-inventory — AT Protocol repo.car + blobs/ → inventory.json + INVENTORY.md
 //!   enex-inventory — Evernote *.enex exports → inventory.json + INVENTORY.md
 //!   enex       — Evernote *.enex exports → Boris content/ + <slug>.assets/ + reports
+//!   substack-inventory — Substack posts.csv + posts/*.html → inventory.json + INVENTORY.md
+//!   substack   — Substack export → candidate Boris Markdown + inventory, reports, provenance
 //!
 //! Never rewrites inputs. Not part of the Boris product compiler pipeline.
 //!
@@ -79,6 +81,8 @@ const mastodon = @import("mastodon.zig");
 const mkdocs = @import("mkdocs.zig");
 const enex = @import("enex.zig");
 const enex_emit = @import("enex_emit.zig");
+const substack = @import("substack.zig");
+const substack_emit = @import("substack_emit.zig");
 const modes = @import("modes.zig");
 
 pub const ExitCode = modes.ExitCode;
@@ -599,6 +603,8 @@ test {
     _ = mastodon;
     _ = enex;
     _ = enex_emit;
+    _ = substack;
+    _ = substack_emit;
 }
 
 test "parseOptions: defaults and astro flags" {
@@ -1032,6 +1038,36 @@ test "parseOptions: atproto-inventory flags" {
     try std.testing.expect(o2.mode == .atproto_inventory);
     const o3 = try parseOptions(&.{ "boris-migration-lab", "--mode=atproto", "--root=r", "--out=o" });
     try std.testing.expect(o3.mode == .atproto);
+}
+
+test "parseOptions: substack-inventory flags" {
+    const o = try parseOptions(&.{
+        "boris-migration-lab",
+        "--mode=substack-inventory",
+        "--root=fixtures/mini-substack",
+        "--out=outputs/substack-inv",
+    });
+    try std.testing.expect(o.mode == .substack_inventory);
+    try std.testing.expectEqualStrings("fixtures/mini-substack", o.root_dir);
+    try std.testing.expectEqualStrings("outputs/substack-inv", o.out_dir);
+
+    const o2 = try parseOptions(&.{ "boris-migration-lab", "--mode=substack-inv", "--root=./s" });
+    try std.testing.expect(o2.mode == .substack_inventory);
+}
+
+test "parseOptions: substack emit flags" {
+    const o = try parseOptions(&.{
+        "boris-migration-lab",
+        "--mode=substack",
+        "--root=fixtures/mini-substack",
+        "--out=outputs/substack-emit",
+    });
+    try std.testing.expect(o.mode == .substack);
+    try std.testing.expectEqualStrings("fixtures/mini-substack", o.root_dir);
+    try std.testing.expectEqualStrings("outputs/substack-emit", o.out_dir);
+
+    const o2 = try parseOptions(&.{ "boris-migration-lab", "--mode=substack-emit", "--root=./s" });
+    try std.testing.expect(o2.mode == .substack);
 }
 
 test "parseOptions: unknown flag" {
