@@ -218,6 +218,65 @@ test "registry: every Mode tag has exactly one table entry" {
     }
 }
 
+test "build.zig.zon: .paths covers every root .zig file" {
+    const io = std.testing.io;
+    const gpa = std.testing.allocator;
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const zon_raw = blk: {
+        var file = try Io.Dir.cwd().openFile(io, "build.zig.zon", .{});
+        defer file.close(io);
+        var reader = file.reader(io, &.{});
+        const bytes = try reader.interface.allocRemaining(gpa, .unlimited);
+        defer gpa.free(bytes);
+        break :blk try gpa.dupeSentinel(u8, bytes, 0);
+    };
+    defer gpa.free(zon_raw);
+
+    const Manifest = struct {
+        paths: []const []const u8,
+    };
+    var diagnostics: std.zon.parse.Diagnostics = undefined;
+    const manifest = std.zon.parse.fromSlice(Manifest, .{
+        .gpa = gpa,
+        .arena = arena,
+        .source = zon_raw,
+        .diagnostics = &diagnostics,
+        .ignore_unknown_fields = true,
+    }) catch |err| switch (err) {
+        error.OutOfMemory => return err,
+        error.ParseZon => {
+            diagnostics.log("build.zig.zon");
+            return err;
+        },
+    };
+
+    var listed: std.StringHashMapUnmanaged(void) = .empty;
+    defer listed.deinit(gpa);
+    for (manifest.paths) |path| {
+        try listed.put(gpa, path, {});
+    }
+
+    var root_dir = try Io.Dir.cwd().openDir(io, ".", .{ .iterate = true });
+    defer root_dir.close(io);
+    var it = root_dir.iterate();
+    var zig_count: usize = 0;
+    var missing_count: usize = 0;
+    while (try it.next(io)) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.name, ".zig")) continue;
+        zig_count += 1;
+        if (!listed.contains(entry.name)) {
+            std.debug.print("missing from build.zig.zon .paths: {s}\n", .{entry.name});
+            missing_count += 1;
+        }
+    }
+    try std.testing.expect(zig_count > 0);
+    try std.testing.expectEqual(@as(usize, 0), missing_count);
+}
+
 pub fn missingAstroImportPlanFlag(opts: Options) ?[]const u8 {
     if (!opts.root_explicit) return "--root";
     if (opts.content_root == null) return "--content-root";

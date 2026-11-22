@@ -569,6 +569,7 @@ test "astro import apply public CLI publishes and independently verifies the fix
 // already declare their fixture tests in this file; do not refAllDecls Instagram
 // here — its in-module tests currently leak under the testing allocator.)
 test {
+    _ = modes;
     _ = obsidian;
     _ = tinderbox;
     _ = notion;
