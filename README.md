@@ -32,6 +32,7 @@ Standalone **migration laboratory** for bringing existing sites into Boris.
 | **mastodon** | Unpacked Mastodon archive | Boris Markdown under `content/mastodon/` (+ `{stem}.assets/`) + inventory, `report.json`, `REPORT.md`, `provenance_manifest.json` |
 | **atproto** | AT Protocol repo export (`repo.car` + optional `blobs/`) | Boris `content/` + `report.json` + `REPORT.md` + `provenance.json` (posts, self-threads, `site.standard.document`, embed→asset copies) |
 | **atproto-inventory** | AT Protocol repo export (`repo.car` + optional `blobs/`) | Read-only `inventory.json` + `INVENTORY.md` (collections, thread shapes, embeds, blob presence) |
+| **enex-inventory** | Directory of Evernote `*.enex` notebook exports | Read-only `inventory.json` + `INVENTORY.md` (notes, ENML constructs, MD5 resource matching, OCR/encryption/review counts) |
 
 All modes are **read-only on inputs**: originals are never rewritten. There is
 **no network access**, no zip extraction, and no scraping. Analysis modes do not
@@ -61,7 +62,8 @@ repository.
 | Ghost format id | `boris-ghost-migration-lab` |
 | MkDocs format id | `boris-mkdocs-migration-lab` |
 | Mastodon format id | `boris-mastodon-migration-lab` |
-| Schema | Instagram **`2`**; Astro/Obsidian/Notion/Filed/Starlight/Asset-filename/Theme-archaeology/Theme-materialize/Tinderbox/Hugo/Jekyll/Ghost/MkDocs/Mastodon `1`; WordPress **`3`** |
+| Evernote ENEX format id | `boris-enex-migration-lab` |
+| Schema | Instagram **`2`**; Astro/Obsidian/Notion/Filed/Starlight/Asset-filename/Theme-archaeology/Theme-materialize/Tinderbox/Hugo/Jekyll/Ghost/MkDocs/Mastodon/ENEX `1`; WordPress **`3`** |
 
 Companion author guide: [`docs/MIGRATION.md`](docs/MIGRATION.md).
 
@@ -265,6 +267,11 @@ zig build run -- --mode=mkdocs \
 zig build run -- --mode=mastodon \
   --root=./fixtures/mini-mastodon \
   --out=./.masto-report
+
+# Evernote ENEX exports → read-only inventory (no Markdown emit; offline)
+zig build run -- --mode=enex-inventory \
+  --root=./fixtures/mini-enex \
+  --out=./.enex-inventory
 ```
 
 This repository **is** the laboratory root, so `zig build` and `zig build test`
@@ -281,9 +288,9 @@ zig build test   # with BORIS_BIN exported or `boris` on PATH (see Boris pins)
 |------|---------|---------|
 | `-h`, `--help` | | Print usage; exit 0 |
 | `-q`, `--quiet` | off | Suppress progress lines |
-| `--mode=MODE` | `astro` | `astro`, `astro-import-plan`, `astro-import-apply`, `wordpress` (`wp` / `wxr`), `wordpress-theme` (`wp-theme` / `kubrick-theme`), `instagram` (`ig` / `takeout`), `obsidian` (`obs` / `vault`), `tinderbox-inventory` (`tbx-inventory` / `tinderbox-inv`), `tinderbox` (`tinderbox-emit` / `tbx`), `notion` (`md-csv` / `notion-export`), `filed` (`filed-fyi`), `filed-scan`, `starlight` (`sl` / `evcc`), `asset-filename` (`assets` / `asset-compat` / `filename-compat`), `theme-archaeology` (`theme` / `theme-arch` / `theme-inventory`), `theme-materialize` (`materialize` / `theme-materialise`), `link-audit` (`links` / `output-audit`), `frontmatter-review` (`fm-review` / `fmreview`), `hugo-inventory` (`hugo-inv`), `hugo` (`hugo-emit`), `jekyll-inventory` (`jekyll-inv` / `jekyll-archaeology`), `jekyll` (`jekyll-emit`), `ghost-inventory` (`ghost-inv`), `ghost`, `mkdocs-inventory` (`mkdocs-inv`), `mkdocs` (`mkdocs-emit`), `mastodon-inventory` (`mastodon-inv` / `masto-inventory`), `mastodon` (`masto` / `mastodon-emit`), or `atproto-inventory` (`atproto-inv`), `atproto` (`atproto-emit`) |
+| `--mode=MODE` | `astro` | `astro`, `astro-import-plan`, `astro-import-apply`, `wordpress` (`wp` / `wxr`), `wordpress-theme` (`wp-theme` / `kubrick-theme`), `instagram` (`ig` / `takeout`), `obsidian` (`obs` / `vault`), `tinderbox-inventory` (`tbx-inventory` / `tinderbox-inv`), `tinderbox` (`tinderbox-emit` / `tbx`), `notion` (`md-csv` / `notion-export`), `filed` (`filed-fyi`), `filed-scan`, `starlight` (`sl` / `evcc`), `asset-filename` (`assets` / `asset-compat` / `filename-compat`), `theme-archaeology` (`theme` / `theme-arch` / `theme-inventory`), `theme-materialize` (`materialize` / `theme-materialise`), `link-audit` (`links` / `output-audit`), `frontmatter-review` (`fm-review` / `fmreview`), `hugo-inventory` (`hugo-inv`), `hugo` (`hugo-emit`), `jekyll-inventory` (`jekyll-inv` / `jekyll-archaeology`), `jekyll` (`jekyll-emit`), `ghost-inventory` (`ghost-inv`), `ghost`, `mkdocs-inventory` (`mkdocs-inv`), `mkdocs` (`mkdocs-emit`), `mastodon-inventory` (`mastodon-inv` / `masto-inventory`), `mastodon` (`masto` / `mastodon-emit`), `atproto-inventory` (`atproto-inv`), `atproto` (`atproto-emit`), or `enex-inventory` (`enex-inv`) |
 | `--out=DIR` | `migration-report` | Output directory (**must differ from inputs**); must be explicit for `astro-import-plan` |
-| `--root=DIR` | `.` | Astro archaeology root, Starlight project root, asset-filename content tree, theme scan root, Hugo project root for `hugo` / `hugo-inventory`, Jekyll site source root, generated HTML tree for `link-audit`, MkDocs project root for `mkdocs-inventory` / `mkdocs`, unpacked Ghost export root for `ghost-inventory` / `ghost`, unpacked Mastodon archive for `mastodon` / `mastodon-inventory`, or AT Protocol export root for `atproto-inventory` / `atproto`; must be explicit for `astro-import-plan` |
+| `--root=DIR` | `.` | Astro archaeology root, Starlight project root, asset-filename content tree, theme scan root, Hugo project root for `hugo` / `hugo-inventory`, Jekyll site source root, generated HTML tree for `link-audit`, MkDocs project root for `mkdocs-inventory` / `mkdocs`, unpacked Ghost export root for `ghost-inventory` / `ghost`, unpacked Mastodon archive for `mastodon` / `mastodon-inventory`, AT Protocol export root for `atproto-inventory` / `atproto`, or Evernote `*.enex` directory for `enex-inventory`; must be explicit for `astro-import-plan` |
 | `--content-root=RELATIVE_DIR` | | Required by `astro-import-plan` and `astro-import-apply`; approved plain-Markdown root relative to `--root` |
 | `--project-id=ID` | | Required by `astro-import-plan` and `astro-import-apply`; stable importer identity namespace |
 | `--plan=FILE` | | Required by `astro-import-apply`; reviewed `import_plan.json` with adjacent `source_snapshot.json` |
@@ -402,6 +409,14 @@ Exit codes: **0** success, **2** usage, **3** I/O error.
     one Trunk (the first post) with every later reply as a flat Satellite of
     it. `actor.json` key material is never copied. See
     [`docs/contracts/mastodon.md`](docs/contracts/mastodon.md).
+22. **Evernote ENEX** — read-only, offline scanning of `*.enex` notebook
+    exports under `--root` (symlinked roots and `.enex` files are refused).
+    All `DOCTYPE` declarations (`evernote-export3.dtd`, `enml2.dtd`,
+    `recoIndex.dtd`) are ignored without fetching external DTDs or expanding
+    external entities. `<en-crypt>` blocks are never decrypted, `<resource>`
+    base64 decoding is bounded in memory, and raw `author`/email/GPS values
+    are excluded from inventory output. See
+    [`docs/contracts/enex.md`](docs/contracts/enex.md).
 
 ---
 

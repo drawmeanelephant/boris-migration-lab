@@ -51,6 +51,7 @@
         "mastodon.zig",
         "car.zig",
         "atproto.zig",
+        "enex.zig",
         "migration_semantics.zig",
         "publication.zig",
         "archaeology.zig",
