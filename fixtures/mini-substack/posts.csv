@@ -1,0 +1,10 @@
+post_id,post_date,is_published,email_sent_at,inbox_sent_at,type,audience,title,subtitle,podcast_url
+100001.welcome-to-the-lab,2024-01-15T14:30:00.000Z,true,2024-01-15T14:35:00.000Z,2024-01-15T14:35:00.000Z,newsletter,everyone,"Welcome to the Lab, ""Beta"" Edition — Café Notes","A synthetic dispatch covering headings, media, and footnotes.",
+100002.field-notes-no-subtitle,2024-02-02T10:00:00.000Z,true,2024-02-02T10:05:00.000Z,2024-02-02T10:05:00.000Z,newsletter,everyone,Field Notes Without a Subtitle,,
+100003.draft-outline,,false,,,newsletter,everyone,Draft Outline,Work in progress notes.,
+100004.paid-briefing,2024-03-10T16:00:00.000Z,true,2024-03-10T16:05:00.000Z,2024-03-10T16:05:00.000Z,newsletter,only_paid,Paid Subscriber Briefing,Restricted to paid subscribers.,
+100005.founding-memo,2024-03-20T12:00:00.000Z,true,2024-03-20T12:05:00.000Z,2024-03-20T12:05:00.000Z,newsletter,founding,Founding Member Memo,Restricted to founding members.,
+100006.episode-one,2024-04-05T09:00:00.000Z,true,2024-04-05T09:10:00.000Z,2024-04-05T09:10:00.000Z,podcast,everyone,Episode One: Audio Notes,Synthetic podcast episode with show notes.,https://api.substack.example.com/feed/podcast/100006/audio.mp3
+100007.reader-thread,2024-04-18T18:00:00.000Z,true,2024-04-18T18:02:00.000Z,2024-04-18T18:02:00.000Z,thread,everyone,Open Reader Thread,Synthetic discussion thread prompt.,
+100008.embeds-and-literals,2024-05-01T11:00:00.000Z,true,2024-05-01T11:05:00.000Z,2024-05-01T11:05:00.000Z,newsletter,everyone,Embeds and Literal Syntax,Exercises unsafe HTML withholding and Boris syntax escaping.,
+100009.missing-body,2024-05-12T15:00:00.000Z,true,2024-05-12T15:05:00.000Z,2024-05-12T15:05:00.000Z,newsletter,everyone,Row Without an HTML File,CSV metadata row whose posts/<post_id>.html file is absent.,
