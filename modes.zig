@@ -38,6 +38,7 @@ const atproto = @import("atproto.zig");
 const enex = @import("enex.zig");
 const enex_emit = @import("enex_emit.zig");
 const substack = @import("substack.zig");
+const substack_emit = @import("substack_emit.zig");
 
 pub const ExitCode = enum(u8) {
     success = 0,
@@ -83,6 +84,7 @@ pub const Mode = enum {
     enex_inventory,
     enex,
     substack_inventory,
+    substack,
 
     pub fn parse(s: []const u8) ?Mode {
         for (table) |entry| {
@@ -198,6 +200,7 @@ pub const table = [_]Entry{
     .{ .tag = .enex_inventory, .names = &.{ "enex-inventory", "enex-inv" } },
     .{ .tag = .enex, .names = &.{ "enex", "enex-emit" } },
     .{ .tag = .substack_inventory, .names = &.{ "substack-inventory", "substack-inv" } },
+    .{ .tag = .substack, .names = &.{ "substack", "substack-emit" } },
 };
 
 const mode_list = blk: {
@@ -899,6 +902,26 @@ fn run_substack_inventory(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
     return ExitCode.success.int();
 }
 
+fn run_substack(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
+    substack_emit.run(io, gpa, .{
+        .root_dir = opts.root_dir,
+        .out_dir = opts.out_dir,
+        .quiet = opts.quiet,
+    }) catch |err| {
+        std.log.err("migration-lab (substack) failed: {s}", .{@errorName(err)});
+        return switch (err) {
+            error.InvalidSubstackInput,
+            error.InputOutputOverlap,
+            error.InputSymlink,
+            error.OutputSymlink,
+            error.OutputNotOwned,
+            => ExitCode.usage.int(),
+            else => ExitCode.io_error.int(),
+        };
+    };
+    return ExitCode.success.int();
+}
+
 pub fn printUsage() void {
     std.debug.print("{s}", .{usage_text});
 }
@@ -1151,6 +1174,16 @@ const usage_text =
     \\  Writes: inventory.json, INVENTORY.md
     \\  Aliases: substack-inv
     \\  subscribers.csv and email_list*.csv are ignored and never read. No network.
+    \\
+    \\Substack emit (unpacked Substack export -> candidate Boris Markdown):
+    \\  --mode=substack    Convert posts under --out/content/posts/ (parent: posts)
+    \\  --root=DIR         Same export root as substack-inventory (never modified)
+    \\  Writes: content/, inventory.json, INVENTORY.md, report.json, REPORT.md,
+    \\          provenance_manifest.json
+    \\  Aliases: substack-emit
+    \\  Restricted audiences (only_paid, founding, only_free) and threads emit as
+    \\  draft (never published). Local images copy into <slug>.assets/; remote
+    \\  images and podcast URLs are never fetched.
     \\
     \\Notion mode:
     \\  --export=DIR       Unpacked Notion Markdown & CSV export root (required; never modified)

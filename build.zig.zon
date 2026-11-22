@@ -54,6 +54,7 @@
         "enex.zig",
         "enex_emit.zig",
         "substack.zig",
+        "substack_emit.zig",
         "migration_semantics.zig",
         "publication.zig",
         "archaeology.zig",
