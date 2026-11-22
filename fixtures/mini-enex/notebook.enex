@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE en-export SYSTEM "http://xml.evernote.com/pub/evernote-export3.dtd">
+<en-export export-date="20260410T120000Z" application="Evernote" version="10.85.4">
+  <note>
+    <title>Architecture Overview</title>
+    <created>20250115T093000Z</created>
+    <updated>20250201T141500Z</updated>
+    <tag>architecture</tag>
+    <tag>docs</tag>
+    <note-attributes>
+      <author>Synthetic Author</author>
+      <source>desktop.mac</source>
+      <source-url>https://example.com/notes/architecture</source-url>
+      <latitude>0.0</latitude>
+      <longitude>0.0</longitude>
+      <reminder-order>1740819600000</reminder-order>
+    </note-attributes>
+    <content><![CDATA[<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE en-note SYSTEM "http://xml.evernote.com/pub/enml2.dtd"><en-note>
+      <h1>Architecture Overview</h1>
+      <p>This synthetic note covers <b>bold</b>, <i>italic</i>, <strong>strong</strong>, and <em>emphasized</em> inline markup plus <code>inline_code()</code>.</p>
+      <div>A div paragraph linking to <a href="https://example.com/spec">Example Spec</a>.</div>
+      <h2>Key Components</h2>
+      <ul>
+        <li>Notebook XML container</li>
+        <li>ENML content body</li>
+      </ul>
+      <ol>
+        <li>Parse export metadata</li>
+        <li>Match resources by decoded MD5</li>
+      </ol>
+      <h3>Checklist and Snippets</h3>
+      <div><en-todo checked="true"/>Verify MD5 media binding</div>
+      <div><en-todo checked="false"/>Review encrypted blocks</div>
+      <pre>fn main() { return 0; }</pre>
+      <blockquote><p>Quoted design note for ENEX conversion.</p></blockquote>
+      <table>
+        <tr><th>Construct</th><th>Handling</th></tr>
+        <tr><td>ENML table</td><td>Markdown table</td></tr>
+      </table>
+      <div><en-media type="image/png" hash="78dc75bbdaf576f1f4f214d0f0f1b1ea"/></div>
+      <div><en-media type="text/plain" hash="d16d8ec1f1e82c2e97702fbf474c903d"/></div>
+    </en-note>]]></content>
+    <resource>
+      <data encoding="base64">cG5nLWZpeHR1cmUK</data>
+      <mime>image/png</mime>
+      <width>16</width>
+      <height>16</height>
+      <resource-attributes>
+        <file-name>diagram.png</file-name>
+      </resource-attributes>
+    </resource>
+    <resource>
+      <data encoding="base64">U3ludGhldGljIHBsYWluLXRleHQgYXR0YWNobWVudCBmb3IgbWluaS1lbmV4Lgo=</data>
+      <mime>text/plain</mime>
+      <resource-attributes>
+        <file-name>notes.txt</file-name>
+      </resource-attributes>
+    </resource>
+  </note>
+  <note>
+    <title>Encrypted and Internal Links</title>
+    <created>20250210T110000Z</created>
+    <updated>20250211T164500Z</updated>
+    <tag>review</tag>
+    <note-attributes>
+      <author>Synthetic Author</author>
+      <source>desktop.mac</source>
+      <content-class>evernote.synthetic.review</content-class>
+    </note-attributes>
+    <content><![CDATA[<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE en-note SYSTEM "http://xml.evernote.com/pub/enml2.dtd"><en-note>
+      <p>Internal Evernote link: <a href="evernote:///view/10001/s1/00000000-0000-4000-8000-000000000001/00000000-0000-4000-8000-000000000001/">Architecture Overview</a>.</p>
+      <p>Literal Boris syntax to neutralize: [[not-a-wikilink]], {{not-an-include}}, and &lt;Aside kind="note"&gt;literal component text&lt;/Aside&gt;.</p>
+      <div><en-crypt hint="synthetic-hint">U1lOVEhFVElDX0VOQ1JZUFRFRF9QTEFDRUhPTERFUg==</en-crypt></div>
+      <div><en-media type="image/png" hash="deadbeefdeadbeefdeadbeefdeadbeef"/></div>
+    </en-note>]]></content>
+    <resource>
+      <data encoding="base64">c3ludGhldGljLXBkZi1wbGFjZWhvbGRlcgo=</data>
+      <mime>application/pdf</mime>
+      <resource-attributes>
+        <file-name>orphan-handout.pdf</file-name>
+      </resource-attributes>
+    </resource>
+  </note>
+</en-export>
