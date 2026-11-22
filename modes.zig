@@ -35,6 +35,8 @@ const ghost_emit = @import("ghost_emit.zig");
 const mkdocs = @import("mkdocs.zig");
 const mastodon = @import("mastodon.zig");
 const atproto = @import("atproto.zig");
+const enex = @import("enex.zig");
+const enex_emit = @import("enex_emit.zig");
 
 pub const ExitCode = enum(u8) {
     success = 0,
@@ -77,6 +79,8 @@ pub const Mode = enum {
     mastodon,
     atproto,
     atproto_inventory,
+    enex_inventory,
+    enex,
 
     pub fn parse(s: []const u8) ?Mode {
         for (table) |entry| {
@@ -189,6 +193,8 @@ pub const table = [_]Entry{
     .{ .tag = .mastodon, .names = &.{ "mastodon", "masto", "mastodon-emit" } },
     .{ .tag = .atproto, .names = &.{ "atproto", "atproto-emit" } },
     .{ .tag = .atproto_inventory, .names = &.{ "atproto-inventory", "atproto-inv" } },
+    .{ .tag = .enex_inventory, .names = &.{ "enex-inventory", "enex-inv" } },
+    .{ .tag = .enex, .names = &.{ "enex", "enex-emit" } },
 };
 
 const mode_list = blk: {
@@ -737,6 +743,50 @@ fn run_atproto_inventory(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
     return ExitCode.success.int();
 }
 
+fn run_enex_inventory(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
+    enex.run(io, gpa, .{
+        .root_dir = opts.root_dir,
+        .out_dir = opts.out_dir,
+        .quiet = opts.quiet,
+    }) catch |err| {
+        std.log.err("migration-lab (enex-inventory) failed: {s}", .{@errorName(err)});
+        return switch (err) {
+            error.InvalidEnexInput,
+            error.InvalidBase64,
+            error.ResourceTooLarge,
+            error.InputOutputOverlap,
+            error.InputSymlink,
+            error.OutputSymlink,
+            error.OutputNotOwned,
+            => ExitCode.usage.int(),
+            else => ExitCode.io_error.int(),
+        };
+    };
+    return ExitCode.success.int();
+}
+
+fn run_enex(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
+    enex_emit.run(io, gpa, .{
+        .root_dir = opts.root_dir,
+        .out_dir = opts.out_dir,
+        .quiet = opts.quiet,
+    }) catch |err| {
+        std.log.err("migration-lab (enex) failed: {s}", .{@errorName(err)});
+        return switch (err) {
+            error.InvalidEnexInput,
+            error.InvalidBase64,
+            error.ResourceTooLarge,
+            error.InputOutputOverlap,
+            error.InputSymlink,
+            error.OutputSymlink,
+            error.OutputNotOwned,
+            => ExitCode.usage.int(),
+            else => ExitCode.io_error.int(),
+        };
+    };
+    return ExitCode.success.int();
+}
+
 fn run_jekyll_inventory(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
     if (std.mem.eql(u8, opts.root_dir, opts.out_dir)) {
         std.log.err("--out must differ from --root", .{});
@@ -1025,6 +1075,26 @@ const usage_text =
     \\  Writes: inventory.json, INVENTORY.md
     \\  Aliases: atproto-inv
     \\  Offline only — no network, no did:plc resolution.
+    \\
+    \\Evernote ENEX inventory (read-only notebook export scan):
+    \\  --mode=enex-inventory  Scan sorted *.enex files under --root; unwrap
+    \\                     CDATA ENML and match <en-media> to <resource> by MD5
+    \\  --root=DIR         Directory holding one or more *.enex exports
+    \\                     (required; never modified; symlinks refused)
+    \\  Writes: inventory.json, INVENTORY.md
+    \\  Aliases: enex-inv
+    \\  Offline only — ignores all DOCTYPE/DTDs, never decrypts <en-crypt>,
+    \\  and never copies raw author/email/GPS values into inventory output.
+    \\
+    \\Evernote ENEX emit (notebook exports -> candidate Boris Markdown):
+    \\  --mode=enex        Emit one Trunk per *.enex file and flat Satellites
+    \\                     per note with decoded <resource> assets and reports
+    \\  --root=DIR         Same directory of *.enex files (never modified)
+    \\  Writes: content/** (+ <slug>.assets/), inventory.json, INVENTORY.md,
+    \\          report.json, REPORT.md, provenance_manifest.json
+    \\  Aliases: enex-emit
+    \\  Notes emit as status: draft; <en-crypt>, unsafe HTML, evernote:// links,
+    \\  dangling <en-media>, and unreferenced resources are flagged human_review.
     \\
     \\Ghost inventory (read-only Ghost 5 export archaeology):
     \\  --mode=ghost-inventory  Parse ghost-export.json; never emit Markdown
