@@ -53,6 +53,7 @@
         "atproto.zig",
         "enex.zig",
         "enex_emit.zig",
+        "substack.zig",
         "migration_semantics.zig",
         "publication.zig",
         "archaeology.zig",

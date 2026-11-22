@@ -34,6 +34,7 @@ Standalone **migration laboratory** for bringing existing sites into Boris.
 | **atproto-inventory** | AT Protocol repo export (`repo.car` + optional `blobs/`) | Read-only `inventory.json` + `INVENTORY.md` (collections, thread shapes, embeds, blob presence) |
 | **enex-inventory** | Directory of Evernote `*.enex` notebook exports | Read-only `inventory.json` + `INVENTORY.md` (notes, ENML constructs, MD5 resource matching, OCR/encryption/review counts) |
 | **enex** | Directory of Evernote `*.enex` notebook exports | Candidate Boris Markdown under `content/<notebook>.md` + `content/<notebook>/<slug>.md` (+ `<slug>.assets/`) + `inventory.json`, `INVENTORY.md`, `report.json`, `REPORT.md`, `provenance_manifest.json` |
+| **substack-inventory** | Unpacked Substack export (`posts.csv` + `posts/*.html`) | Read-only `inventory.json` + `INVENTORY.md` (post counts, reconciliation, HTML constructs, ignored PII file count) |
 
 All modes are **read-only on inputs**: originals are never rewritten. There is
 **no network access**, no zip extraction, and no scraping. Analysis modes do not
@@ -64,7 +65,8 @@ repository.
 | MkDocs format id | `boris-mkdocs-migration-lab` |
 | Mastodon format id | `boris-mastodon-migration-lab` |
 | Evernote ENEX format id | `boris-enex-migration-lab` |
-| Schema | Instagram **`2`**; Astro/Obsidian/Notion/Filed/Starlight/Asset-filename/Theme-archaeology/Theme-materialize/Tinderbox/Hugo/Jekyll/Ghost/MkDocs/Mastodon/ENEX `1`; WordPress **`3`** |
+| Substack format id | `boris-substack-migration-lab` |
+| Schema | Instagram **`2`**; Astro/Obsidian/Notion/Filed/Starlight/Asset-filename/Theme-archaeology/Theme-materialize/Tinderbox/Hugo/Jekyll/Ghost/MkDocs/Mastodon/ENEX/Substack `1`; WordPress **`3`** |
 
 Companion author guide: [`docs/MIGRATION.md`](docs/MIGRATION.md).
 
@@ -278,6 +280,11 @@ zig build run -- --mode=enex-inventory \
 zig build run -- --mode=enex \
   --root=./fixtures/mini-enex \
   --out=./.enex-emit
+
+# Substack export → read-only inventory (no Markdown emit; ignores subscriber CSVs)
+zig build run -- --mode=substack-inventory \
+  --root=./fixtures/mini-substack \
+  --out=./.substack-inventory
 ```
 
 This repository **is** the laboratory root, so `zig build` and `zig build test`
@@ -294,9 +301,9 @@ zig build test   # with BORIS_BIN exported or `boris` on PATH (see Boris pins)
 |------|---------|---------|
 | `-h`, `--help` | | Print usage; exit 0 |
 | `-q`, `--quiet` | off | Suppress progress lines |
-| `--mode=MODE` | `astro` | `astro`, `astro-import-plan`, `astro-import-apply`, `wordpress` (`wp` / `wxr`), `wordpress-theme` (`wp-theme` / `kubrick-theme`), `instagram` (`ig` / `takeout`), `obsidian` (`obs` / `vault`), `tinderbox-inventory` (`tbx-inventory` / `tinderbox-inv`), `tinderbox` (`tinderbox-emit` / `tbx`), `notion` (`md-csv` / `notion-export`), `filed` (`filed-fyi`), `filed-scan`, `starlight` (`sl` / `evcc`), `asset-filename` (`assets` / `asset-compat` / `filename-compat`), `theme-archaeology` (`theme` / `theme-arch` / `theme-inventory`), `theme-materialize` (`materialize` / `theme-materialise`), `link-audit` (`links` / `output-audit`), `frontmatter-review` (`fm-review` / `fmreview`), `hugo-inventory` (`hugo-inv`), `hugo` (`hugo-emit`), `jekyll-inventory` (`jekyll-inv` / `jekyll-archaeology`), `jekyll` (`jekyll-emit`), `ghost-inventory` (`ghost-inv`), `ghost`, `mkdocs-inventory` (`mkdocs-inv`), `mkdocs` (`mkdocs-emit`), `mastodon-inventory` (`mastodon-inv` / `masto-inventory`), `mastodon` (`masto` / `mastodon-emit`), `atproto-inventory` (`atproto-inv`), `atproto` (`atproto-emit`), `enex-inventory` (`enex-inv`), or `enex` (`enex-emit`) |
+| `--mode=MODE` | `astro` | `astro`, `astro-import-plan`, `astro-import-apply`, `wordpress` (`wp` / `wxr`), `wordpress-theme` (`wp-theme` / `kubrick-theme`), `instagram` (`ig` / `takeout`), `obsidian` (`obs` / `vault`), `tinderbox-inventory` (`tbx-inventory` / `tinderbox-inv`), `tinderbox` (`tinderbox-emit` / `tbx`), `notion` (`md-csv` / `notion-export`), `filed` (`filed-fyi`), `filed-scan`, `starlight` (`sl` / `evcc`), `asset-filename` (`assets` / `asset-compat` / `filename-compat`), `theme-archaeology` (`theme` / `theme-arch` / `theme-inventory`), `theme-materialize` (`materialize` / `theme-materialise`), `link-audit` (`links` / `output-audit`), `frontmatter-review` (`fm-review` / `fmreview`), `hugo-inventory` (`hugo-inv`), `hugo` (`hugo-emit`), `jekyll-inventory` (`jekyll-inv` / `jekyll-archaeology`), `jekyll` (`jekyll-emit`), `ghost-inventory` (`ghost-inv`), `ghost`, `mkdocs-inventory` (`mkdocs-inv`), `mkdocs` (`mkdocs-emit`), `mastodon-inventory` (`mastodon-inv` / `masto-inventory`), `mastodon` (`masto` / `mastodon-emit`), `atproto-inventory` (`atproto-inv`), `atproto` (`atproto-emit`), `enex-inventory` (`enex-inv`), `enex` (`enex-emit`), or `substack-inventory` (`substack-inv`) |
 | `--out=DIR` | `migration-report` | Output directory (**must differ from inputs**); must be explicit for `astro-import-plan` |
-| `--root=DIR` | `.` | Astro archaeology root, Starlight project root, asset-filename content tree, theme scan root, Hugo project root for `hugo` / `hugo-inventory`, Jekyll site source root, generated HTML tree for `link-audit`, MkDocs project root for `mkdocs-inventory` / `mkdocs`, unpacked Ghost export root for `ghost-inventory` / `ghost`, unpacked Mastodon archive for `mastodon` / `mastodon-inventory`, AT Protocol export root for `atproto-inventory` / `atproto`, or Evernote `*.enex` directory for `enex-inventory` / `enex`; must be explicit for `astro-import-plan` |
+| `--root=DIR` | `.` | Astro archaeology root, Starlight project root, asset-filename content tree, theme scan root, Hugo project root for `hugo` / `hugo-inventory`, Jekyll site source root, generated HTML tree for `link-audit`, MkDocs project root for `mkdocs-inventory` / `mkdocs`, unpacked Ghost export root for `ghost-inventory` / `ghost`, unpacked Mastodon archive for `mastodon` / `mastodon-inventory`, AT Protocol export root for `atproto-inventory` / `atproto`, Evernote `*.enex` directory for `enex-inventory` / `enex`, or unpacked Substack export root for `substack-inventory`; must be explicit for `astro-import-plan` |
 | `--content-root=RELATIVE_DIR` | | Required by `astro-import-plan` and `astro-import-apply`; approved plain-Markdown root relative to `--root` |
 | `--project-id=ID` | | Required by `astro-import-plan` and `astro-import-apply`; stable importer identity namespace |
 | `--plan=FILE` | | Required by `astro-import-apply`; reviewed `import_plan.json` with adjacent `source_snapshot.json` |
@@ -425,6 +432,12 @@ Exit codes: **0** success, **2** usage, **3** I/O error.
     Satellites under one Trunk per `.enex` file, and raw `author`/email/GPS
     values are excluded from emitted pages and inventory output. See
     [`docs/contracts/enex.md`](docs/contracts/enex.md).
+23. **Substack** — reads an unpacked Substack export (`posts.csv` + `posts/*.html`)
+    only; originals are never mutated and no network requests are made.
+    Subscriber PII files (`subscribers.csv`, `email_list*.csv`) are ignored and
+    never opened or read. `post_id` and local image hrefs reject traversal,
+    absolute paths, NUL bytes, and symlinks. See
+    [`docs/contracts/substack.md`](docs/contracts/substack.md).
 
 ---
 

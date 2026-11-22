@@ -37,6 +37,7 @@ const mastodon = @import("mastodon.zig");
 const atproto = @import("atproto.zig");
 const enex = @import("enex.zig");
 const enex_emit = @import("enex_emit.zig");
+const substack = @import("substack.zig");
 
 pub const ExitCode = enum(u8) {
     success = 0,
@@ -81,6 +82,7 @@ pub const Mode = enum {
     atproto_inventory,
     enex_inventory,
     enex,
+    substack_inventory,
 
     pub fn parse(s: []const u8) ?Mode {
         for (table) |entry| {
@@ -195,6 +197,7 @@ pub const table = [_]Entry{
     .{ .tag = .atproto_inventory, .names = &.{ "atproto-inventory", "atproto-inv" } },
     .{ .tag = .enex_inventory, .names = &.{ "enex-inventory", "enex-inv" } },
     .{ .tag = .enex, .names = &.{ "enex", "enex-emit" } },
+    .{ .tag = .substack_inventory, .names = &.{ "substack-inventory", "substack-inv" } },
 };
 
 const mode_list = blk: {
@@ -876,6 +879,26 @@ fn runMastodon(io: Io, gpa: std.mem.Allocator, opts: Options, emit: bool) u8 {
     return ExitCode.success.int();
 }
 
+fn run_substack_inventory(io: Io, gpa: std.mem.Allocator, opts: Options) u8 {
+    substack.run(io, gpa, .{
+        .root_dir = opts.root_dir,
+        .out_dir = opts.out_dir,
+        .quiet = opts.quiet,
+    }) catch |err| {
+        std.log.err("migration-lab (substack-inventory) failed: {s}", .{@errorName(err)});
+        return switch (err) {
+            error.InvalidSubstackInput,
+            error.InputOutputOverlap,
+            error.InputSymlink,
+            error.OutputSymlink,
+            error.OutputNotOwned,
+            => ExitCode.usage.int(),
+            else => ExitCode.io_error.int(),
+        };
+    };
+    return ExitCode.success.int();
+}
+
 pub fn printUsage() void {
     std.debug.print("{s}", .{usage_text});
 }
@@ -1120,6 +1143,14 @@ const usage_text =
     \\  Aliases: mastodon-inv | masto-inventory; masto | mastodon-emit
     \\  Followers-only/direct posts are counted, never written. Self-reply threads
     \\  become flat Satellites of the first post. No network, no remote media.
+    \\
+    \\Substack inventory (read-only export archaeology):
+    \\  --mode=substack-inventory  Parse posts.csv and scan posts/*.html; never emit Markdown
+    \\  --root=DIR         Unpacked Substack export root holding posts.csv and posts/
+    \\                     (required; never modified)
+    \\  Writes: inventory.json, INVENTORY.md
+    \\  Aliases: substack-inv
+    \\  subscribers.csv and email_list*.csv are ignored and never read. No network.
     \\
     \\Notion mode:
     \\  --export=DIR       Unpacked Notion Markdown & CSV export root (required; never modified)
